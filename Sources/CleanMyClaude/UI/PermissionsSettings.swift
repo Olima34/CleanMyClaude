@@ -45,7 +45,7 @@ struct PermissionsSettings: View {
             Section {
                 ForEach(PermissionKind.allCases) { kind in
                     PermissionSettingsRow(kind: kind, state: center.states[kind] ?? .notAsked,
-                                          isCurrent: center.current == kind) {
+                                          isCurrent: center.current == kind, center: center) {
                         Task { await center.request(kind); await center.refresh() }
                     }
                 }
@@ -78,26 +78,66 @@ private struct PermissionSettingsRow: View {
     var kind: PermissionKind
     var state: PermissionState
     var isCurrent: Bool
+    var center: PermissionCenter
     var ask: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: kind.symbol).frame(width: 20).foregroundStyle(.secondary)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(kind.title)
-                Text(kind.purpose).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Image(systemName: kind.symbol).frame(width: 20).foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(kind.title)
+                    Text(kind.purpose).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer()
+                trailing
             }
-            Spacer()
-            if isCurrent {
-                ProgressView().controlSize(.small)
-            } else if state == .granted {
-                Label("Accordée", systemImage: "checkmark.circle.fill").labelStyle(.titleAndIcon).font(.caption).foregroundStyle(Theme.good)
-            } else if state == .denied {
+            if isCurrent, center.waitingForSettings {
+                // The switch may already be on for an older build of the app: macOS then ignores it.
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    if let since = center.waitingSince, context.date.timeIntervalSince(since) > 5 {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text("Déjà activé dans Réglages Système ? macOS se souvient d'une ancienne version de l'app : réinitialise, puis réactive l'interrupteur.")
+                                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            Button("Réinitialiser") { Task { await center.reset(kind) } }.controlSize(.small)
+                            Button("Passer") { center.skip() }.controlSize(.small)
+                        }
+                        .padding(.leading, 30)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var trailing: some View {
+        if isCurrent {
+            ProgressView().controlSize(.small)
+        } else if state == .granted {
+            Label("Accordée", systemImage: "checkmark.circle.fill").labelStyle(.titleAndIcon).font(.caption).foregroundStyle(Theme.good)
+        } else if state == .denied {
+            HStack(spacing: 6) {
+                if kind.needsSettings || kind == .finder || kind == .systemEvents {
+                    Button("Réinitialiser") { Task { await center.reset(kind) } }.controlSize(.small)
+                        .help("macOS ne redemande plus : efface sa réponse pour cette app, puis redemande.")
+                }
                 Button("Réglages…") { Finder.open(kind.settingsURL) }.controlSize(.small)
-                    .help("Refusée : macOS ne redemande pas, il faut l'activer dans Réglages Système.")
-            } else {
-                Button(kind.needsSettings ? "Ouvrir…" : "Autoriser", action: ask).controlSize(.small)
+                    .help("Refusée : à activer dans Réglages Système.")
             }
+        } else if state == .asked {
+            HStack(spacing: 6) {
+                Text("Demandée").font(.caption).foregroundStyle(.secondary)
+                Button("Réglages…") { Finder.open(kind.settingsURL) }.controlSize(.small)
+            }
+        } else if kind.needsSettings {
+            HStack(spacing: 6) {
+                Button("Réinitialiser") { Task { await center.reset(kind) } }.controlSize(.small)
+                    .help("Interrupteur déjà activé mais sans effet ? macOS se souvient d'une ancienne version de l'app.")
+                Button("Ouvrir…", action: ask).controlSize(.small)
+            }
+        } else {
+            Button("Autoriser", action: ask).controlSize(.small)
         }
     }
 }

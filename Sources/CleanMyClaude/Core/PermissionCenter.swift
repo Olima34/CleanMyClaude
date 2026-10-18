@@ -3,6 +3,7 @@ import ApplicationServices
 import CoreLocation
 import Security
 import UserNotifications
+import Network
 
 /// Every macOS permission the app may use, with its state and a way to ask for all of them in one go
 /// (Réglages › Autorisations › « Tout autoriser »). Nothing is asked without that click.
@@ -88,8 +89,13 @@ final class PermissionCenter {
     /// The step of « Tout autoriser » in progress.
     var current: PermissionKind?
     var isRunning = false
-    /// Waiting for the user to flip a switch in System Settings.
+    /// Waiting for the user to flip a switch in System Settings (since when: after a few seconds, the row explains
+    /// what to do when the switch is already on).
     var waitingForSettings = false
+    var waitingSince: Date?
+    /// Answers macOS gave that cannot be read again later (System Events not running, local network).
+    @ObservationIgnored private var remembered: [PermissionKind: PermissionState] = [:]
+    @ObservationIgnored private var lastNetworkCheck = Date.distantPast
     @ObservationIgnored private var skipWait = false
 
     private static let askedKey = "permissions.asked"
@@ -116,7 +122,11 @@ final class PermissionCenter {
         s[.finder] = await Self.automation("com.apple.finder")
         // System Events only answers while it runs: not running and already asked means "asked".
         let events = await Self.automation("com.apple.systemevents")
-        s[.systemEvents] = events == .notAsked && asked.contains(PermissionKind.systemEvents.rawValue) ? .asked : events
+        if events == .notAsked, asked.contains(PermissionKind.systemEvents.rawValue) {
+            s[.systemEvents] = remembered[.systemEvents] ?? .asked // not running right now: the last answer
+        } else {
+            s[.systemEvents] = events
+        }
         let fda = Permissions.hasFullDiskAccess
         s[.fullDiskAccess] = fda ? .granted : .notAsked
         s[.accessibility] = AXIsProcessTrusted() ? .granted : .notAsked
@@ -131,7 +141,19 @@ final class PermissionCenter {
         } else {
             s[.folders] = await Task.detached { Self.foldersReadable() }.value ? .granted : .denied
         }
-        s[.localNetwork] = asked.contains(PermissionKind.localNetwork.rawValue) ? .asked : .notAsked
+        if asked.contains(PermissionKind.localNetwork.rawValue) {
+            s[.localNetwork] = remembered[.localNetwork] ?? states[.localNetwork] ?? .asked
+            // Checked again now and then (a connection to the box; no prompt once macOS has its answer).
+            if Date().timeIntervalSince(lastNetworkCheck) > 20, !(isRunning && current == .localNetwork) {
+                lastNetworkCheck = Date()
+                Task {
+                    let state = await Self.localNetwork(wait: 3)
+                    if state != .asked { remembered[.localNetwork] = state; states[.localNetwork] = state }
+                }
+            }
+        } else {
+            s[.localNetwork] = .notAsked
+        }
         states = s
     }
 
@@ -188,20 +210,23 @@ final class PermissionCenter {
             _ = await Self.automation("com.apple.finder", ask: true)
         case .systemEvents:
             remember(.systemEvents)
-            // System Events only answers once launched: a harmless question launches it and shows the prompt.
-            _ = await Task.detached { Shell.appleScript("tell application \"System Events\" to get name") }.value
+            // System Events only answers while it runs: launched in the background first, then macOS asks.
+            let url = URL(fileURLWithPath: "/System/Library/CoreServices/System Events.app")
+            let config = NSWorkspace.OpenConfiguration()
+            config.activates = false
+            config.addsToRecentItems = false
+            _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: config)
+            await wait(seconds: 5) { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.systemevents").isEmpty }
+            remembered[.systemEvents] = await Self.automation("com.apple.systemevents", ask: true)
         case .folders:
             remember(.folders)
             // Reading each folder makes macOS ask (without Full Disk Access).
             _ = await Task.detached(priority: .userInitiated) { Self.foldersReadable() }.value
         case .localNetwork:
             remember(.localNetwork)
-            _ = await Task.detached(priority: .userInitiated) { () -> Bool in
-                let route = Shell.run("/sbin/route", ["-n", "get", "default"], timeout: 5).out
-                guard let gateway = route.split(separator: "\n").first(where: { $0.contains("gateway:") })?
-                    .split(separator: ":").last?.trimmingCharacters(in: .whitespaces) else { return false }
-                return Shell.run("/sbin/ping", ["-c", "1", "-t", "2", gateway], timeout: 5).ok
-            }.value
+            lastNetworkCheck = Date()
+            // A connection from the app itself to the box: macOS asks, and the outcome says whether it is allowed.
+            remembered[.localNetwork] = await Self.localNetwork(wait: 40)
         case .accessibility:
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             if !AXIsProcessTrustedWithOptions(options) {
@@ -214,6 +239,25 @@ final class PermissionCenter {
         }
     }
 
+    /// The switch is on in System Settings but macOS does not apply it: it remembers an older build of the app
+    /// (another signature). Its entry is removed (`tccutil reset`, for this app only), then asked again.
+    func reset(_ kind: PermissionKind) async {
+        guard !DemoData.isEnabled, let bundleID = Bundle.main.bundleIdentifier else { return }
+        let service: String
+        switch kind {
+        case .accessibility: service = "Accessibility"
+        case .fullDiskAccess: service = "SystemPolicyAllFiles"
+        case .finder, .systemEvents: service = "AppleEvents"
+        default: return
+        }
+        let r = await Task.detached { Shell.run("/usr/bin/tccutil", ["reset", service, bundleID], timeout: 10) }.value
+        ActionLog.write("AUTORISATION RÉINITIALISÉE \(service) : \(r.ok ? "ok" : r.all.trimmingCharacters(in: .whitespacesAndNewlines))")
+        skipWait = true // a wait in progress stops; the new request below waits again
+        try? await Task.sleep(nanoseconds: 600_000_000)
+        await request(kind)
+        await refresh()
+    }
+
     /// Lets « Tout autoriser » go on without waiting for a System Settings switch.
     func skip() {
         skipWait = true
@@ -221,9 +265,11 @@ final class PermissionCenter {
 
     private func waitForSettings(_ done: @escaping @MainActor () -> Bool) async {
         waitingForSettings = true
+        waitingSince = Date()
         skipWait = false
         await wait(seconds: 180) { done() || self.skipWait }
         waitingForSettings = false
+        waitingSince = nil
     }
 
     private func wait(seconds: Double, until done: @escaping @MainActor () -> Bool) async {
@@ -237,6 +283,57 @@ final class PermissionCenter {
         var asked = Set(UserDefaults.standard.stringArray(forKey: Self.askedKey) ?? [])
         asked.insert(kind.rawValue)
         UserDefaults.standard.set(Array(asked), forKey: Self.askedKey)
+    }
+
+    // MARK: Local network
+
+    /// Connects to the box (DNS port): reached (even refused) means allowed; "no route" means macOS blocks it.
+    /// While macOS shows its question the attempts go on, up to `wait` seconds.
+    nonisolated static func localNetwork(wait: Double) async -> PermissionState {
+        let route = await Task.detached { Shell.run("/sbin/route", ["-n", "get", "default"], timeout: 5).out }.value
+        guard let gateway = route.split(separator: "\n").first(where: { $0.contains("gateway:") })?
+            .split(separator: ":").last?.trimmingCharacters(in: .whitespaces), !gateway.isEmpty else { return .asked }
+        let end = Date().addingTimeInterval(wait)
+        var last = PermissionState.asked
+        repeat {
+            last = await connect(gateway, timeout: 3)
+            if last == .granted { return .granted }
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        } while Date() < end
+        return last
+    }
+
+    nonisolated private static func connect(_ host: String, timeout: Double) async -> PermissionState {
+        final class Once: @unchecked Sendable {
+            let lock = NSLock()
+            var done = false
+            func claim() -> Bool { lock.lock(); defer { lock.unlock() }; if done { return false }; done = true; return true }
+        }
+        return await withCheckedContinuation { continuation in
+            let once = Once()
+            let connection = NWConnection(host: NWEndpoint.Host(host), port: 53, using: .tcp)
+            let queue = DispatchQueue(label: "cleanmyclaude.localnetwork")
+            @Sendable func finish(_ s: PermissionState) {
+                guard once.claim() else { return }
+                connection.cancel()
+                continuation.resume(returning: s)
+            }
+            connection.stateUpdateHandler = { state in
+                switch state {
+                case .ready: finish(.granted)
+                case .failed(let e), .waiting(let e):
+                    if case .posix(let code) = e {
+                        if code == .ECONNREFUSED || code == .ECONNRESET { finish(.granted) } // the box answered
+                        else if code == .EHOSTUNREACH || code == .ENETUNREACH || code == .EPERM { finish(.denied) }
+                    } else if case .dns(let code) = e, code == DNSServiceErrorType(kDNSServiceErr_PolicyDenied) {
+                        finish(.denied)
+                    }
+                default: break
+                }
+            }
+            connection.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + timeout) { finish(.asked) }
+        }
     }
 
     // MARK: Signature
