@@ -53,12 +53,20 @@ extension AppModule {
 @MainActor
 enum ModuleRegistry {
     static func modules(_ app: AppModel) -> [(page: Page, module: any AppModule)] {
-        [
-            (.launcher, app.launcher), (.hotkeys, app.hotkeys), (.converter, app.converter), (.translator, app.translator),
-            (.toolbox, app.toolbox), (.clipboard, app.clipboard),
-            (.updates, app.updates), (.network, app.network), (.windows, app.windows), (.automation, app.automation),
-            (.assistant, app.assistant)
-        ]
+        // One append per module: a single literal of existentials takes Xcode 16's type checker too long.
+        var list: [(page: Page, module: any AppModule)] = []
+        list.append((.launcher, app.launcher))
+        list.append((.hotkeys, app.hotkeys))
+        list.append((.converter, app.converter))
+        list.append((.translator, app.translator))
+        list.append((.toolbox, app.toolbox))
+        list.append((.clipboard, app.clipboard))
+        list.append((.updates, app.updates))
+        list.append((.network, app.network))
+        list.append((.windows, app.windows))
+        list.append((.automation, app.automation))
+        list.append((.assistant, app.assistant))
+        return list
     }
 
     static func module(for page: Page, app: AppModel) -> (any AppModule)? {
