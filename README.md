@@ -87,6 +87,26 @@ macOS cache certains dossiers aux apps (Corbeille, Mail, Safari, bases d'autoris
 
 L'app est signée localement (signature « ad hoc ») : après une recompilation, macOS peut la considérer comme nouvelle et il faut réactiver l'accès.
 
+### Garder les autorisations entre deux compilations
+
+Pour que macOS se souvienne des autorisations (accès complet au disque, Accessibilité…) même après avoir recompilé, signe l'app avec un certificat local stable, une fois pour toutes :
+
+1. Ouvre **Trousseau d'accès › Assistant de certification › Créer un certificat…**
+2. Nom : `Clean My Claude Dev`, type d'identité : **Racine auto-signée**, type de certificat : **Signature de code**, puis Créer.
+3. Compile avec ce certificat :
+
+```bash
+CMC_SIGN_IDENTITY="Clean My Claude Dev" ./scripts/build_app.sh
+```
+
+### Piloter l'app depuis Raccourcis, Raycast ou le Terminal
+
+```bash
+open "cleanmyclaude://launcher"                 # ouvre le lanceur
+open "cleanmyclaude://page/converter"           # ouvre une section
+open "cleanmyclaude://run/act_smart_scan"       # lance une commande du lanceur (les actions risquées demandent confirmation)
+```
+
 ## Pour les développeurs
 
 ```bash

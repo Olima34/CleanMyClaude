@@ -5,6 +5,7 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralSettings().tabItem { Label("Général", systemImage: "gearshape") }
+            ShortcutSettings().tabItem { Label("Raccourcis", systemImage: "keyboard") }
             CleanupSettings().tabItem { Label("Nettoyage", systemImage: "sparkles") }
             AboutSettings().tabItem { Label("À propos", systemImage: "info.circle") }
         }
@@ -37,6 +38,29 @@ struct GeneralSettings: View {
                     Button("Ouvrir le réglage") { Finder.open(Permissions.fullDiskAccessURL) }
                 }
                 Text("Après une recompilation, macOS peut considérer l'app comme nouvelle : réactive alors l'accès.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+struct ShortcutSettings: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        Form {
+            Section {
+                HStack {
+                    Text("Ouvrir le lanceur")
+                    Spacer()
+                    ShortcutRecorder(combo: app.launcher.combo) { app.launcher.setCombo($0) }
+                }
+                if app.launcher.combo != nil && !app.launcher.hotKeyActive {
+                    Text("macOS a refusé ce raccourci : choisis-en un avec ⌘ ou ⌃.").font(.caption).foregroundStyle(Theme.warn)
+                }
+            } footer: {
+                Text("Clique sur le raccourci puis tape le nouveau. ⎋ annule, ⌫ le supprime. Les raccourcis des fenêtres se règlent dans la section Fenêtres.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

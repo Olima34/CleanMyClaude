@@ -52,7 +52,7 @@ enum Remover {
         let path = (raw as NSString).standardizingPath
         guard path.hasPrefix("/"), !path.contains("/../") else { return false }
         if Preferences.exclusions.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
-        if path.hasPrefix(ActionLog.folder) { return false }
+        if path.hasPrefix(ActionLog.folder) || path == DataStore.folder || path.hasPrefix(DataStore.folder + "/") { return false }
 
         let home = FS.home
         if path.hasPrefix(home + "/") {
@@ -122,7 +122,12 @@ enum Remover {
             }
         }
         _ = sem.wait(timeout: .now() + 120)
-        return flag.ok
+        if flag.ok { return true }
+        // Items owned by the administrator (apps installed with a .pkg): the Finder itself moves them,
+        // and macOS asks for the password exactly like a drag to the Trash would.
+        let escaped = path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let r = Shell.appleScript("tell application \"Finder\" to delete (POSIX file \"\(escaped)\" as alias)")
+        return r.ok && !FS.exists(path)
     }
 }
 

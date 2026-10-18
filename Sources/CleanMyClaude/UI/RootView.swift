@@ -3,6 +3,7 @@ import AppKit
 
 struct RootView: View {
     @Environment(AppModel.self) private var app
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         @Bindable var app = app
@@ -24,6 +25,7 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             app.refreshPermissions()
         }
+        .onAppear { AppContext.openWindow = openWindow }
     }
 }
 
@@ -62,6 +64,15 @@ struct PageView: View {
         case .apps: AppsPage()
         case .storage: StoragePage()
         case .menubar: MenuBarPage()
+        case .launcher: LauncherPage()
+        case .converter: ConverterPage()
+        case .toolbox: ToolboxPage()
+        case .clipboard: ClipboardPage()
+        case .updates: UpdatesPage()
+        case .network: NetworkPage()
+        case .windows: WindowsPage()
+        case .automation: AutomationPage()
+        case .assistant: AssistantPage()
         }
     }
 }
@@ -79,6 +90,15 @@ struct BottomBar: View {
         case .storage where (app.storage.tab == .bigFiles && !app.storage.bigSelection.isEmpty)
             || (app.storage.tab == .duplicates && !app.storage.dupSelection.isEmpty):
             StorageActionBar()
+        case .launcher: LauncherBottomBar()
+        case .converter: ConverterBottomBar()
+        case .toolbox: ToolboxBottomBar()
+        case .clipboard: ClipboardBottomBar()
+        case .updates: UpdatesBottomBar()
+        case .network: NetworkBottomBar()
+        case .windows: WindowsBottomBar()
+        case .automation: AutomationBottomBar()
+        case .assistant: AssistantBottomBar()
         default:
             EmptyView()
         }
@@ -162,7 +182,7 @@ struct Sidebar: View {
         case .cleanup: return app.cleanup.hasResults && app.cleanup.recommendedSize > 0 ? Fmt.bytes(app.cleanup.recommendedSize) : nil
         case .protection: return app.protection.issues.isEmpty ? nil : "\(app.protection.issues.count)"
         case .apps: return app.apps.unused.isEmpty ? nil : "\(app.apps.unused.count)"
-        default: return nil
+        default: return ModuleRegistry.module(for: p, app: app)?.sidebarBadge
         }
     }
 

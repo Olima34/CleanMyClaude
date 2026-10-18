@@ -1,0 +1,105 @@
+import SwiftUI
+
+/// An on/off switch a module shows in the menu bar panel (Caféine, presse-papiers…).
+struct QuickToggle: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let isOn: Bool
+    let toggle: @MainActor () -> Void
+}
+
+/// What every module of `Features/<Module>/` gives the rest of the app.
+/// All requirements have defaults, so a module only implements what it uses.
+@MainActor
+protocol AppModule: AnyObject {
+    /// Short text next to the module in the sidebar (a count, a size…), or nil.
+    var sidebarBadge: String? { get }
+    /// Called once at launch of the real app (never in demo, snapshot or command line modes):
+    /// register hot keys, timers, scheduler jobs, observers.
+    func start(app: AppModel)
+    func stop()
+    /// Fills the module with fictional data for `--demo` (README screenshots).
+    func loadDemo()
+    /// Selects a tab for `--snapshot --tab <name>` (ignore names that are not yours).
+    func applySnapshotTab(_ tab: String)
+    /// Switches shown in the menu bar panel.
+    var quickToggles: [QuickToggle] { get }
+    /// Fixed commands for the launcher (and Claude).
+    func commands(app: AppModel) -> [AppCommand]
+    /// Results computed from what the user typed (calculator, search…). Keep it fast: called on every keystroke.
+    func results(for query: String, app: AppModel) -> [AppCommand]
+    /// Pure checks run by `--selftest`: return the failures, or [] when all is well.
+    func selfTest() -> [String]
+    /// Lines printed by `--dump --only <rawValue of the page>`.
+    func dump() -> [String]
+}
+
+extension AppModule {
+    var sidebarBadge: String? { nil }
+    func start(app: AppModel) {}
+    func stop() {}
+    func loadDemo() {}
+    func applySnapshotTab(_ tab: String) {}
+    var quickToggles: [QuickToggle] { [] }
+    func commands(app: AppModel) -> [AppCommand] { [] }
+    func results(for query: String, app: AppModel) -> [AppCommand] { [] }
+    func selfTest() -> [String] { [] }
+    func dump() -> [String] { [] }
+}
+
+/// The single list of modules. Adding a module means adding it here, in `Page`, `AppModel`, `PageView` and `BottomBar`;
+/// everything else (launcher, demo, self-tests, snapshots, menu bar) goes through this registry.
+@MainActor
+enum ModuleRegistry {
+    static func modules(_ app: AppModel) -> [(page: Page, module: any AppModule)] {
+        [
+            (.launcher, app.launcher), (.converter, app.converter), (.toolbox, app.toolbox), (.clipboard, app.clipboard),
+            (.updates, app.updates), (.network, app.network), (.windows, app.windows), (.automation, app.automation),
+            (.assistant, app.assistant)
+        ]
+    }
+
+    static func module(for page: Page, app: AppModel) -> (any AppModule)? {
+        modules(app).first { $0.page == page }?.module
+    }
+
+    static func startAll(_ app: AppModel) {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
+        for (_, m) in modules(app) { m.start(app: app) }
+    }
+
+    static func loadDemo(_ app: AppModel) {
+        for (_, m) in modules(app) { m.loadDemo() }
+    }
+
+    static func applySnapshotTab(_ tab: String, app: AppModel) {
+        for (_, m) in modules(app) { m.applySnapshotTab(tab) }
+    }
+
+    static func quickToggles(_ app: AppModel) -> [QuickToggle] {
+        modules(app).flatMap { $0.module.quickToggles }
+    }
+
+    static func commands(_ app: AppModel) -> [AppCommand] {
+        modules(app).flatMap { $0.module.commands(app: app) }
+    }
+
+    static func results(for query: String, app: AppModel) -> [AppCommand] {
+        modules(app).flatMap { $0.module.results(for: query, app: app) }
+    }
+
+    /// Module self-tests plus the rules every command must follow.
+    static func selfTest(_ app: AppModel) -> [String] {
+        var failures: [String] = []
+        for (page, m) in modules(app) {
+            failures += m.selfTest().map { "[\(page.title)] \($0)" }
+        }
+        var seen = Set<String>()
+        for c in commands(app) {
+            if !AppCommand.isValidID(c.id) { failures.append("Identifiant de commande invalide : \(c.id)") }
+            if !seen.insert(c.id).inserted { failures.append("Identifiant de commande en double : \(c.id)") }
+        }
+        return failures
+    }
+}

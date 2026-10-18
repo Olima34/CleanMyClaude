@@ -10,7 +10,7 @@ EXEC="CleanMyClaude"
 DISPLAY_NAME="Clean My Claude"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$DISPLAY_NAME.app"
-VERSION="0.1.0"
+VERSION="0.2.0"
 INSTALL=1
 ZIP=0
 for arg in "$@"; do
@@ -59,17 +59,58 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleVersion</key><string>1</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleDevelopmentRegion</key><string>fr</string>
+  <key>CFBundleLocalizations</key><array><string>fr</string><string>en</string></array>
+  <key>CFBundleAllowMixedLocalizations</key><true/>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>Clean My Claude demande au Finder de vider la Corbeille quand l'accès complet au disque n'est pas accordé.</string>
+  <key>NSAppleEventsUsageDescription</key><string>Clean My Claude pilote le Finder et Événements système pour vider la Corbeille, basculer le mode sombre, redémarrer ou éteindre, uniquement quand tu le demandes.</string>
+  <key>NSLocationUsageDescription</key><string>macOS n'indique le nom du réseau Wi-Fi qu'aux apps autorisées à utiliser la localisation. Ta position n'est ni lue ni enregistrée.</string>
+  <key>NSLocationWhenInUseUsageDescription</key><string>macOS n'indique le nom du réseau Wi-Fi qu'aux apps autorisées à utiliser la localisation. Ta position n'est ni lue ni enregistrée.</string>
+  <key>NSLocalNetworkUsageDescription</key><string>Pour mesurer la latence de ta box et des appareils de ton réseau, à ta demande.</string>
+  <key>NSDesktopFolderUsageDescription</key><string>Pour mesurer, ranger ou convertir les fichiers de ton Bureau, à ta demande.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Pour mesurer, ranger ou convertir tes documents, à ta demande.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>Pour repérer les installeurs oubliés et ranger tes téléchargements, à ta demande.</string>
+  <key>NSServices</key>
+  <array>
+    <dict>
+      <key>NSMenuItem</key><dict><key>default</key><string>Convertir avec Clean My Claude</string></dict>
+      <key>NSMessage</key><string>convertFiles</string>
+      <key>NSPortName</key><string>$DISPLAY_NAME</string>
+      <key>NSRequiredContext</key><dict/>
+      <key>NSSendFileTypes</key><array><string>public.item</string></array>
+    </dict>
+  </array>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>io.github.olima34.cleanmyclaude</string>
+      <key>CFBundleURLSchemes</key><array><string>cleanmyclaude</string></array>
+    </dict>
+  </array>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>Fichier à convertir</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Alternate</string>
+      <key>LSItemContentTypes</key><array><string>public.item</string></array>
+    </dict>
+  </array>
   <key>NSHumanReadableCopyright</key><string>Libre et gratuit — MIT</string>
 </dict>
 </plist>
 PLIST
 
-# Ad-hoc signature: enough to run on the Mac that built it.
-codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+# Signature. Ad hoc by default: enough to run on the Mac that built it, but macOS then forgets the permissions
+# (Accessibility, Full Disk Access…) at every rebuild. With a stable identity (see README › "Garder les autorisations"),
+# set CMC_SIGN_IDENTITY to its name and the permissions survive rebuilds.
+if [[ -n "${CMC_SIGN_IDENTITY:-}" ]]; then
+  echo "→ Signature avec « $CMC_SIGN_IDENTITY »…"
+  codesign --force --deep --sign "$CMC_SIGN_IDENTITY" "$APP"
+else
+  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+fi
 
 if [[ $ZIP -eq 1 ]]; then
   (cd "$BUILD_DIR" && rm -f CleanMyClaude.zip && ditto -c -k --keepParent "$DISPLAY_NAME.app" CleanMyClaude.zip)
@@ -81,6 +122,9 @@ if [[ $INSTALL -eq 1 ]]; then
   mkdir -p "$DEST"
   rm -rf "$DEST/$DISPLAY_NAME.app"
   cp -R "$APP" "$DEST/"
+  # Register the app and its Finder service right away.
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST/$DISPLAY_NAME.app" >/dev/null 2>&1 || true
+  /System/Library/CoreServices/pbs -update >/dev/null 2>&1 || true
   echo "✓ Installée dans $DEST/$DISPLAY_NAME.app"
 else
   echo "✓ App prête : $APP"

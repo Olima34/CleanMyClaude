@@ -14,12 +14,35 @@ enum Shell {
 
     private final class Box: @unchecked Sendable { var data = Data() }
 
+    /// The environment of child processes. Apps opened from the Finder start with a bare PATH:
+    /// Homebrew's folders are added so `brew`, `mas` or `ffmpeg` are found.
+    static let environment: [String: String] = {
+        var env = ProcessInfo.processInfo.environment
+        let extra = ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "/usr/local/sbin"]
+        let current = (env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin").split(separator: ":").map(String.init)
+        env["PATH"] = (current + extra.filter { !current.contains($0) }).joined(separator: ":")
+        env["LANG"] = env["LANG"] ?? "fr_FR.UTF-8"
+        return env
+    }()
+
+    /// Full path of a command line tool, looked up in `environment`'s PATH.
+    static func which(_ tool: String) -> String? {
+        if tool.hasPrefix("/") { return exists(tool) ? tool : nil }
+        for dir in (environment["PATH"] ?? "").split(separator: ":") {
+            let p = "\(dir)/\(tool)"
+            if exists(p) { return p }
+        }
+        return nil
+    }
+
     /// Runs a tool and waits for it, killing it after `timeout` seconds.
-    static func run(_ path: String, _ args: [String] = [], timeout: TimeInterval = 20) -> Output {
+    static func run(_ path: String, _ args: [String] = [], env: [String: String] = [:],
+                    timeout: TimeInterval = 20) -> Output {
         if DemoData.isEnabled { return Output(status: -1, out: "", err: DemoData.refusal) }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
+        p.environment = environment.merging(env) { _, new in new }
         let outPipe = Pipe(), errPipe = Pipe()
         p.standardOutput = outPipe
         p.standardError = errPipe
@@ -43,6 +66,47 @@ enum Shell {
         return Output(status: p.terminationStatus,
                       out: String(decoding: outData, as: UTF8.self),
                       err: String(decoding: errBox.data, as: UTF8.self))
+    }
+
+    /// Runs a long tool (brew, networkQuality, ping…) and hands over each line of output as it comes.
+    /// Returns when the tool exits or when `isCancelled` turns true (the tool is then terminated).
+    /// Must not be called from the main thread.
+    static func stream(_ path: String, _ args: [String] = [], env: [String: String] = [:],
+                       isCancelled: @escaping () -> Bool = { false },
+                       onLine: @escaping (String) -> Void) -> Output {
+        if DemoData.isEnabled { return Output(status: -1, out: "", err: DemoData.refusal) }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = args
+        p.environment = environment.merging(env) { _, new in new }
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = pipe
+        p.standardInput = FileHandle.nullDevice
+        do { try p.run() } catch {
+            return Output(status: -1, out: "", err: error.localizedDescription)
+        }
+        let all = Box()
+        var pending = Data()
+        let handle = pipe.fileHandleForReading
+        while true {
+            if isCancelled() {
+                p.terminate()
+                break
+            }
+            let chunk = handle.availableData
+            if chunk.isEmpty { break } // end of file: the tool exited
+            all.data.append(chunk)
+            pending.append(chunk)
+            while let nl = pending.firstIndex(of: 0x0A) {
+                let line = String(decoding: pending[pending.startIndex..<nl], as: UTF8.self)
+                pending.removeSubrange(pending.startIndex...nl)
+                onLine(line)
+            }
+        }
+        if !pending.isEmpty { onLine(String(decoding: pending, as: UTF8.self)) }
+        p.waitUntilExit()
+        return Output(status: p.terminationStatus, out: String(decoding: all.data, as: UTF8.self), err: "")
     }
 
     /// Runs a command line through /bin/sh.

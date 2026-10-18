@@ -2,13 +2,6 @@ import Foundation
 import AppKit
 import Observation
 
-final class CancelFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var flag = false
-    var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return flag }
-    func cancel() { lock.lock(); flag = true; lock.unlock() }
-}
-
 enum StorageTab: String, CaseIterable, Identifiable {
     case explorer, bigFiles, duplicates
     var id: String { rawValue }

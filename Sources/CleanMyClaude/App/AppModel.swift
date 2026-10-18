@@ -3,7 +3,11 @@ import AppKit
 import Observation
 
 enum Page: String, CaseIterable, Identifiable {
-    case dashboard, cleanup, protection, performance, apps, storage, menubar
+    // Declared in sidebar order: the first nine get ⌘1…⌘9.
+    case dashboard, cleanup, protection, performance, updates, apps, storage
+    case converter, toolbox, clipboard, network
+    case launcher, windows, automation
+    case assistant, menubar
 
     var id: String { rawValue }
 
@@ -13,8 +17,17 @@ enum Page: String, CaseIterable, Identifiable {
         case .cleanup: return "Nettoyage du système"
         case .protection: return "Protection et confidentialité"
         case .performance: return "Optimisation"
+        case .updates: return "Mises à jour"
         case .apps: return "Applications"
         case .storage: return "Espace de stockage"
+        case .converter: return "Convertisseur"
+        case .toolbox: return "Boîte à outils"
+        case .clipboard: return "Presse-papiers"
+        case .network: return "Réseau"
+        case .launcher: return "Lanceur"
+        case .windows: return "Fenêtres"
+        case .automation: return "Automatisations"
+        case .assistant: return "Assistant Claude"
         case .menubar: return "Menu d'état"
         }
     }
@@ -25,16 +38,28 @@ enum Page: String, CaseIterable, Identifiable {
         case .cleanup: return "sparkles"
         case .protection: return "lock.shield"
         case .performance: return "bolt"
+        case .updates: return "arrow.down.circle"
         case .apps: return "square.grid.2x2"
         case .storage: return "chart.pie"
+        case .converter: return "arrow.left.arrow.right.square"
+        case .toolbox: return "wrench.and.screwdriver"
+        case .clipboard: return "doc.on.clipboard"
+        case .network: return "network"
+        case .launcher: return "command"
+        case .windows: return "rectangle.split.2x1"
+        case .automation: return "clock.arrow.2.circlepath"
+        case .assistant: return "sparkle"
         case .menubar: return "menubar.rectangle"
         }
     }
 
     static let groups: [(String, [Page])] = [
         ("Accueil", [.dashboard]),
-        ("Entretien", [.cleanup, .protection, .performance]),
+        ("Entretien", [.cleanup, .protection, .performance, .updates]),
         ("Espace", [.apps, .storage]),
+        ("Outils", [.converter, .toolbox, .clipboard, .network]),
+        ("Contrôle", [.launcher, .windows, .automation]),
+        ("Claude", [.assistant]),
         ("En continu", [.menubar])
     ]
 }
@@ -74,6 +99,16 @@ final class AppModel {
     let apps = AppsModel()
     let storage = StorageModel()
     let startup = StartupModel()
+    // Modules (Features/<Module>/), listed in ModuleRegistry.
+    let launcher = LauncherModel()
+    let converter = ConverterModel()
+    let toolbox = ToolboxModel()
+    let clipboard = ClipboardModel()
+    let updates = UpdatesModel()
+    let network = NetworkModel()
+    let windows = WindowsModel()
+    let automation = AutomationModel()
+    let assistant = AssistantModel()
     var history = DemoData.isEnabled ? DemoData.history : CleanupHistory.load()
     var fullDiskAccess = Permissions.hasFullDiskAccess
     var showOnboarding = !DemoData.isEnabled && !UserDefaults.standard.bool(forKey: Preferences.onboardedKey)
@@ -90,6 +125,7 @@ final class AppModel {
         protection.onFreed = freed
         if DemoData.isEnabled {
             DemoData.populate(self)
+            ModuleRegistry.loadDemo(self)
         } else if liveMonitor {
             let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {

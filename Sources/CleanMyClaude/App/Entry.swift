@@ -119,6 +119,13 @@ enum Diagnostics {
             }
         }
 
+        // Modules: `--only <page>` (launcher, converter, toolbox…).
+        let app = AppModel(liveMonitor: false)
+        for (page, module) in ModuleRegistry.modules(app) where only == page.rawValue {
+            print("\n== \(page.title)")
+            for line in module.dump() { print("  \(line)") }
+        }
+
         if let path = Entry.value(after: "--storage") {
             print("\n== Stockage : \(path)")
             let r = timed("carte") { StorageScanner.scan(FS.expand(path), isCancelled: { false }) { _, _ in } }
@@ -163,18 +170,24 @@ enum Snapshot {
         if only == nil || only == .menubar {
             shots.append(("menubar-panel", AnyView(MenuBarPanel())))
         }
+        if only == nil || only == .launcher {
+            // The floating panel, as if the user had typed `--query` (default: a calculation).
+            model.launcher.preview(Entry.value(after: "--query") ?? "1250*1,2", app: model)
+            shots.append(("launcher-panel", AnyView(LauncherView())))
+        }
         if let tab = Entry.value(after: "--tab") {
             model.protection.tab = ProtectionTab(rawValue: tab) ?? model.protection.tab
             model.performance.tab = PerformanceTab(rawValue: tab) ?? model.performance.tab
             model.storage.tab = StorageTab(rawValue: tab) ?? model.storage.tab
             model.apps.filter = AppFilter(rawValue: tab) ?? model.apps.filter
+            ModuleRegistry.applySnapshotTab(tab, app: model)
         }
         for (name, view) in shots {
             if let p = Page(rawValue: name) { model.page = p }
             let content = view
                 .environment(model)
-                .frame(width: name == "menubar-panel" ? 340 : 1180)
-                .padding(name == "menubar-panel" ? 0 : 32)
+                .frame(width: name == "menubar-panel" ? 340 : (name == "launcher-panel" ? 700 : 1180))
+                .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)
             appearance.performAsCurrentDrawingAppearance {
@@ -254,6 +267,12 @@ enum SelfTest {
                 print("✗ proposé mais protégé : \(i.path)")
                 ok = false
             }
+        }
+        // Module checks (calculator, conversions, command ids…).
+        let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) }
+        for f in moduleFailures {
+            print("✗ \(f)")
+            ok = false
         }
         if DemoData.isEnabled {
             let probe = NSTemporaryDirectory() + "cleanmyclaude-demo-probe-\(getpid())"

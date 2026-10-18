@@ -138,6 +138,16 @@ struct MatrixBackdrop: View {
     var opacity: Double = 0.5
 
     var body: some View {
+        // Equatable: SwiftUI skips redrawing hundreds of glyphs each time the page around it refreshes.
+        MatrixCanvas(seed: seed, opacity: opacity).equatable()
+    }
+}
+
+private struct MatrixCanvas: View, Equatable {
+    var seed: UInt64
+    var opacity: Double
+
+    var body: some View {
         Canvas { ctx, size in
             var rng = SplitMix(seed: seed)
             let chars = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")

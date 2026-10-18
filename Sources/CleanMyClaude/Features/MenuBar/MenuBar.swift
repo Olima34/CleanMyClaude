@@ -19,45 +19,9 @@ enum MenuMetric: String, CaseIterable, Identifiable {
     }
 }
 
-/// What sits in the menu bar: the spark, plus the chosen live metric.
-struct MenuBarLabel: View {
-    var app: AppModel
-    @AppStorage(Preferences.menuMetricKey) private var metric: MenuMetric = .cpuMemory
-    /// Built once: a new image on every update makes the status item redraw in a loop.
-    private static let icon = ClaudeSpark.templateImage(size: 15)
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        let m = app.monitor
-        HStack(spacing: 4) {
-            Image(nsImage: Self.icon)
-            switch metric {
-            case .icon:
-                EmptyView()
-            case .cpu:
-                Text("\(Int((m.cpu * 100).rounded())) %").monospacedDigit()
-            case .memory:
-                Text("\(Int((m.memFraction * 100).rounded())) %").monospacedDigit()
-            case .cpuMemory:
-                Text("\(Int((m.cpu * 100).rounded()))% · \(Int((m.memFraction * 100).rounded()))%").monospacedDigit()
-            case .network:
-                Text("↓\(Fmt.speed(m.netIn)) ↑\(Fmt.speed(m.netOut))").monospacedDigit()
-            case .disk:
-                Text(Fmt.bytes(m.diskFree)).monospacedDigit()
-            }
-        }
-        // This label lives as long as the app: it reopens the main window when asked.
-        .onReceive(NotificationCenter.default.publisher(for: .openMainWindow)) { _ in
-            openWindow(id: "main")
-            NSApp.activate(ignoringOtherApps: true)
-        }
-    }
-}
-
 /// The panel that opens from the menu bar.
 struct MenuBarPanel: View {
     @Environment(AppModel.self) private var app
-    @Environment(\.openWindow) private var openWindow
     var embedded = false
     @State private var status: String?
     @State private var busy: String?
@@ -131,6 +95,24 @@ struct MenuBarPanel: View {
                 }
             }
 
+            let toggles = ModuleRegistry.quickToggles(app)
+            if !toggles.isEmpty {
+                // Switches contributed by modules (Caféine, presse-papiers…).
+                FlowLayout(spacing: 6, lineSpacing: 6) {
+                    ForEach(toggles) { t in
+                        Button { t.toggle() } label: {
+                            Label(t.title, systemImage: t.symbol)
+                                .font(.ui(11, .medium))
+                                .foregroundStyle(t.isOn ? Color.white : Theme.text2)
+                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                .background(Capsule().fill(t.isOn ? Theme.accent : Theme.card))
+                                .overlay(Capsule().strokeBorder(t.isOn ? Color.clear : Theme.border))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 quick("memorychip", "Libérer la RAM", id: "ram") { QuickActions.freeMemory() }
                 quick("trash", "Vider la Corbeille", id: "trash") { QuickActions.emptyTrash() }
@@ -152,6 +134,13 @@ struct MenuBarPanel: View {
                 HStack {
                     Button("Ouvrir Clean My Claude") { openMain(page: nil) }
                         .buttonStyle(SoftButtonStyle(prominent: true))
+                    Button {
+                        app.launcher.show()
+                    } label: {
+                        Label(app.launcher.combo?.display ?? "Lanceur", systemImage: "command")
+                    }
+                    .buttonStyle(SoftButtonStyle())
+                    .help("Ouvrir le lanceur")
                     Spacer()
                     Button("Quitter") { NSApp.terminate(nil) }
                         .buttonStyle(.plain)
@@ -214,8 +203,7 @@ struct MenuBarPanel: View {
 
     private func openMain(page: Page?) {
         if let page { app.page = page }
-        openWindow(id: "main")
-        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: .openMainWindow, object: nil)
     }
 }
 
@@ -260,37 +248,23 @@ enum QuickActions {
     }
 }
 
-/// Low disk / memory notifications, at most once every 6 hours each.
+/// Low disk / memory / heat notifications (through `Notifier`, at most once every 6 hours each).
 @MainActor
 enum Alerts {
-    private static var last: [String: Date] = [:]
+    static var available: Bool { Notifier.available }
 
-    static var available: Bool { Bundle.main.bundleIdentifier != nil && Bundle.main.bundlePath.hasSuffix(".app") }
-
-    static func requestPermission() {
-        guard available else { return }
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
-    }
+    static func requestPermission() { Notifier.requestPermission() }
 
     static func check(_ m: SystemMonitor) {
         guard available, UserDefaults.standard.bool(forKey: Preferences.alertsKey) else { return }
         if m.diskTotal > 0, m.diskUsedFraction > 0.92 {
-            post("disk", "Ton disque est presque plein", "Il ne reste que \(Fmt.bytes(m.diskFree)). Un petit nettoyage ?")
+            Notifier.post(id: "disk", title: "Ton disque est presque plein", body: "Il ne reste que \(Fmt.bytes(m.diskFree)). Un petit nettoyage ?")
         }
         if m.pressure == .critical {
-            post("memory", "Mémoire saturée", "macOS manque de mémoire : ferme une app gourmande pour retrouver de la fluidité.")
+            Notifier.post(id: "memory", title: "Mémoire saturée", body: "macOS manque de mémoire : ferme une app gourmande pour retrouver de la fluidité.")
         }
         if m.thermal == .critical {
-            post("thermal", "Ton Mac chauffe", "La température est critique : le processeur est ralenti pour se protéger.")
+            Notifier.post(id: "thermal", title: "Ton Mac chauffe", body: "La température est critique : le processeur est ralenti pour se protéger.")
         }
-    }
-
-    private static func post(_ id: String, _ title: String, _ body: String) {
-        if let d = last[id], Date().timeIntervalSince(d) < 6 * 3600 { return }
-        last[id] = Date()
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: id + UUID().uuidString, content: content, trigger: nil))
     }
 }

@@ -1,0 +1,105 @@
+import AppKit
+import SwiftUI
+
+/// A borderless panel that floats above every app (full-screen ones included), takes the keyboard
+/// without bringing the app to the front, and closes when it loses focus or on Esc.
+/// Used by the launcher and by small pop-up tools.
+final class FloatingPanel: NSPanel {
+    var onClose: (() -> Void)?
+    var closesOnResignKey = true
+
+    init(size: NSSize) {
+        super.init(contentRect: NSRect(origin: .zero, size: size),
+                   styleMask: [.nonactivatingPanel, .fullSizeContentView, .borderless],
+                   backing: .buffered, defer: false)
+        isFloatingPanel = true
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        becomesKeyOnlyIfNeeded = false
+        hidesOnDeactivate = false
+        isMovableByWindowBackground = true
+        backgroundColor = .clear
+        isOpaque = false
+        hasShadow = true
+        animationBehavior = .utilityWindow
+        isReleasedWhenClosed = false
+    }
+
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+
+    override func resignKey() {
+        super.resignKey()
+        if closesOnResignKey && isVisible { close() }
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        close()
+    }
+
+    override func close() {
+        super.close()
+        onClose?()
+    }
+
+    /// Hosts a SwiftUI view (with the app model in its environment).
+    func setContent<V: View>(_ view: V) {
+        let host = NSHostingView(rootView: view)
+        host.sizingOptions = []
+        contentView = host
+    }
+
+    /// Shows the panel on the screen that has the mouse, a third of the way down.
+    func present() {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+        if let f = screen?.visibleFrame {
+            let origin = NSPoint(x: f.midX - frame.width / 2, y: f.maxY - f.height * 0.28 - frame.height)
+            setFrameOrigin(origin)
+        }
+        makeKeyAndOrderFront(nil)
+    }
+}
+
+/// A short message that appears in the middle of the screen and fades away ("Copié !").
+@MainActor
+enum HUD {
+    private static var panel: FloatingPanel?
+    private static var hideWork: DispatchWorkItem?
+
+    static func show(_ text: String, symbol: String = "checkmark.circle.fill") {
+        guard !Snapshot.isActive else { return }
+        let p = panel ?? {
+            let p = FloatingPanel(size: NSSize(width: 320, height: 64))
+            p.closesOnResignKey = false
+            p.ignoresMouseEvents = true
+            p.level = .statusBar
+            panel = p
+            return p
+        }()
+        p.setContent(
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.good)
+                Text(text).font(.ui(13.5, .medium)).foregroundStyle(Theme.text).lineLimit(2)
+            }
+            .padding(.horizontal, 18)
+            .frame(width: 320, height: 64)
+            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.cardRaised))
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.borderStrong))
+        )
+        if let f = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
+            p.setFrameOrigin(NSPoint(x: f.midX - 160, y: f.minY + f.height * 0.18))
+        }
+        p.alphaValue = 1
+        p.orderFrontRegardless()
+        hideWork?.cancel()
+        let work = DispatchWorkItem {
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.25
+                p.animator().alphaValue = 0
+            }, completionHandler: { p.orderOut(nil) })
+        }
+        hideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
+    }
+}
