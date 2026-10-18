@@ -9,6 +9,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// The menu bar keeps running when the window is closed.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    /// Dock click, Raycast, Spotlight or Finder on an app that is already running: bring the window back.
+    /// SwiftUI does not recreate a closed `Window` scene by itself, so the menu bar label (always alive) opens it.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { NotificationCenter.default.post(name: .openMainWindow, object: nil) }
+        return true
+    }
+}
+
+extension Notification.Name {
+    static let openMainWindow = Notification.Name("cleanmyclaude.openMainWindow")
 }
 
 struct CleanMyClaudeApp: App {

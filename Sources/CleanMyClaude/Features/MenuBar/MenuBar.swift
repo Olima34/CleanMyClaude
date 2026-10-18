@@ -25,6 +25,7 @@ struct MenuBarLabel: View {
     @AppStorage(Preferences.menuMetricKey) private var metric: MenuMetric = .cpuMemory
     /// Built once: a new image on every update makes the status item redraw in a loop.
     private static let icon = ClaudeSpark.templateImage(size: 15)
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let m = app.monitor
@@ -44,6 +45,11 @@ struct MenuBarLabel: View {
             case .disk:
                 Text(Fmt.bytes(m.diskFree)).monospacedDigit()
             }
+        }
+        // This label lives as long as the app: it reopens the main window when asked.
+        .onReceive(NotificationCenter.default.publisher(for: .openMainWindow)) { _ in
+            openWindow(id: "main")
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 }
