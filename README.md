@@ -4,15 +4,24 @@
 
 <h1 align="center">Clean My Claude</h1>
 
-<p align="center"><b>« Claude, nettoie mon Mac. »</b><br>
-Un utilitaire d'entretien natif pour macOS, dans l'esprit de CleanMyMac, construit avec Claude.<br>
-Libre, gratuit, et tout se passe en local.</p>
+<p align="center"><b>« Claude, nettoie mon Mac. » Et tant qu'à faire, tout le reste.</b><br>
+L'app Mac tout-en-un, native et sans dépendance : entretien façon CleanMyMac, lanceur façon Raycast,<br>
+convertisseur de fichiers, outils du quotidien, mises à jour, réseau, fenêtres, automatisations et un assistant Claude.<br>
+Libre, gratuite, et rien ne sort de ton Mac sans ton clic.</p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Tableau de bord : score de santé, stockage, mémoire, processeur, batterie, résultats de l'analyse intelligente, activité en direct et conseils" width="900">
+  <img src="docs/screenshots/dashboard.png" alt="Tableau de bord : score de santé, stockage, mémoire, processeur, batterie, analyse intelligente, activité en direct, conseils et état de chaque outil" width="900">
 </p>
 
 <table>
+  <tr>
+    <th>Lanceur (⌥Espace)</th>
+    <th>Convertisseur</th>
+  </tr>
+  <tr>
+    <td valign="top" align="center"><img src="docs/screenshots/launcher-panel.png" alt="Lanceur : la recherche « pdf » propose les actions du convertisseur et un fichier de l'historique du presse-papiers"></td>
+    <td valign="top"><img src="docs/screenshots/converter.png" alt="Convertisseur : photos HEIC à convertir en JPEG sans localisation, vidéos en cours de compression"></td>
+  </tr>
   <tr>
     <th>Nettoyage du système</th>
     <th>Protection et confidentialité</th>
@@ -22,52 +31,115 @@ Libre, gratuit, et tout se passe en local.</p>
     <td valign="top"><img src="docs/screenshots/protection.png" alt="Protection : bilan de sécurité de macOS (FileVault, coupe-feu, Gatekeeper, SIP, mises à jour…)"></td>
   </tr>
   <tr>
+    <th>Mises à jour</th>
+    <th>Assistant Claude</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/updates.png" alt="Mises à jour : paquets Homebrew, apps Sparkle, App Store et macOS, avec le journal d'une mise à jour en direct"></td>
+    <td valign="top"><img src="docs/screenshots/assistant.png" alt="Assistant : Claude explique pourquoi le Mac rame et propose deux actions à exécuter d'un clic"></td>
+  </tr>
+  <tr>
+    <th>Boîte à outils</th>
+    <th>Presse-papiers</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/toolbox.png" alt="Boîte à outils : sélecteur de couleur avec formats HEX, RGB, HSL, SwiftUI et nuances"></td>
+    <td valign="top"><img src="docs/screenshots/clipboard.png" alt="Presse-papiers : historique de textes, images et fichiers avec épingles et recherche"></td>
+  </tr>
+  <tr>
+    <th>Réseau</th>
+    <th>Fenêtres</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/network.png" alt="Réseau : Wi-Fi, adresses, test de débit et latence"></td>
+    <td valign="top"><img src="docs/screenshots/windows.png" alt="Fenêtres : moitiés, quarts, tiers et écrans, chacun avec son raccourci modifiable"></td>
+  </tr>
+  <tr>
+    <th>Automatisations</th>
     <th>Applications</th>
-    <th>Espace de stockage</th>
   </tr>
   <tr>
+    <td valign="top"><img src="docs/screenshots/automation.png" alt="Automatisations : nettoyage planifié, purge de la Corbeille, rangement de Téléchargements et historique de santé"></td>
     <td valign="top"><img src="docs/screenshots/apps.png" alt="Applications : inventaire avec taille, version, dernière ouverture, apps Intel et apps de l'App Store"></td>
-    <td valign="top"><img src="docs/screenshots/storage.png" alt="Stockage : carte proportionnelle du dossier personnel et liste de son contenu"></td>
   </tr>
   <tr>
+    <th>Espace de stockage</th>
     <th>Optimisation</th>
-    <th>Menu d'état</th>
   </tr>
   <tr>
+    <td valign="top"><img src="docs/screenshots/storage.png" alt="Stockage : carte proportionnelle du dossier personnel et liste de son contenu"></td>
     <td valign="top"><img src="docs/screenshots/performance.png" alt="Optimisation : jauges du processeur et de la mémoire, courbes en direct et apps les plus gourmandes"></td>
-    <td valign="top" align="center"><img src="docs/screenshots/menubar-panel.png" alt="Menu d'état : panneau de la barre des menus avec processeur, mémoire, disque, batterie, réseau et actions express" width="300"></td>
+  </tr>
+  <tr>
+    <th colspan="2">Menu d'état</th>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/screenshots/menubar-panel.png" alt="Menu d'état : processeur, mémoire, disque, batterie, réseau, apps gourmandes, interrupteurs Caféine, presse-papiers et fenêtres, actions express" width="300"></td>
   </tr>
 </table>
 
-<sub>Captures réalisées avec des données fictives (mode `--demo`) : ni les apps, ni les fichiers, ni les processus montrés n'existent.</sub>
+<sub>Captures réalisées avec des données fictives (mode `--demo`) : ni les apps, ni les fichiers, ni les personnes montrés n'existent.</sub>
 
-> *English: a native macOS maintenance utility (cleanup, security audit, startup items, app uninstaller, disk map, live menu bar monitor). The interface is in French.*
+> *English: an all-in-one native macOS app: maintenance (cleanup, security audit, startup items, uninstaller, disk map), a Raycast-like launcher, a file converter, everyday tools, clipboard history, updates, network tools, window management, automations and a Claude assistant. The interface is in French.*
 
-> Projet personnel et non officiel, sans lien avec Anthropic ni avec MacPaw. « Claude » est une marque d'Anthropic, « CleanMyMac » une marque de MacPaw.
+> Projet personnel et non officiel, sans lien avec Anthropic, MacPaw ni Raycast. « Claude » est une marque d'Anthropic, « CleanMyMac » une marque de MacPaw.
 
 ## Ce que fait l'app
 
+### Entretien
+
 | Section | Contenu |
 | --- | --- |
-| **Tableau de bord** | Score de santé sur 100, stockage, mémoire, processeur, batterie (santé, cycles), activité en direct, **analyse intelligente** qui passe tout en revue en une minute, et des conseils classés par utilité |
+| **Tableau de bord** | Score de santé sur 100, stockage, mémoire, processeur, batterie (santé, cycles), activité en direct, **analyse intelligente** qui passe tout en revue en une minute, conseils classés par utilité, et l'état de chaque outil |
 | **Nettoyage du système** | Caches d'apps et de macOS, journaux, fichiers temporaires, Xcode (données dérivées, appareils, archives, simulateurs), caches npm / Yarn / pip / Homebrew / CocoaPods / Go / Cargo…, dépendances de **projets endormis** (`node_modules`, `.build`, `Pods`, `target`), caches de l'**app Claude** et journaux de **Claude Code**, caches des navigateurs et des apps Electron, Corbeille, pièces jointes Mail, installeurs oubliés, sauvegardes d'iPhone |
-| **Protection et confidentialité** | Bilan de sécurité (FileVault, coupe-feu, Gatekeeper, SIP, XProtect, mises à jour, verrouillage, partages), audit des **éléments persistants** avec vérification des signatures, liste des **autorisations** (caméra, micro, écran, disque…), effacement des **traces** (éléments récents, historique des téléchargements, vignettes, historique du Terminal, historique et cookies des navigateurs) |
-| **Optimisation** | Moniteur temps réel, apps les plus gourmandes (processus d'aide regroupés par app), éléments au démarrage activables / désactivables, tâches de maintenance (mémoire, DNS, Launch Services, Spotlight, instantanés Time Machine…) |
+| **Protection et confidentialité** | Bilan de sécurité (FileVault, coupe-feu, Gatekeeper, SIP, XProtect, mises à jour, verrouillage, partages), audit des **éléments persistants** avec vérification des signatures, liste des **autorisations** (caméra, micro, écran, disque…), effacement des **traces** (éléments récents, téléchargements, vignettes, Terminal, historique et cookies des navigateurs) |
+| **Optimisation** | Moniteur temps réel, apps les plus gourmandes (processus d'aide regroupés par app), éléments au démarrage activables ou désactivables, tâches de maintenance (mémoire, DNS, Launch Services, Spotlight, instantanés Time Machine…) |
+| **Mises à jour** | **Homebrew** en un clic (sortie en direct, annulable ; les paquets qui demandent un mot de passe sont signalés avec la commande à copier), apps **Sparkle** (lecture de leur flux, l'app s'installe elle-même), **App Store** et **macOS** |
 | **Applications** | Inventaire avec taille, version, dernière ouverture, apps **Intel** qui passent par Rosetta, désinstallation **complète** (l'app et tous ses fichiers dans `~/Library`), restes d'apps déjà supprimées |
 | **Espace de stockage** | Carte proportionnelle cliquable de n'importe quel dossier, gros fichiers anciens, **doublons** (comparaison du contenu par SHA-256) |
-| **Menu d'état** | Dans la barre des menus : processeur, mémoire, disque, réseau, batterie, apps gourmandes et actions express. Alertes optionnelles si le disque est presque plein ou la mémoire saturée |
+
+### Outils
+
+| Section | Contenu |
+| --- | --- |
+| **Lanceur** | `⌥Espace` partout, comme Spotlight ou Raycast : apps classées par fréquence, fichiers, **calculatrice** (virgule française acceptée), **unités** (`10 km en miles`, `5 Go en Mo`, `100 °F en °C`), heure dans le monde, veille, verrouillage, mode sombre, éjection des disques, `quitter Slack`, recherche web (`g`, `ddg`, `yt`, `gh`, `wiki`, `maps`, `trad`), réglages système, emoji, et **toutes les actions de l'app** (`caféine 1h`, `mdp 24`, `#ff8800`, `qr …`, `cb …`, `gauche`, `? une question pour Claude`…) |
+| **Convertisseur** | Glisser-déposer, lanceur, Dock ou clic droit dans le Finder (**Services › Convertir avec Clean My Claude**). Images (HEIC, JPEG, PNG, AVIF, TIFF, GIF, BMP, PDF, JPEG 2000 ; redimensionner, compresser, **retirer le GPS** sans recompresser), vidéo (H.264, HEVC, MOV ↔ MP4 sans réencodage, **vidéo → GIF**, extraction de l'audio), audio (AAC, ALAC, WAV, AIFF, FLAC), PDF (fusionner, découper, pivoter, alléger, images ↔ PDF), documents (Word, RTF, HTML, TXT, ODT, Markdown → HTML ou PDF), ZIP, **renommage par lot** avec aperçu, **OCR** en français et en anglais, QR codes. MP3, OGG, MKV ou WebM si `ffmpeg` est installé |
+| **Boîte à outils** | Pipette et conversions de couleurs, mots de passe et phrases de passe (copie confidentielle effacée au bout de 90 s), empreintes SHA et MD5 de fichiers, Base64, URL, JSON, casse, compteur de mots, Lorem ipsum, UUID, horodatages, et **Caféine** pour empêcher la veille (aussi depuis le menu d'état) |
+| **Presse-papiers** | Historique des textes, images et fichiers copiés, épingles, recherche, rappel depuis le lanceur (`cb …`). **Désactivé tant que tu ne l'actives pas**, il ignore les mots de passe et ce qui est copié depuis un gestionnaire de mots de passe |
+| **Réseau** | Wi-Fi (signal, bruit, canal, débit), adresses locales et publique, **test de débit** (`networkQuality` d'Apple), latence en direct, **ports ouverts** et l'app qui les écoute |
+
+### Contrôle et Claude
+
+| Section | Contenu |
+| --- | --- |
+| **Fenêtres** | Moitiés, tiers, deux tiers, quarts, plein écran, centrer, écran suivant ou précédent, taille précédente, au clavier (`⌃⌥` + flèches…) ou depuis le lanceur. Appuyer de nouveau fait défiler ½, ⅔ et ⅓. Raccourcis modifiables, marge réglable |
+| **Automatisations** | Nettoyage planifié (seulement le « sans risque »), purge de la Corbeille au-delà de N jours, **rangement de Téléchargements** par règles, historique de santé du Mac en graphiques, journal. Tout est désactivé au départ et chaque automatisation montre un **aperçu à blanc** avant de s'activer. Elles tournent tant que l'app est ouverte (fenêtre fermée comprise) |
+| **Assistant Claude** | Pose tes questions sur ton Mac en langage naturel : Claude explique et propose jusqu'à trois actions de l'app, que tu lances d'un clic. « Demander à Claude » est aussi dans le clic droit d'un processus, d'un agent de démarrage ou d'un dossier, et dans le lanceur (`?`) |
+| **Menu d'état** | Dans la barre des menus : processeur, mémoire, disque, réseau, batterie, apps gourmandes, interrupteurs (Caféine, presse-papiers, fenêtres) et actions express. Alertes optionnelles si le disque est presque plein ou la mémoire saturée |
 
 ## Les garde-fous
 
 Un nettoyeur qui supprime trop, c'est pire que pas de nettoyeur. Clean My Claude est prudent par construction :
 
 - **Rien n'est supprimé sans ton accord.** Les analyses sont en lecture seule ; chaque nettoyage passe par une confirmation qui dit ce qui part et comment.
-- **Une seule porte de sortie.** Toutes les suppressions de fichiers passent par `Remover`, qui refuse tout ce qui n'est pas dans ton dossier personnel (et `~/Library` lui-même, les trousseaux, Mail, Messages, iCloud Drive, Photos…). `CleanMyClaude --selftest` vérifie ces règles et que le catalogue ne propose jamais un chemin protégé ; le script de build le lance à chaque compilation.
-- **La Corbeille d'abord.** Seuls les caches et journaux que les apps recréent sont supprimés directement. Tes fichiers, les apps désinstallées, les doublons partent dans la Corbeille. Un réglage permet de tout y envoyer.
+- **Une seule porte de sortie.** Toutes les suppressions passent par `Remover`, qui refuse tout ce qui n'est pas dans ton dossier personnel (et `~/Library` lui-même, les trousseaux, Mail, Messages, iCloud Drive, Photos…). `CleanMyClaude --selftest` vérifie ces règles et que le catalogue ne propose jamais un chemin protégé ; le script de build le lance à chaque compilation.
+- **La Corbeille d'abord.** Seuls les caches et journaux que les apps recréent sont supprimés directement. Tes fichiers, les apps désinstallées, les doublons partent dans la Corbeille.
+- **Jamais d'écrasement.** Conversions, renommages et rangements écrivent toujours un nouveau fichier (`photo 2.jpg` si `photo.jpg` existe) ; tes originaux ne bougent pas.
+- **Une seule porte de confirmation.** Les commandes risquées du lanceur, des liens `cleanmyclaude://` ou de l'assistant demandent toujours ton accord ; Claude ne peut proposer que des actions sans danger.
 - **Les apps ouvertes sont respectées.** Les caches de Claude, Chrome, Slack… sont verrouillés tant que l'app tourne.
-- **Rien n'est coché d'office** dans les fichiers personnels, les restes d'apps ou les doublons.
 - **Un journal** de chaque action : `~/Library/Logs/CleanMyClaude/actions.log`.
-- **Aucune connexion réseau.** Seule la recherche de mises à jour macOS (`softwareupdate -l`) interroge Apple.
+
+### Rien ne sort sans ton clic
+
+Tes fichiers, ton historique de presse-papiers et l'état de ton Mac restent sur ton Mac. Les seules connexions partent quand tu cliques, et chacune dit ce qu'elle fait :
+
+| Quand | Vers qui | Quoi |
+| --- | --- | --- |
+| « Vérifier » dans Mises à jour, bilan de sécurité | Apple (`softwareupdate`, `itunes.apple.com/lookup`), les flux Sparkle de tes apps, Homebrew | Les noms et versions de tes apps |
+| « Lancer le test » dans Réseau | Apple (`networkQuality`) | Un test de débit |
+| « Afficher » l'IP publique | `api.ipify.org` | Aucune donnée : il te renvoie ton adresse |
+| Une question à l'assistant | Anthropic, via ton abonnement Claude ou ta clé API | Ta question ; l'état du Mac (charge, espace, apps gourmandes) seulement si tu actives « Consulter l'état du Mac » |
+| Une recherche web dans le lanceur | Ton navigateur | Ce que tu as tapé, comme dans la barre d'adresse |
 
 ## Installation
 
@@ -81,15 +153,22 @@ cd CleanMyClaude
 
 Le script compile en release, vérifie les garde-fous, génère l'icône, assemble `Clean My Claude.app` et l'installe dans `~/Applications` (`--no-install` la laisse dans `build/`, `--zip` produit une archive).
 
-### L'accès complet au disque
+### Les autorisations
 
-macOS cache certains dossiers aux apps (Corbeille, Mail, Safari, bases d'autorisations). Pour que Clean My Claude les voie : **Réglages Système › Confidentialité et sécurité › Accès complet au disque**, puis active Clean My Claude. Sans cet accès, l'app fonctionne quand même et signale ce qu'elle ne peut pas voir.
+Aucune n'est obligatoire : chacune est demandée dans la section qui en a besoin, au moment où tu t'en sers, avec une explication.
 
-L'app est signée localement (signature « ad hoc ») : après une recompilation, macOS peut la considérer comme nouvelle et il faut réactiver l'accès.
+| Autorisation | Pour quoi faire |
+| --- | --- |
+| **Accès complet au disque** (recommandé) | Voir la Corbeille, Mail, Safari et la liste des autorisations de tes apps. Réglages Système › Confidentialité et sécurité › Accès complet au disque |
+| **Accessibilité** | Ranger les fenêtres au clavier, coller directement depuis l'historique du presse-papiers |
+| **Localisation** | Afficher le nom du réseau Wi-Fi (macOS le cache sans elle) |
+| **Notifications** | Alertes de disque ou de mémoire, bilan des automatisations |
+
+L'app est signée localement (signature « ad hoc ») : après une recompilation, macOS peut la considérer comme nouvelle et il faut réactiver ces autorisations.
 
 ### Garder les autorisations entre deux compilations
 
-Pour que macOS se souvienne des autorisations (accès complet au disque, Accessibilité…) même après avoir recompilé, signe l'app avec un certificat local stable, une fois pour toutes :
+Pour que macOS s'en souvienne même après avoir recompilé, signe l'app avec un certificat local stable, une fois pour toutes :
 
 1. Ouvre **Trousseau d'accès › Assistant de certification › Créer un certificat…**
 2. Nom : `Clean My Claude Dev`, type d'identité : **Racine auto-signée**, type de certificat : **Signature de code**, puis Créer.
@@ -98,6 +177,15 @@ Pour que macOS se souvienne des autorisations (accès complet au disque, Accessi
 ```bash
 CMC_SIGN_IDENTITY="Clean My Claude Dev" ./scripts/build_app.sh
 ```
+
+### Connecter l'assistant Claude
+
+Deux possibilités, au choix dans la section **Assistant Claude** :
+
+- **Ton abonnement Claude (Pro ou Max), sans clé API.** L'assistant passe par Claude Code, livré avec l'[app Claude](https://claude.ai/download). Clique sur « Connecter Claude » : un Terminal s'ouvre, tu valides dans le navigateur, c'est fait. Claude Code y tourne bridé : aucun outil, aucun accès à tes fichiers, aucune session conservée, une réponse au format imposé. Les messages comptent dans ton quota d'abonnement.
+- **Une clé API Anthropic**, rangée dans ton Trousseau, facturée à l'usage (coût affiché après chaque réponse).
+
+Modèles proposés : Opus (par défaut), Sonnet, Haiku et Fable.
 
 ### Piloter l'app depuis Raccourcis, Raycast ou le Terminal
 
@@ -111,44 +199,49 @@ open "cleanmyclaude://run/act_smart_scan"       # lance une commande du lanceur 
 
 ```bash
 swift build
+.build/debug/CleanMyClaude --selftest             # garde-fous de suppression et autotests de chaque module
 .build/debug/CleanMyClaude --dump                 # ce que trouve chaque scanner, sans rien supprimer
-.build/debug/CleanMyClaude --dump --only cleanup  # cleanup | security | apps | processes
+.build/debug/CleanMyClaude --dump --only cleanup  # cleanup | security | apps | processes, ou le nom d'un module
 .build/debug/CleanMyClaude --dump --storage ~/Developer --duplicates ~/Downloads
-.build/debug/CleanMyClaude --selftest             # garde-fous de suppression
 .build/debug/CleanMyClaude --snapshot out/        # rend chaque page en PNG (--page, --tab, --light, --scale 2)
+.build/debug/CleanMyClaude --ask "Pourquoi mon Mac chauffe ?" --model haiku   # une question à l'assistant
 .build/debug/CleanMyClaude --demo                 # lance l'app avec des données fictives, sans lire le disque
 ```
 
-`--demo` fonctionne aussi avec `--dump` et `--snapshot`. Les données de démonstration (`App/DemoData.swift`) décrivent un Mac inventé : un dossier personnel fictif, 25 apps aux noms et icônes inventés, leurs caches, processus, agents de démarrage et autorisations, un disque d'un téraoctet. Les dates sont relatives au lancement et les courbes en direct sortent d'une graine fixe : deux rendus du même jour sont identiques. En mode démo, aucun scanner ne lit le disque, aucune commande n'est lancée et `Remover` refuse toute suppression ; `--selftest --demo` le vérifie sur un fichier témoin. Les captures de ce README en sortent :
+`--demo` fonctionne aussi avec `--dump` et `--snapshot`. Les données de démonstration décrivent un Mac inventé : un dossier personnel fictif, des apps aux noms et icônes inventés, leurs caches, processus, agents de démarrage, mises à jour, conversions et historique de presse-papiers. En mode démo, aucun scanner ne lit le disque, aucune commande ni requête n'est lancée et `Remover` refuse toute suppression ; `--selftest --demo` le vérifie sur un fichier témoin. Les captures de ce README en sortent :
 
 ```bash
-for p in dashboard cleanup protection performance apps storage menubar; do
+for p in dashboard cleanup protection performance apps storage menubar updates converter toolbox clipboard network windows automation assistant; do
   .build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page $p
 done
-rm docs/screenshots/menubar.png                                      # seul le panneau (menubar-panel.png) sert ici
+.build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page launcher --query pdf
+rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-panel.png
 pngquant --quality 80-95 --force --ext .png docs/screenshots/*.png   # optionnel : divise le poids par quatre
 ```
 
-Pendant `--snapshot`, les menus, champs de texte, interrupteurs et zones de défilement d'AppKit sont remplacés par des équivalents dessinés en SwiftUI : `ImageRenderer` les rendrait en rectangles jaunes ou vides.
+Pendant `--snapshot`, les menus, champs de texte, interrupteurs, zones de dépôt et de défilement d'AppKit sont remplacés par des équivalents dessinés en SwiftUI : `ImageRenderer` les rendrait en rectangles jaunes ou vides.
 
 Le code, en SwiftUI pur, sans dépendance :
 
 ```
 Sources/CleanMyClaude/
-├── App/        point d'entrée, scènes (fenêtre, barre des menus, réglages), modèle global, outils CLI
-├── Core/       mesures système (CPU, mémoire, réseau, batterie), tailles via fts(3), shell, suppression sécurisée
-├── Features/   une section par dossier : Dashboard, Cleanup, Protection, Performance, Apps, Storage, MenuBar
+├── App/        point d'entrée, scènes, modèle global, registre des modules, outils en ligne de commande
+├── Core/       mesures système, tailles via fts(3), Shell, Remover, FileOps, HTTP, commandes du lanceur,
+│               raccourcis globaux, panneaux flottants, stockage, Trousseau, notifications, planificateur
+├── Features/   une section par dossier : Dashboard, Cleanup, Protection, Performance, Updates, Apps, Storage,
+│               Launcher, Converter, Toolbox, Clipboard, Network, Windows, Automation, Assistant, MenuBar
 └── UI/         thème et composants partagés avec ClaudeStats
 ```
+
+Chaque module de `Features/` se branche sur `App/ModuleRegistry.swift` (commandes du lanceur, données de démo, autotests, captures, interrupteurs du menu d'état). Les règles pour en écrire un sont dans [`CLAUDE.md`](CLAUDE.md).
 
 Le design reprend celui de [ClaudeStats](https://github.com/Olima34/ClaudeStats) : surfaces chaudes, titres en serif, accent bleu, étincelle et créature de Claude.
 
 ## Feuille de route
 
-- « Demande à Claude » : expliquer un processus, un agent ou un dossier inconnu via l'API Claude (clé fournie par l'utilisateur)
-- Mises à jour des apps (Homebrew, Sparkle, App Store)
-- Nettoyage planifié et rappels
+- Automatisations même quand l'app est fermée (agent de connexion)
 - Vue en rayons de soleil pour la carte du disque
+- Application signée et notarisée à télécharger, avec mises à jour automatiques
 - Localisation en anglais
 
 ## Licence
