@@ -421,7 +421,7 @@ struct PrivacyActionBar: View {
                 confirm = true
             } label: {
                 HStack(spacing: 6) {
-                    if model.isCleaningTraces { ProgressView().controlSize(.small).scaleEffect(0.7).tint(.white) }
+                    if model.isCleaningTraces { ProgressView().controlSize(.small).scaleEffect(0.7).tint(Theme.onAccent) }
                     Text("Effacer les traces")
                 }
             }

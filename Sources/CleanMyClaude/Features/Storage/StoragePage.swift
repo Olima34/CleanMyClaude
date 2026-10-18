@@ -148,8 +148,8 @@ struct ExplorerTab: View {
         return HStack(spacing: 4) {
             Button { model.goUp() } label: {
                 Image(systemName: "chevron.left").font(.ui(11, .semibold)).frame(width: 26, height: 26)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(Theme.card))
-                    .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Theme.border))
+                    .background(RoundedRectangle(cornerRadius: Theme.r(7)).fill(Theme.card))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.r(7)).strokeBorder(Theme.border, lineWidth: Theme.line))
             }
             .buttonStyle(.plain)
             .disabled(node.parent == nil)
@@ -183,14 +183,14 @@ struct ExplorerTab: View {
                     ForEach(Array(list.enumerated()), id: \.element.id) { i, c in
                         Button { model.open(c) } label: {
                             HStack(spacing: 8) {
-                                RoundedRectangle(cornerRadius: 3).fill(Treemap.color(i)).frame(width: 8, height: 8)
+                                RoundedRectangle(cornerRadius: Theme.r(3)).fill(Treemap.color(i)).frame(width: 8, height: 8)
                                 Image(systemName: c.isDirectory ? "folder.fill" : "doc.fill").font(.ui(11)).foregroundStyle(Theme.text3)
                                 Text(c.name).font(.ui(12)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
                                 Spacer(minLength: 6)
                                 Text(Fmt.bytes(c.size)).font(.ui(11.5)).foregroundStyle(Theme.text2).monospacedDigit()
                             }
                             .padding(.horizontal, 8).padding(.vertical, 6)
-                            .background(RoundedRectangle(cornerRadius: 7).fill(hovered == c.id ? Theme.hover : .clear))
+                            .background(RoundedRectangle(cornerRadius: Theme.r(7)).fill(hovered == c.id ? Theme.hover : .clear))
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -210,7 +210,7 @@ struct ExplorerTab: View {
                     }
                     if node.looseBytes > 0 {
                         HStack(spacing: 8) {
-                            RoundedRectangle(cornerRadius: 3).fill(Theme.track).frame(width: 8, height: 8)
+                            RoundedRectangle(cornerRadius: Theme.r(3)).fill(Theme.track).frame(width: 8, height: 8)
                             Text("Petits fichiers").font(.ui(12)).foregroundStyle(Theme.text3)
                             Spacer()
                             Text(Fmt.bytes(node.looseBytes)).font(.ui(11.5)).foregroundStyle(Theme.text3).monospacedDigit()
@@ -263,14 +263,14 @@ struct Treemap: View {
         let base = c.node == nil ? Theme.track : Self.color(c.index)
         let on = hovered == c.id
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: Theme.r(6), style: .continuous)
                 .fill(base.opacity(on ? 0.95 : (c.node == nil ? 1 : 0.72)))
             if c.rect.width > 70 && c.rect.height > 34 {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(c.name).font(.ui(11.5, .semibold)).lineLimit(1)
                     Text(Fmt.bytes(c.size)).font(.ui(10.5)).opacity(0.85)
                 }
-                .foregroundStyle(c.node == nil ? Theme.text2 : .white)
+                .foregroundStyle(c.node == nil ? Theme.text2 : Theme.ink(on: base))
                 .padding(7)
             }
         }
@@ -449,7 +449,7 @@ struct DuplicatesTab: View {
                         }
                         .foregroundStyle(Theme.text2)
                         .padding(.horizontal, 9).padding(.vertical, 4)
-                        .background(Capsule().fill(Theme.track))
+                        .background(PillShape().fill(Theme.track))
                     }
                 }
                 if model.isFindingDups {

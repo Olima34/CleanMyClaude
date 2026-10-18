@@ -4,13 +4,13 @@ import AppKit
 struct SettingsView: View {
     var body: some View {
         TabView {
-            GeneralSettings().tabItem { Label("Général", systemImage: "gearshape") }
-            ShortcutSettings().tabItem { Label("Raccourcis", systemImage: "keyboard") }
-            PermissionsSettings().tabItem { Label("Autorisations", systemImage: "lock.shield") }
-            CleanupSettings().tabItem { Label("Nettoyage", systemImage: "sparkles") }
-            AboutSettings().tabItem { Label("À propos", systemImage: "info.circle") }
+            GeneralSettings().frame(width: 520, height: 400).tabItem { Label("Général", systemImage: "gearshape") }
+            AppearanceSettings().frame(width: AppearanceSettings.width, height: 680).tabItem { Label("Apparence", systemImage: "paintpalette") }
+            ShortcutSettings().frame(width: 520, height: 400).tabItem { Label("Raccourcis", systemImage: "keyboard") }
+            PermissionsSettings().frame(width: 520, height: 400).tabItem { Label("Autorisations", systemImage: "lock.shield") }
+            CleanupSettings().frame(width: 520, height: 400).tabItem { Label("Nettoyage", systemImage: "sparkles") }
+            AboutSettings().frame(width: 520, height: 400).tabItem { Label("À propos", systemImage: "info.circle") }
         }
-        .frame(width: 520, height: 400)
     }
 }
 

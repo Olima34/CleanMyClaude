@@ -21,12 +21,12 @@ struct ConverterChip: View {
                     Text(badge).font(.ui(10, .semibold)).monospacedDigit().opacity(0.75)
                 }
             }
-            .foregroundStyle(selected ? Color.white : Theme.text)
+            .foregroundStyle(selected ? Theme.ink(on: tint) : Theme.text)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Capsule().fill(selected ? tint : Theme.bg))
-            .overlay(Capsule().strokeBorder(selected ? Color.clear : Theme.border))
-            .contentShape(Capsule())
+            .background(PillShape().fill(selected ? tint : Theme.bg))
+            .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border))
+            .contentShape(PillShape())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -57,8 +57,8 @@ struct ConverterChoiceCard: View {
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(selected ? tint.opacity(0.1) : Theme.bg))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(selected ? tint.opacity(0.6) : Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).fill(selected ? tint.opacity(0.1) : Theme.bg))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).strokeBorder(selected ? tint.opacity(0.6) : Theme.border))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -77,11 +77,11 @@ struct ConverterSlider: View {
             let span = range.upperBound - range.lowerBound
             let f = span > 0 ? min(1, max(0, (value - range.lowerBound) / span)) : 0
             ZStack(alignment: .leading) {
-                Capsule().fill(Theme.track).frame(height: 5)
-                Capsule().fill(tint).frame(width: max(5, g.size.width * f), height: 5)
+                PillShape().fill(Theme.track).frame(height: 5)
+                PillShape().fill(tint).frame(width: max(5, g.size.width * f), height: 5)
                 Circle()
                     .fill(Color.white)
-                    .shadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
+                    .themedShadow(color: .black.opacity(0.3), radius: 1.5, y: 0.5)
                     .frame(width: 16, height: 16)
                     .offset(x: (g.size.width - 16) * f)
             }
@@ -125,8 +125,8 @@ struct ConverterTextField: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 
@@ -166,8 +166,8 @@ struct ConverterStepper: View {
             .buttonStyle(.plain)
         }
         .foregroundStyle(Theme.text)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 

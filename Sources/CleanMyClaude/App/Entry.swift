@@ -197,8 +197,9 @@ enum Diagnostics {
     }
 }
 
-/// `CleanMyClaude --snapshot <dir> [--page cleanup] [--light] [--scale 2] [--demo]` renders pages to PNG,
+/// `CleanMyClaude --snapshot <dir> [--page cleanup] [--light] [--theme graphite] [--scale 2] [--demo]` renders pages to PNG,
 /// with real scan data or, with `--demo`, the fictional Mac of `DemoData`.
+/// `--page appearance` renders the theme settings (`--tab edit` shows the editor, on a copy of the theme).
 @MainActor
 enum Snapshot {
     /// True while rendering: AppKit controls (menus, fields, switches) come out as yellow boxes in `ImageRenderer`
@@ -207,11 +208,21 @@ enum Snapshot {
 
     static func run(dir: String) {
         _ = NSApplication.shared
-        let light = CommandLine.arguments.contains("--light")
+        let themes = ThemeStore.shared
+        if let id = Entry.value(after: "--theme") {
+            guard themes.all.contains(where: { $0.id == id }) else {
+                print("thème inconnu : \(id) (\(themes.all.map(\.id).joined(separator: ", ")))")
+                return
+            }
+            themes.select(id)
+        }
+        // A theme that is always light or always dark decides on its own.
+        let light = themes.active.appearance == .system ? CommandLine.arguments.contains("--light") : themes.active.appearance == .light
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)!
         NSApp.appearance = appearance
         let scale = Entry.value(after: "--scale").flatMap(Double.init) ?? 1
-        let only = Entry.value(after: "--page").flatMap(Page.init(rawValue:))
+        let pageName = Entry.value(after: "--page")
+        let only = pageName.flatMap(Page.init(rawValue:))
 
         // In demo mode the model fills itself with the fictional Mac.
         let model = AppModel(liveMonitor: false)
@@ -220,16 +231,21 @@ enum Snapshot {
 
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var shots: [(String, AnyView)] = []
-        for page in Page.allCases where only == nil || only == page {
+        let everything = only == nil && pageName != "appearance"
+        if pageName == "appearance" {
+            if Entry.value(after: "--tab") == "edit" { themes.duplicate(themes.active) }
+            shots.append(("appearance-panel", AnyView(AppearanceSettings())))
+        }
+        for page in Page.allCases where everything || only == page {
             shots.append((page.rawValue, AnyView(PageView(page: page))))
         }
-        if only == nil || only == .menubar {
+        if everything || only == .menubar {
             shots.append(("menubar-panel", AnyView(MenuBarPanel())))
         }
-        if only == nil || only == .dashboard {
+        if everything || only == .dashboard {
             shots.append(("onboarding-panel", AnyView(OnboardingView())))
         }
-        if only == nil || only == .launcher {
+        if everything || only == .launcher {
             // The floating panel, as if the user had typed `--query` (default: a calculation).
             model.launcher.preview(Entry.value(after: "--query") ?? "1250*1,2", app: model)
             shots.append(("launcher-panel", AnyView(LauncherView())))
@@ -245,7 +261,8 @@ enum Snapshot {
             if let p = Page(rawValue: name) { model.page = p }
             let content = view
                 .environment(model)
-                .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "onboarding-panel": 520][name] ?? 1180)
+                .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "onboarding-panel": 520,
+                               "appearance-panel": AppearanceSettings.width][name] ?? 1180)
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)
@@ -329,7 +346,7 @@ enum SelfTest {
         }
         // Module checks (calculator, conversions, command ids…).
         let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) }
-        for f in moduleFailures {
+        for f in moduleFailures + ThemeChecks.run() {
             print("✗ \(f)")
             ok = false
         }

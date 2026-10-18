@@ -27,74 +27,131 @@ extension Color {
     }
 }
 
-/// Same visual language as ClaudeStats: warm surfaces, serif titles, Claude blue accent.
+/// The colors, type and shapes of the active theme (see `ThemeStore`). Every view reads them here,
+/// so switching themes in the settings redraws the whole app.
 enum Theme {
-    // Surfaces, a shade darker than the Claude desktop app.
-    static let bg = Color.adaptive(light: 0xF4F3EF, dark: 0x141413)
-    static let sidebar = Color.adaptive(light: 0xEBE9E2, dark: 0x0F0F0E)
-    static let card = Color.adaptive(light: 0xFCFBF9, dark: 0x1B1B1A)
-    static let cardRaised = Color.adaptive(light: 0xFFFFFF, dark: 0x222221)
-    static let hover = Color.adaptive(light: 0xE2E0D8, dark: 0x222221)
-    static let selected = Color.adaptive(light: 0xDCD9D0, dark: 0x2A2A28)
-    static let border = Color.adaptive(light: 0xDEDBD1, dark: 0x2A2A28)
-    static let borderStrong = Color.adaptive(light: 0xCCC8BC, dark: 0x3A3A37)
-    static let track = Color.adaptive(light: 0xE6E3DA, dark: 0x252523)
+    static var current: ThemeResolved { ThemeStore.shared.resolved }
+
+    // Surfaces
+    static var bg: Color { current.bg }
+    static var sidebar: Color { current.sidebar }
+    static var card: Color { current.card }
+    static var cardRaised: Color { current.cardRaised }
+    static var hover: Color { current.hover }
+    static var selected: Color { current.selected }
+    static var border: Color { current.border }
+    static var borderStrong: Color { current.borderStrong }
+    static var track: Color { current.track }
 
     // Text
-    static let text = Color.adaptive(light: 0x1F1E1D, dark: 0xF4F2EC)
-    static let text2 = Color.adaptive(light: 0x5F5D57, dark: 0xB4B1A7)
-    static let text3 = Color.adaptive(light: 0x8C897F, dark: 0x7F7C73)
+    static var text: Color { current.text }
+    static var text2: Color { current.text2 }
+    static var text3: Color { current.text3 }
 
-    // Accent (Claude blue)
-    static let accentHex: UInt32 = 0x4C9AE6
-    static let accent = Color.adaptive(light: 0x2C84DB, dark: accentHex)
-    static let accentDeep = Color.adaptive(light: 0x1F6CC0, dark: 0x2C84DB)
-    static let accentSoft = Color.adaptive(light: 0xDCE9F7, dark: 0x16222F)
-    /// Claude's own orange, kept for the logo and the pixel mascot.
+    // Accent, and what reads on top of it
+    static var accent: Color { current.accent }
+    static var onAccent: Color { current.onAccent }
+    /// Claude's orange in Atelier: the logo, the mascot and a few keys.
+    static var brand: Color { current.brand }
+    static var onBrand: Color { current.onBrand }
+    /// Claude's own orange, the default of the color picker.
     static let brandHex: UInt32 = 0xD97757
-    static let brand = Color(hex: brandHex)
-    static let matrix = Color.adaptive(light: 0x9A9488, dark: 0x4F6577)
+    static var matrix: Color { current.matrix }
 
     // Status
-    static let good = Color.adaptive(light: 0x3F8F68, dark: 0x6BBF8E)
-    static let warn = Color.adaptive(light: 0xB07F17, dark: 0xE0B355)
-    static let bad = Color.adaptive(light: 0xC2453D, dark: 0xE5736A)
+    static var good: Color { current.good }
+    static var warn: Color { current.warn }
+    static var bad: Color { current.bad }
+    static var onBad: Color { current.onBad }
 
-    /// Palette for categorical charts, led by the Claude blue.
-    static let palette: [Color] = [
-        accent,               // blue
-        Color(hex: 0x5BA3A0), // teal
-        Color(hex: 0x8DA47E), // sage
-        Color(hex: 0xD4A27F), // kraft
-        Color(hex: 0x9B87C4), // lavender
-        Color(hex: 0xC46686), // rose
-        Color(hex: 0x7C83D6), // indigo
-        Color(hex: 0xCBB26A), // ochre
-        Color(hex: 0x8E8B82), // stone
-        Color(hex: 0xB0856A)  // clay
-    ]
+    /// Palette for categorical charts, led by the accent.
+    static var palette: [Color] { current.palette }
 
     static func color(index: Int) -> Color { palette[abs(index) % palette.count] }
 
-    /// Green → ochre → red as a load goes up (0…1).
+    /// Accent → ochre → red as a load goes up (0…1).
     static func load(_ v: Double) -> Color {
         if v < 0.6 { return accent }
         if v < 0.85 { return warn }
         return bad
+    }
+
+    // Shapes
+
+    /// A corner radius of the original design, scaled by the theme (0 in the square themes).
+    static func r(_ radius: CGFloat) -> CGFloat { radius * current.radiusScale }
+    /// Width of card and control outlines.
+    static var line: CGFloat { current.line }
+    static var icons: ThemeIconStyle { current.spec.icons }
+
+    /// White or near-black, whichever reads better on a fill of the current theme (chart colors, tints).
+    @MainActor
+    static func ink(on fill: Color) -> Color {
+        var ink = ThemeColor.white
+        (NSApp?.effectiveAppearance ?? NSAppearance(named: .aqua)!).performAsCurrentDrawingAppearance {
+            if let c = ThemeColor(fill) { ink = c.readableInk }
+        }
+        return ink.color
+    }
+}
+
+/// A theme turned into ready-to-draw values, once per change (views read them hundreds of times per frame).
+final class ThemeResolved: @unchecked Sendable {
+    let spec: ThemeSpec
+    let bg, sidebar, card, cardRaised, hover, selected, border, borderStrong, track: Color
+    let text, text2, text3: Color
+    let accent, onAccent, brand, onBrand, matrix: Color
+    let good, warn, bad, onBad: Color
+    let palette: [Color]
+    let radiusScale: CGFloat
+    let line: CGFloat
+    let textScale: CGFloat
+    let titleDesign: Font.Design
+    let titleWeight: Font.Weight
+    let bodyDesign: Font.Design
+
+    init(_ spec: ThemeSpec) {
+        self.spec = spec
+        func make(_ l: ThemeColor, _ d: ThemeColor) -> Color {
+            switch spec.appearance {
+            case .system: return .adaptive(light: l.hex, dark: d.hex)
+            case .light: return Color(hex: l.hex)
+            case .dark: return Color(hex: d.hex)
+            }
+        }
+        func c(_ k: ThemeColorKey) -> Color { make(spec.light[k], spec.dark[k]) }
+        bg = c(.bg); sidebar = c(.sidebar); card = c(.card); cardRaised = c(.cardRaised); hover = c(.hover)
+        selected = c(.selected); border = c(.border); borderStrong = c(.borderStrong); track = c(.track)
+        text = c(.text); text2 = c(.text2); text3 = c(.text3)
+        accent = c(.accent); onAccent = c(.onAccent); brand = c(.brand); matrix = c(.matrix)
+        onBrand = make(spec.light[.brand].readableInk, spec.dark[.brand].readableInk)
+        good = c(.good); warn = c(.warn); bad = c(.bad)
+        onBad = make(spec.light[.bad].readableInk, spec.dark[.bad].readableInk)
+        palette = (0..<ThemePalette.chartCount).map { make(spec.light.chart[$0], spec.dark.chart[$0]) }
+        radiusScale = CGFloat(spec.radius)
+        line = CGFloat(spec.borderWidth)
+        textScale = CGFloat(spec.textScale)
+        titleDesign = spec.titleFont.design
+        titleWeight = spec.titleWeight.weight
+        bodyDesign = spec.bodyFont.design
     }
 }
 
 // MARK: - Typography
 
 extension Font {
+    /// Titles and big numbers: serif in Atelier, the theme's title font otherwise.
+    /// A title left at the regular weight takes the theme's title weight.
     static func serif(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .serif)
+        let t = Theme.current
+        return .system(size: size * t.textScale, weight: weight == .regular ? t.titleWeight : weight, design: t.titleDesign)
     }
     static func ui(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight)
+        let t = Theme.current
+        return .system(size: size * t.textScale, weight: weight, design: t.bodyDesign)
     }
     static func mono(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        .system(size: size * Theme.current.textScale, weight: weight, design: .monospaced)
     }
 }
 

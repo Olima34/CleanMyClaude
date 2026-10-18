@@ -58,7 +58,7 @@ struct HotkeysPage: View {
                                         Image(systemName: "plus.circle.fill").foregroundStyle(Theme.accent)
                                     }
                                     .padding(8)
-                                    .background(RoundedRectangle(cornerRadius: 9).fill(Theme.cardRaised.opacity(0.5)))
+                                    .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.cardRaised.opacity(0.5)))
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
@@ -72,7 +72,7 @@ struct HotkeysPage: View {
                             if Snapshot.isActive {
                                 Text("claude.ai").font(.ui(12.5)).foregroundStyle(Theme.text3)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(8).background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg.opacity(0.6)))
+                                    .padding(8).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg.opacity(0.6)))
                             } else {
                                 TextField("claude.ai", text: $model.siteDraft)
                                     .textFieldStyle(.roundedBorder)
@@ -132,7 +132,7 @@ private struct HotkeysRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.cardRaised.opacity(0.45)))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.cardRaised.opacity(0.45)))
     }
 }
 
@@ -211,7 +211,7 @@ private struct HotkeysCatalogPanel: View {
                     if Snapshot.isActive {
                         Text("Chercher…").font(.ui(12.5)).foregroundStyle(Theme.text3)
                             .frame(width: 240, alignment: .leading)
-                            .padding(7).background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg.opacity(0.6)))
+                            .padding(7).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg.opacity(0.6)))
                     } else {
                         TextField(kind == .actions ? "Chercher : analyse, Caféine, traduire…" : "Chercher une app…", text: $query)
                             .textFieldStyle(.roundedBorder)
@@ -259,7 +259,7 @@ private struct HotkeysCatalogPanel: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: 8).fill(combo == nil ? Color.clear : Theme.accent.opacity(0.07)))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(combo == nil ? Color.clear : Theme.accent.opacity(0.07)))
     }
 
     private var filtered: [Row] {

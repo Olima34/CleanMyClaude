@@ -112,8 +112,8 @@ struct SearchField: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 
@@ -152,7 +152,7 @@ struct AppRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 9).fill(hovering ? Theme.hover.opacity(0.5) : .clear))
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(hovering ? Theme.hover.opacity(0.5) : .clear))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
     }
@@ -229,8 +229,8 @@ struct UninstallSheet: View {
                     }
                 }
                 .frame(minHeight: 120, maxHeight: 280)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+                .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
             }
             HStack {
                 Text("Total : \(Fmt.bytes(total))").font(.ui(13, .semibold)).foregroundStyle(Theme.text)

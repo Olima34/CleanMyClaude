@@ -18,9 +18,9 @@ struct LauncherView: View {
             }
         }
         .frame(width: Self.width, height: Self.height)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.borderStrong))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(RoundedRectangle(cornerRadius: Theme.r(18), style: .continuous).fill(Theme.bg))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(18), style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: Theme.line))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.r(18), style: .continuous))
         .background(TranslatorHost(channel: .launcher))
         .onAppear { DispatchQueue.main.async { focused = true } }
         .onChange(of: app.launcher.mode) { _, mode in
@@ -171,12 +171,12 @@ struct LauncherRow: View {
             if let hotkey {
                 Text(hotkey).font(.ui(10.5, .semibold)).foregroundStyle(Theme.text2)
                     .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Theme.track))
+                    .background(RoundedRectangle(cornerRadius: Theme.r(5)).fill(Theme.track))
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 9).fill(selected ? Theme.accent.opacity(0.16) : .clear))
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(selected ? Theme.accent.opacity(0.16) : .clear))
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
     }
@@ -193,14 +193,14 @@ struct CommandIconView: View {
                 .font(.system(size: size * 0.48, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: size, height: size)
-                .background(RoundedRectangle(cornerRadius: size * 0.26).fill(tint.opacity(0.13)))
+                .background(RoundedRectangle(cornerRadius: Theme.r(size * 0.26)).fill(tint.opacity(0.13)))
         case .file(let path):
             FileIcon(path: path, size: size)
         case .emoji(let e):
             Text(e).font(.system(size: size * 0.78)).frame(width: size, height: size)
         case .color(let c):
-            RoundedRectangle(cornerRadius: size * 0.26).fill(c).frame(width: size, height: size)
-                .overlay(RoundedRectangle(cornerRadius: size * 0.26).strokeBorder(Theme.borderStrong))
+            RoundedRectangle(cornerRadius: Theme.r(size * 0.26)).fill(c).frame(width: size, height: size)
+                .overlay(RoundedRectangle(cornerRadius: Theme.r(size * 0.26)).strokeBorder(Theme.borderStrong, lineWidth: Theme.line))
         case .spark:
             ClaudeSpark(size: size * 0.8).frame(width: size, height: size)
         }
@@ -226,8 +226,8 @@ struct LauncherAssignView: View {
                 .font(.system(size: 26, weight: .semibold, design: .rounded))
                 .foregroundStyle(current == nil ? Theme.text3 : Theme.text)
                 .padding(.horizontal, 22).padding(.vertical, 10)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
+                .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
             Text(app.launcher.assignMessage ?? (current == nil
                  ? "Avec ⌘, ⌃ ou ⌥. Il marchera partout, même quand Clean My Claude est caché."
                  : "Tape d'autres touches pour le changer."))
@@ -257,7 +257,7 @@ struct LauncherKeyHint: View {
         HStack(spacing: 5) {
             Text(key).font(.ui(10.5, .semibold)).foregroundStyle(Theme.text2)
                 .padding(.horizontal, 5).padding(.vertical, 1.5)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.track))
+                .background(RoundedRectangle(cornerRadius: Theme.r(4)).fill(Theme.track))
             Text(label).font(.ui(11)).foregroundStyle(Theme.text3)
         }
     }

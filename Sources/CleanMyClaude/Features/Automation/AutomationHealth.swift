@@ -241,7 +241,7 @@ struct AutomationJunkChart: View {
             Chart(points, id: \.0) { p in
                 BarMark(x: .value("Jour", p.0, unit: .day), y: .value("Go", p.1))
                     .foregroundStyle(Theme.brand.opacity(0.85))
-                    .cornerRadius(2)
+                    .cornerRadius(Theme.r(2))
             }
             .chartXAxis { AutomationChartAxis.x(points.map(\.0)) }
             .chartYAxis {
