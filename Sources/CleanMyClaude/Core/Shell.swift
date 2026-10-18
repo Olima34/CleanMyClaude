@@ -16,6 +16,7 @@ enum Shell {
 
     /// Runs a tool and waits for it, killing it after `timeout` seconds.
     static func run(_ path: String, _ args: [String] = [], timeout: TimeInterval = 20) -> Output {
+        if DemoData.isEnabled { return Output(status: -1, out: "", err: DemoData.refusal) }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
@@ -61,7 +62,8 @@ enum Shell {
 
     /// Runs an AppleScript (serialized: NSAppleScript is not thread safe).
     static func appleScript(_ source: String) -> Output {
-        scriptQueue.sync {
+        if DemoData.isEnabled { return Output(status: -1, out: "", err: DemoData.refusal) }
+        return scriptQueue.sync {
             var error: NSDictionary?
             let result = NSAppleScript(source: source)?.executeAndReturnError(&error)
             if let error {

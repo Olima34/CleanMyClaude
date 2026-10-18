@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Card
 
@@ -633,19 +634,48 @@ struct ScanButton: View {
 
 // MARK: - Icons
 
-/// The Finder icon of a file or app.
+/// The Finder icon of a file or app. In demo mode nothing is looked up on disk: fictional apps get a drawn icon,
+/// everything else the generic icon of its type.
 struct FileIcon: View {
     var path: String
     var size: CGFloat = 24
 
     var body: some View {
         Group {
-            if let cg = IconCache.icon(for: path) {
+            if DemoData.isEnabled, let icon = DemoData.icon(for: path) {
+                DrawnAppIcon(icon: icon, size: size)
+            } else if let cg = DemoData.isEnabled ? IconCache.genericIcon(for: path) : IconCache.icon(for: path) {
                 Image(decorative: cg, scale: 2).resizable().interpolation(.high)
             } else {
                 Image(systemName: "doc").resizable().scaledToFit().foregroundStyle(Theme.text3)
             }
         }
+        .frame(width: size, height: size)
+    }
+}
+
+/// An app icon made of a gradient tile and a symbol, for the fictional apps of the demo.
+struct DrawnAppIcon: View {
+    var icon: DemoData.Icon
+    var size: CGFloat
+
+    var body: some View {
+        // Like real icons, the tile leaves a margin around it.
+        let s = size * 0.84
+        let tile = RoundedRectangle(cornerRadius: s * 0.23, style: .continuous)
+        ZStack {
+            tile.fill(LinearGradient(colors: [Color(hex: icon.top), Color(hex: icon.bottom)], startPoint: .top, endPoint: .bottom))
+            tile.strokeBorder(.white.opacity(0.14), lineWidth: max(0.5, s * 0.012))
+            if icon.spark {
+                ClaudeSpark(size: s * 0.64, color: .white)
+            } else {
+                Image(systemName: icon.symbol)
+                    .font(.system(size: s * 0.46, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .frame(width: s, height: s)
+        .shadow(color: .black.opacity(0.25), radius: s * 0.03, y: s * 0.02)
         .frame(width: size, height: size)
     }
 }
@@ -656,22 +686,118 @@ enum IconCache {
     private static let lock = NSLock()
 
     static func icon(for path: String) -> CGImage? {
+        flattened(path) { NSWorkspace.shared.icon(forFile: path) }
+    }
+
+    /// The icon macOS gives a type of file (or a folder), guessed from the extension without opening anything.
+    static func genericIcon(for path: String) -> CGImage? {
+        let ext = (path as NSString).pathExtension
+        var type = UTType(filenameExtension: ext).flatMap { $0.isDynamic ? nil : $0 }
+        if type == nil {
+            switch FileKind(ext: ext.lowercased()) {
+            case .video: type = .movie
+            case .archive: type = .archive
+            case .diskImage: type = .diskImage
+            case .audio: type = .audio
+            case .image: type = .image
+            case .document: type = .pdf
+            case .all, .other: type = .folder
+            }
+        }
+        let t = type ?? .folder
+        return flattened("type:" + t.identifier) { NSWorkspace.shared.icon(for: t) }
+    }
+
+    private static func flattened(_ key: String, _ make: () -> NSImage) -> CGImage? {
         lock.lock()
         defer { lock.unlock() }
-        if let img = cache[path] { return img }
+        if let img = cache[key] { return img }
         // Redrawn into a plain sRGB bitmap: icons may come in wide color spaces that skew off-screen renders.
         let side = 128
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
-        let icon = NSWorkspace.shared.icon(forFile: path)
+        let icon = make()
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
         icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
         NSGraphicsContext.restoreGraphicsState()
         guard let cg = ctx.makeImage() else { return nil }
-        cache[path] = cg
+        cache[key] = cg
         return cg
+    }
+}
+
+// MARK: - Snapshot stand-ins
+
+// `ImageRenderer` draws AppKit-backed controls as yellow boxes and leaves scroll views empty.
+// While `--snapshot` renders, these swap them for plain SwiftUI drawings that look the same at rest.
+
+/// A scroll view, or just its content (top-aligned and clipped) in snapshots.
+struct ScrollArea<Content: View>: View {
+    var axes: Axis.Set = .vertical
+    var showsIndicators = true
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if !Snapshot.isActive {
+            ScrollView(axes, showsIndicators: showsIndicators) { content }
+        } else if axes == .horizontal {
+            content.fixedSize().frame(maxWidth: .infinity, alignment: .leading).clipped()
+        } else {
+            content.fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .clipped()
+        }
+    }
+}
+
+/// A borderless pop-up menu, or just its label in snapshots.
+struct BorderlessMenu<Items: View, Label: View>: View {
+    var indicator = true
+    @ViewBuilder var items: Items
+    @ViewBuilder var label: Label
+
+    var body: some View {
+        if Snapshot.isActive {
+            HStack(spacing: 4) {
+                label
+                if indicator {
+                    Image(systemName: "chevron.down").font(.ui(8.5, .bold)).foregroundStyle(Theme.text3)
+                }
+            }
+            .fixedSize()
+        } else {
+            Menu { items } label: { label }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(indicator ? .visible : .hidden)
+                .fixedSize()
+        }
+    }
+}
+
+/// A switch drawn with shapes.
+struct DrawnSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 10) {
+            configuration.label
+            Spacer(minLength: 8)
+            Capsule()
+                .fill(configuration.isOn ? Theme.accent : Theme.borderStrong)
+                .frame(width: 30, height: 17)
+                .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                    Circle().fill(.white).padding(2)
+                }
+                .onTapGesture { configuration.isOn.toggle() }
+        }
+    }
+}
+
+extension View {
+    /// `.toggleStyle(.switch)`, drawn by hand in snapshots.
+    @ViewBuilder
+    func switchToggles() -> some View {
+        if Snapshot.isActive { toggleStyle(DrawnSwitchStyle()) } else { toggleStyle(.switch) }
     }
 }
 

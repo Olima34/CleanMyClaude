@@ -204,6 +204,7 @@ enum Fmt {
 
     /// The user's first name, from the macOS account.
     static var firstName: String {
-        NSFullUserName().split(separator: " ").first.map(String.init) ?? NSUserName()
+        if DemoData.isEnabled { return DemoData.firstName }
+        return NSFullUserName().split(separator: " ").first.map(String.init) ?? NSUserName()
     }
 }

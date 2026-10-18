@@ -51,7 +51,7 @@ struct DashboardPage: View {
                         .fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 8) {
                         Tag(text: SystemMonitor.chipName.isEmpty ? SystemMonitor.modelName : SystemMonitor.chipName, symbol: "cpu", tint: Theme.text2)
-                        Tag(text: "macOS \(ProcessInfo.processInfo.operatingSystemVersion.majorVersion).\(ProcessInfo.processInfo.operatingSystemVersion.minorVersion)", symbol: "apple.logo", tint: Theme.text2)
+                        Tag(text: "macOS \(SystemMonitor.osVersion)", symbol: "apple.logo", tint: Theme.text2)
                         Tag(text: Fmt.bytes(app.monitor.memTotal) + " de mémoire", symbol: "memorychip", tint: Theme.text2)
                     }
                 }

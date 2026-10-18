@@ -74,9 +74,9 @@ final class AppModel {
     let apps = AppsModel()
     let storage = StorageModel()
     let startup = StartupModel()
-    var history = CleanupHistory.load()
+    var history = DemoData.isEnabled ? DemoData.history : CleanupHistory.load()
     var fullDiskAccess = Permissions.hasFullDiskAccess
-    var showOnboarding = !UserDefaults.standard.bool(forKey: Preferences.onboardedKey)
+    var showOnboarding = !DemoData.isEnabled && !UserDefaults.standard.bool(forKey: Preferences.onboardedKey)
     var smartScanRunning = false
     var smartScanDate: Date?
 
@@ -88,7 +88,9 @@ final class AppModel {
         }
         cleanup.onFreed = freed
         protection.onFreed = freed
-        if liveMonitor {
+        if DemoData.isEnabled {
+            DemoData.populate(self)
+        } else if liveMonitor {
             let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }

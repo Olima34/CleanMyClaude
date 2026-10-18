@@ -59,7 +59,8 @@ enum FileSizer {
 
 enum FS {
     static let fm = FileManager.default
-    static let home: String = NSHomeDirectory()
+    /// A fictional home in demo mode: nothing real is ever looked at or shown.
+    static let home: String = DemoData.isEnabled ? DemoData.home : NSHomeDirectory()
 
     static func expand(_ p: String) -> String {
         if p.hasPrefix("~/") { return home + String(p.dropFirst(1)) }
@@ -86,6 +87,7 @@ enum FS {
     }
 
     static func modified(_ p: String) -> Date? {
+        if DemoData.isEnabled { return DemoData.modified(p) }
         var st = stat()
         guard lstat(p, &st) == 0 else { return nil }
         return Date(timeIntervalSince1970: TimeInterval(st.st_mtimespec.tv_sec))
@@ -119,6 +121,7 @@ enum FS {
 /// Full Disk Access is needed to read the Trash, Mail, Safari or the privacy databases.
 enum Permissions {
     static var hasFullDiskAccess: Bool {
+        if DemoData.isEnabled { return true }
         let probes = [
             FS.home + "/Library/Safari",
             FS.home + "/Library/Mail",

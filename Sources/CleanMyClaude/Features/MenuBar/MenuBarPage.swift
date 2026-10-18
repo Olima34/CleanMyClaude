@@ -51,19 +51,23 @@ struct MenuBarPage: View {
                             HStack {
                                 Text("Rafraîchissement")
                                 Spacer()
-                                Picker("", selection: $refresh) {
-                                    Text("1 s").tag(1.0)
-                                    Text("2 s").tag(2.0)
-                                    Text("5 s").tag(5.0)
+                                if Snapshot.isActive {
+                                    refreshSegments.frame(width: 160)
+                                } else {
+                                    Picker("", selection: $refresh) {
+                                        Text("1 s").tag(1.0)
+                                        Text("2 s").tag(2.0)
+                                        Text("5 s").tag(5.0)
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(width: 160)
+                                    .onChange(of: refresh) { _, _ in app.monitor.start() }
                                 }
-                                .pickerStyle(.segmented)
-                                .frame(width: 160)
-                                .onChange(of: refresh) { _, _ in app.monitor.start() }
                             }
                             LaunchAtLoginToggle()
                         }
                         .font(.ui(12.5))
-                        .toggleStyle(.switch)
+                        .switchToggles()
                         .controlSize(.small)
                     }
                     Callout(symbol: "leaf", title: "Léger par conception",
@@ -72,6 +76,22 @@ struct MenuBarPage: View {
                 }
             }
         }
+    }
+
+    /// The refresh picker drawn by hand, for snapshots.
+    private var refreshSegments: some View {
+        HStack(spacing: 2) {
+            ForEach([1.0, 2.0, 5.0], id: \.self) { v in
+                Text("\(Int(v)) s")
+                    .font(.ui(11.5, refresh == v ? .semibold : .regular))
+                    .foregroundStyle(refresh == v ? Theme.text : Theme.text2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 3)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(refresh == v ? Theme.selected : .clear))
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.track))
     }
 }
 

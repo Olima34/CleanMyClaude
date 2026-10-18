@@ -130,6 +130,7 @@ enum StorageScanner {
 
     static func scan(_ rootPath: String, isCancelled: @escaping () -> Bool,
                      progress: @escaping (Int, String) -> Void) -> StorageScanResult {
+        if DemoData.isEnabled { return DemoData.storage(rootPath) }
         let root = StorageNode(name: rootPath == "/" ? "Macintosh HD" : (rootPath as NSString).lastPathComponent,
                                path: rootPath, isDirectory: true)
         var stack: [StorageNode] = [root]
@@ -221,6 +222,7 @@ enum DuplicateFinder {
 
     static func find(in roots: [String], minSize: Int64 = 1_000_000, isCancelled: @escaping () -> Bool,
                      progress: @escaping (String) -> Void) -> [DuplicateGroup] {
+        if DemoData.isEnabled { return DemoData.duplicates() }
         var bySize: [Int64: [String]] = [:]
         var seenInodes = Set<String>()
         var count = 0

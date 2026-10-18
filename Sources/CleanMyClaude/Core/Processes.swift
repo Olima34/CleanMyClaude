@@ -8,6 +8,7 @@ struct RunningApps {
     var byBundleID: [String: String] = [:]
 
     static func snapshot() -> RunningApps {
+        if DemoData.isEnabled { return DemoData.running() }
         var r = RunningApps()
         for app in NSWorkspace.shared.runningApplications {
             if let id = app.bundleIdentifier {
@@ -58,6 +59,7 @@ struct ProcessGroup: Identifiable, Hashable {
 enum ProcessList {
     /// Samples `ps` and groups helper processes under their app.
     static func sample() -> [ProcessGroup] {
+        if DemoData.isEnabled { return DemoData.processes() }
         let out = Shell.run("/bin/ps", ["-axo", "pid=,pcpu=,rss=,uid=,comm="], timeout: 5).out
         let me = getuid()
         var groups: [String: ProcessGroup] = [:]
@@ -97,6 +99,8 @@ enum ProcessList {
     /// Politely asks an app (or the processes of the current user) to quit.
     @MainActor
     static func quit(_ g: ProcessGroup, force: Bool = false) -> Bool {
+        // Demo PIDs are made up: they could belong to anything.
+        if DemoData.isEnabled { return false }
         if let app = g.appPath {
             let apps = NSWorkspace.shared.runningApplications.filter { $0.bundleURL?.path == app }
             if !apps.isEmpty {

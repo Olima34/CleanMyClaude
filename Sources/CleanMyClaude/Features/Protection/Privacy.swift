@@ -84,6 +84,7 @@ enum TCCReader {
     static let systemDB = "/Library/Application Support/com.apple.TCC/TCC.db"
 
     static func read() -> [PermissionGrant]? {
+        if DemoData.isEnabled { return DemoData.grants() }
         let services = Dictionary(uniqueKeysWithValues: TCCService.all.map { ($0.key, $0) })
         var grants: [String: PermissionGrant] = [:]
         var readable = false
@@ -142,6 +143,7 @@ enum PrivacyScanner {
     static let quarantineDB = FS.home + "/Library/Preferences/com.apple.LaunchServices.QuarantineEventsV2"
 
     static func scan(running: RunningApps) -> [PrivacyTrace] {
+        if DemoData.isEnabled { return DemoData.traces() }
         var out: [PrivacyTrace] = []
 
         // Recent documents, apps and servers.
@@ -250,6 +252,8 @@ enum PrivacyScanner {
 
     /// Erases the given traces. Must run off the main thread.
     static func clean(_ traces: [PrivacyTrace]) -> RemovalReport {
+        // Some traces are erased without Remover (SQL, clipboard): the demo must stop here.
+        if DemoData.isEnabled { return RemovalReport(failures: traces.map { ($0.title, DemoData.refusal) }) }
         var report = RemovalReport()
         for t in traces where t.blockedReason == nil {
             switch t.action {

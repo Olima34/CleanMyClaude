@@ -27,6 +27,7 @@ enum SettingsPane {
 /// Reads the state of macOS' own protections. Nothing here needs administrator rights.
 enum SecurityAudit {
     static func run() -> [SecurityCheck] {
+        if DemoData.isEnabled { return DemoData.securityChecks() }
         let checks: [() -> SecurityCheck] = [fileVault, firewall, gatekeeper, sip, xprotect, updates, screenLock,
                                              autoLogin, guest, sharing]
         let slots = Slots<SecurityCheck>(count: checks.count)
@@ -146,6 +147,7 @@ enum SecurityAudit {
 
     /// Slow (it asks Apple's servers), so it runs on its own.
     static func pendingUpdates() -> SecurityCheck {
+        if DemoData.isEnabled { return DemoData.pendingUpdates() }
         let r = Shell.run("/usr/sbin/softwareupdate", ["-l"], timeout: 90)
         let text = r.all
         var c = SecurityCheck(id: "pending", title: "Mises à jour en attente", symbol: "square.and.arrow.down",

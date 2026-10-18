@@ -234,7 +234,7 @@ struct LaunchItemRow: View {
                 if startup.busy.contains(item.id) {
                     ProgressView().controlSize(.small)
                 } else {
-                    Menu {
+                    BorderlessMenu(indicator: false) {
                         Button(item.disabled ? "Réactiver" : "Désactiver") {
                             Task { await startup.setDisabled(item, !item.disabled) }
                         }
@@ -249,9 +249,6 @@ struct LaunchItemRow: View {
                     } label: {
                         Image(systemName: "ellipsis.circle").font(.ui(14)).foregroundStyle(Theme.text2)
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
                     .help(item.domain.needsAdmin ? "Modifier un service système demande ton mot de passe" : "Actions")
                 }
             }

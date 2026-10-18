@@ -11,7 +11,7 @@ struct MaintenanceTask: Identifiable {
     var warning: String? = nil
 
     var available: Bool {
-        id != "simulators" || FS.exists("/Applications/Xcode.app") || Shell.exists("/usr/bin/xcrun") && FS.exists(FS.home + "/Library/Developer/CoreSimulator")
+        DemoData.isEnabled || id != "simulators" || FS.exists("/Applications/Xcode.app") || Shell.exists("/usr/bin/xcrun") && FS.exists(FS.home + "/Library/Developer/CoreSimulator")
     }
 
     static let all: [MaintenanceTask] = [
@@ -94,6 +94,8 @@ final class PerformanceModel {
 
     /// Views that show processes call this on appear and `stopSampling` on disappear.
     func startSampling() {
+        // A snapshot is a still frame: no sample may land halfway through the render.
+        guard !Snapshot.isActive else { return }
         samplers += 1
         guard timer == nil else { return }
         Task { await sampleProcesses() }
@@ -120,6 +122,10 @@ final class PerformanceModel {
     }
 
     func quit(_ g: ProcessGroup, force: Bool = false) {
+        guard !DemoData.isEnabled else {
+            lastQuit = DemoData.refusal
+            return
+        }
         let ok = ProcessList.quit(g, force: force)
         lastQuit = ok ? "\(g.name) a été fermé." : "\(g.name) n'a pas pu être fermé (processus système ou d'un autre utilisateur)."
         Task {
@@ -131,7 +137,8 @@ final class PerformanceModel {
     // MARK: Maintenance
 
     func lastRun(_ t: MaintenanceTask) -> Date? {
-        results[t.id]?.date ?? UserDefaults.standard.object(forKey: "maintenance.\(t.id)") as? Date
+        if DemoData.isEnabled { return results[t.id]?.date ?? DemoData.maintenanceRuns[t.id] }
+        return results[t.id]?.date ?? UserDefaults.standard.object(forKey: "maintenance.\(t.id)") as? Date
     }
 
     func run(_ t: MaintenanceTask) async {

@@ -10,7 +10,7 @@ struct StoragePage: View {
                      subtitle: "Une carte de ton disque où chaque dossier a la taille de ce qu'il pèse. Repère les mastodontes, les gros fichiers oubliés et les doublons.",
                      tint: Theme.palette[1], seed: 69) {
                 HStack(spacing: 10) {
-                    Menu {
+                    BorderlessMenu {
                         Button("Dossier personnel") { Task { await model.scan(FS.home) } }
                         Button("Applications") { Task { await model.scan("/Applications") } }
                         Button("Disque entier") { Task { await model.scan("/") } }
@@ -19,8 +19,6 @@ struct StoragePage: View {
                     } label: {
                         Label(model.rootTitle, systemImage: "folder").font(.ui(12)).foregroundStyle(Theme.text2)
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
                     ScanButton(title: model.root == nil ? "Analyser" : "Relancer", running: model.isScanning) {
                         Task { await model.scan() }
                     }
@@ -155,7 +153,7 @@ struct ExplorerTab: View {
             }
             .buttonStyle(.plain)
             .disabled(node.parent == nil)
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollArea(axes: .horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
                     ForEach(node.ancestors) { a in
                         Button { model.current = a; model.version += 1 } label: {
@@ -180,7 +178,7 @@ struct ExplorerTab: View {
         let list = Array(node.children.prefix(40))
         return VStack(alignment: .leading, spacing: 4) {
             Text("Contenu").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-            ScrollView {
+            ScrollArea {
                 VStack(spacing: 2) {
                     ForEach(Array(list.enumerated()), id: \.element.id) { i, c in
                         Button { model.open(c) } label: {
@@ -357,7 +355,7 @@ struct BigFilesTab: View {
                     PillPicker(options: SizeFilter.all, selection: $model.sizeFilter, label: { $0.title })
                     PillPicker(options: AgeFilter.all, selection: $model.ageFilter, label: { $0.title })
                     Spacer()
-                    Menu {
+                    BorderlessMenu {
                         Picker("Type", selection: $model.kindFilter) {
                             ForEach(FileKind.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
                         }
@@ -365,8 +363,6 @@ struct BigFilesTab: View {
                     } label: {
                         Label(model.kindFilter.title, systemImage: model.kindFilter.symbol).font(.ui(11.5)).foregroundStyle(Theme.text2)
                     }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
                 }
                 let list = model.visibleBigFiles
                 Card(padding: 8) {

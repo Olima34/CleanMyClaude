@@ -109,6 +109,10 @@ final class SystemMonitor {
 
     func sample() {
         tick += 1
+        if DemoData.isEnabled {
+            DemoData.sample(self, tick: tick)
+            return
+        }
         sampleCPU()
         sampleMemory()
         sampleNetwork()
@@ -188,6 +192,7 @@ final class SystemMonitor {
     // MARK: Disk
 
     func sampleDisk() {
+        if DemoData.isEnabled { return DemoData.sampleDisk(self) }
         let url = URL(fileURLWithPath: FS.home)
         if let v = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey,
                                                      .volumeAvailableCapacityKey]) {
@@ -285,6 +290,7 @@ final class SystemMonitor {
     }
 
     nonisolated static func readBootDate() -> Date? {
+        if DemoData.isEnabled { return DemoData.bootDate }
         var tv = timeval()
         var size = MemoryLayout<timeval>.size
         guard sysctlbyname("kern.boottime", &tv, &size, nil, 0) == 0 else { return nil }
@@ -302,6 +308,7 @@ final class SystemMonitor {
     }
 
     static var modelName: String {
+        if DemoData.isEnabled { return DemoData.modelName }
         var size = 0
         sysctlbyname("hw.model", nil, &size, nil, 0)
         var buf = [CChar](repeating: 0, count: max(1, size))
@@ -310,10 +317,18 @@ final class SystemMonitor {
     }
 
     static var chipName: String {
+        if DemoData.isEnabled { return DemoData.chipName }
         var size = 0
         sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0)
         var buf = [CChar](repeating: 0, count: max(1, size))
         sysctlbyname("machdep.cpu.brand_string", &buf, &size, nil, 0)
         return String(cString: buf)
+    }
+
+    /// "27.1"
+    static var osVersion: String {
+        if DemoData.isEnabled { return DemoData.osVersion }
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        return "\(v.majorVersion).\(v.minorVersion)"
     }
 }

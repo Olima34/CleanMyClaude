@@ -33,6 +33,7 @@ struct ClaudeFootprint {
 
 enum CleanupScanner {
     static func scan(running: RunningApps, progress: @escaping (Double, String) -> Void = { _, _ in }) -> [CleanupTarget] {
+        if DemoData.isEnabled { return DemoData.cleanupTargets() }
         let specs = CleanupCatalog.specs()
         let slots = Slots<CleanupTarget>(count: specs.count)
         DispatchQueue.concurrentPerform(iterations: specs.count) { i in
@@ -70,7 +71,8 @@ enum CleanupScanner {
     }
 
     static func claudeFootprint() -> ClaudeFootprint {
-        ClaudeFootprint(
+        if DemoData.isEnabled { return DemoData.claudeFootprint }
+        return ClaudeFootprint(
             transcripts: FileSizer.size(of: FS.home + "/.claude/projects"),
             vm: FileSizer.size(of: CleanupCatalog.support + "/Claude/vm_bundles"),
             codeVersions: FileSizer.size(of: CleanupCatalog.support + "/Claude/claude-code")

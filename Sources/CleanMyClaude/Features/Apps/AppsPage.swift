@@ -35,7 +35,7 @@ struct AppsPage: View {
                     if model.filter != .leftovers {
                         SearchField(text: $model.search, prompt: "Rechercher une app")
                             .frame(width: 200)
-                        Menu {
+                        BorderlessMenu {
                             Picker("Trier par", selection: $model.sort) {
                                 ForEach(AppSort.allCases) { Text($0.title).tag($0) }
                             }
@@ -43,8 +43,6 @@ struct AppsPage: View {
                         } label: {
                             Label(model.sort.title, systemImage: "arrow.up.arrow.down").font(.ui(11.5)).foregroundStyle(Theme.text2)
                         }
-                        .menuStyle(.borderlessButton)
-                        .fixedSize()
                     }
                 }
                 if model.filter == .leftovers {
@@ -101,7 +99,12 @@ struct SearchField: View {
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: "magnifyingglass").font(.ui(11.5)).foregroundStyle(Theme.text3)
-            TextField(prompt, text: $text).textFieldStyle(.plain).font(.ui(12.5))
+            if Snapshot.isActive {
+                Text(text.isEmpty ? prompt : text).font(.ui(12.5)).foregroundStyle(text.isEmpty ? Theme.text3 : Theme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                TextField(prompt, text: $text).textFieldStyle(.plain).font(.ui(12.5))
+            }
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").font(.ui(11)).foregroundStyle(Theme.text3) }
                     .buttonStyle(.plain)

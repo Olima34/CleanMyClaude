@@ -58,6 +58,7 @@ enum AppInventory {
     }
 
     static func scan(running: RunningApps, progress: @escaping (Double) -> Void = { _ in }) -> [InstalledApp] {
+        if DemoData.isEnabled { return DemoData.apps() }
         let paths = bundlePaths()
         let slots = Slots<InstalledApp>(count: paths.count)
         DispatchQueue.concurrentPerform(iterations: paths.count) { i in
@@ -98,6 +99,7 @@ enum AppInventory {
 /// Finds what an app scattered in ~/Library.
 enum Leftovers {
     static func find(for app: InstalledApp) -> [CleanupItem] {
+        if DemoData.isEnabled { return DemoData.leftovers(for: app) }
         let lib = FS.home + "/Library"
         var paths: [(String, String)] = [] // path, kind
         let names = Set([app.name, (app.path as NSString).lastPathComponent.replacingOccurrences(of: ".app", with: "")])
@@ -154,6 +156,7 @@ enum Leftovers {
 /// Settings and caches of apps that are no longer installed.
 enum OrphanFinder {
     static func scan(installed: [InstalledApp], includeContainers: Bool) -> [CleanupItem] {
+        if DemoData.isEnabled { return DemoData.orphans() }
         let lib = FS.home + "/Library"
         var places: [(String, String)] = [
             ("Application Support", "Données"), ("Caches", "Cache"), ("Preferences", "Préférences"),

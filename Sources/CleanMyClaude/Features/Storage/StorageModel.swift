@@ -64,7 +64,7 @@ final class StorageModel {
     var kindFilter: FileKind = .all
 
     var dupRoots: [String] = ["Downloads", "Desktop", "Documents", "Pictures", "Movies", "Music"]
-        .map { FS.home + "/" + $0 }.filter { FS.exists($0) }
+        .map { FS.home + "/" + $0 }.filter { DemoData.isEnabled || FS.exists($0) }
     var dupGroups: [DuplicateGroup] = []
     var dupSelection: Set<String> = []
     var isFindingDups = false
@@ -107,6 +107,7 @@ final class StorageModel {
         isScanning = false
         guard !flag.isCancelled else { return }
         root = result.root
+        rootPath = result.root.path
         current = result.root
         bigFiles = result.bigFiles
         bigSelection = []

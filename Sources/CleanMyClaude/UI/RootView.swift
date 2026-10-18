@@ -104,6 +104,10 @@ struct Sidebar: View {
             }
             .padding(.horizontal, 18)
             .padding(.bottom, 8)
+            if DemoData.isEnabled {
+                Tag(text: "Démo · données fictives", symbol: "theatermasks", tint: Theme.brand, filled: true)
+                    .padding(.horizontal, 18)
+            }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {

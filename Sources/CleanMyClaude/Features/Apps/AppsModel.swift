@@ -102,6 +102,10 @@ final class AppsModel {
     }
 
     func quitTarget() {
+        guard !DemoData.isEnabled else {
+            message = DemoData.refusal
+            return
+        }
         guard let app = uninstallTarget, let id = app.bundleID else { return }
         NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == id }.forEach { $0.terminate() }
         Task {
@@ -119,10 +123,12 @@ final class AppsModel {
         let report = await Task.detached(priority: .userInitiated) { Leftovers.uninstall(app, leftovers: chosen) }.value
         isRemoving = false
         uninstallTarget = nil
-        if !FS.exists(app.path) {
+        if !report.failures.contains(where: { $0.path == app.path }) && !FS.exists(app.path) {
             apps.removeAll { $0.id == app.id }
             message = "\(app.name) est désinstallée : \(Fmt.bytes(report.freed)) envoyés à la Corbeille."
             ActionLog.write("DÉSINSTALLÉ \(app.name) (\(app.path))")
+        } else if DemoData.isEnabled {
+            message = DemoData.refusal
         } else {
             message = "\(app.name) n'a pas pu être supprimée. Glisse-la dans la Corbeille depuis le Finder."
         }

@@ -25,6 +25,7 @@ struct RemovalReport {
     }
 
     var summary: String {
+        if DemoData.isEnabled { return "Mode démo : rien n'a été supprimé, ces fichiers sont fictifs." }
         var s = "\(Fmt.plural(removed, "élément traité", "éléments traités")), \(Fmt.bytes(freed)) libérés."
         if !failures.isEmpty {
             s += " \(Fmt.plural(failures.count, "élément n'a", "éléments n'ont")) pas pu être supprimé\(failures.count > 1 ? "s" : "") (fichiers en cours d'utilisation ou protégés)."
@@ -70,6 +71,8 @@ enum Remover {
     }
 
     static func remove(_ entries: [RemovalEntry], mode: RemovalMode) -> RemovalReport {
+        // The demo shows fictional paths: nothing may ever be deleted, whatever they point to.
+        if DemoData.isEnabled { return RemovalReport(failures: entries.map { ($0.path, DemoData.refusal) }) }
         let effective: RemovalMode = Preferences.alwaysTrash ? .trash : mode
         var report = RemovalReport()
         for e in entries {

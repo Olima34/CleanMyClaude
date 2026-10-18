@@ -25,6 +25,7 @@ swift build -c release
 
 echo "→ Vérification des garde-fous…"
 "$ROOT/.build/release/$EXEC" --selftest
+"$ROOT/.build/release/$EXEC" --selftest --demo
 
 echo "→ Icône…"
 ICON_WORK="$BUILD_DIR/icon"

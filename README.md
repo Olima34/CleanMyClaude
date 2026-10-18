@@ -8,6 +8,39 @@
 Un utilitaire d'entretien natif pour macOS, dans l'esprit de CleanMyMac, construit avec Claude.<br>
 Libre, gratuit, et tout se passe en local.</p>
 
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" alt="Tableau de bord : score de santé, stockage, mémoire, processeur, batterie, résultats de l'analyse intelligente, activité en direct et conseils" width="900">
+</p>
+
+<table>
+  <tr>
+    <th>Nettoyage du système</th>
+    <th>Protection et confidentialité</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/cleanup.png" alt="Nettoyage : fichiers inutiles classés par catégorie, avec le détail des caches d'applications et les éléments verrouillés par une app ouverte"></td>
+    <td valign="top"><img src="docs/screenshots/protection.png" alt="Protection : bilan de sécurité de macOS (FileVault, coupe-feu, Gatekeeper, SIP, mises à jour…)"></td>
+  </tr>
+  <tr>
+    <th>Applications</th>
+    <th>Espace de stockage</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/apps.png" alt="Applications : inventaire avec taille, version, dernière ouverture, apps Intel et apps de l'App Store"></td>
+    <td valign="top"><img src="docs/screenshots/storage.png" alt="Stockage : carte proportionnelle du dossier personnel et liste de son contenu"></td>
+  </tr>
+  <tr>
+    <th>Optimisation</th>
+    <th>Menu d'état</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/performance.png" alt="Optimisation : jauges du processeur et de la mémoire, courbes en direct et apps les plus gourmandes"></td>
+    <td valign="top" align="center"><img src="docs/screenshots/menubar-panel.png" alt="Menu d'état : panneau de la barre des menus avec processeur, mémoire, disque, batterie, réseau et actions express" width="300"></td>
+  </tr>
+</table>
+
+<sub>Captures réalisées avec des données fictives (mode `--demo`) : ni les apps, ni les fichiers, ni les processus montrés n'existent.</sub>
+
 > *English: a native macOS maintenance utility (cleanup, security audit, startup items, app uninstaller, disk map, live menu bar monitor). The interface is in French.*
 
 > Projet personnel et non officiel, sans lien avec Anthropic ni avec MacPaw. « Claude » est une marque d'Anthropic, « CleanMyMac » une marque de MacPaw.
@@ -63,7 +96,20 @@ swift build
 .build/debug/CleanMyClaude --dump --storage ~/Developer --duplicates ~/Downloads
 .build/debug/CleanMyClaude --selftest             # garde-fous de suppression
 .build/debug/CleanMyClaude --snapshot out/        # rend chaque page en PNG (--page, --tab, --light, --scale 2)
+.build/debug/CleanMyClaude --demo                 # lance l'app avec des données fictives, sans lire le disque
 ```
+
+`--demo` fonctionne aussi avec `--dump` et `--snapshot`. Les données de démonstration (`App/DemoData.swift`) décrivent un Mac inventé : un dossier personnel fictif, 25 apps aux noms et icônes inventés, leurs caches, processus, agents de démarrage et autorisations, un disque d'un téraoctet. Les dates sont relatives au lancement et les courbes en direct sortent d'une graine fixe : deux rendus du même jour sont identiques. En mode démo, aucun scanner ne lit le disque, aucune commande n'est lancée et `Remover` refuse toute suppression ; `--selftest --demo` le vérifie sur un fichier témoin. Les captures de ce README en sortent :
+
+```bash
+for p in dashboard cleanup protection performance apps storage menubar; do
+  .build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page $p
+done
+rm docs/screenshots/menubar.png                                      # seul le panneau (menubar-panel.png) sert ici
+pngquant --quality 80-95 --force --ext .png docs/screenshots/*.png   # optionnel : divise le poids par quatre
+```
+
+Pendant `--snapshot`, les menus, champs de texte, interrupteurs et zones de défilement d'AppKit sont remplacés par des équivalents dessinés en SwiftUI : `ImageRenderer` les rendrait en rectangles jaunes ou vides.
 
 Le code, en SwiftUI pur, sans dépendance :
 
@@ -79,7 +125,6 @@ Le design reprend celui de [ClaudeStats](https://github.com/Olima34/ClaudeStats)
 
 ## Feuille de route
 
-- Mode démo à données fictives, pour des captures d'écran publiables
 - « Demande à Claude » : expliquer un processus, un agent ou un dossier inconnu via l'API Claude (clé fournie par l'utilisateur)
 - Mises à jour des apps (Homebrew, Sparkle, App Store)
 - Nettoyage planifié et rappels

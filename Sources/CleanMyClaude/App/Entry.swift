@@ -39,7 +39,7 @@ enum Diagnostics {
     }
 
     static func run() {
-        print("Clean My Claude — diagnostic (lecture seule)")
+        print("Clean My Claude — diagnostic (lecture seule)" + (DemoData.isEnabled ? " · données de démonstration (fictives)" : ""))
         print("Accès complet au disque : \(Permissions.hasFullDiskAccess ? "oui" : "non")")
         let monitor = SystemMonitor(start: false)
         usleep(500_000)
@@ -134,9 +134,14 @@ enum Diagnostics {
     }
 }
 
-/// `CleanMyClaude --snapshot <dir> [--page cleanup] [--light] [--scale 2]` renders pages to PNG with real scan data.
+/// `CleanMyClaude --snapshot <dir> [--page cleanup] [--light] [--scale 2] [--demo]` renders pages to PNG,
+/// with real scan data or, with `--demo`, the fictional Mac of `DemoData`.
 @MainActor
 enum Snapshot {
+    /// True while rendering: AppKit controls (menus, fields, switches) come out as yellow boxes in `ImageRenderer`
+    /// and scroll views come out empty, so views swap them for drawn equivalents.
+    nonisolated static let isActive = CommandLine.arguments.contains("--snapshot")
+
     static func run(dir: String) {
         _ = NSApplication.shared
         let light = CommandLine.arguments.contains("--light")
@@ -145,32 +150,10 @@ enum Snapshot {
         let scale = Entry.value(after: "--scale").flatMap(Double.init) ?? 1
         let only = Entry.value(after: "--page").flatMap(Page.init(rawValue:))
 
+        // In demo mode the model fills itself with the fictional Mac.
         let model = AppModel(liveMonitor: false)
         model.showOnboarding = false
-        for _ in 0..<12 {
-            usleep(150_000)
-            model.monitor.sample()
-        }
-        let running = RunningApps.snapshot()
-        model.cleanup.apply(CleanupScanner.scan(running: running))
-        model.cleanup.claude = CleanupScanner.claudeFootprint()
-        model.cleanup.lastScan = Date()
-        model.protection.checks = SecurityAudit.run()
-        model.protection.grants = TCCReader.read()
-        model.protection.traces = PrivacyScanner.scan(running: running)
-        model.protection.lastAudit = Date()
-        model.startup.items = LaunchItemScanner.scan()
-        model.startup.lastScan = Date()
-        model.apps.apps = AppInventory.scan(running: running)
-        model.apps.lastScan = Date()
-        model.performance.processes = ProcessList.sample()
-        model.smartScanDate = Date()
-        let storagePath = FS.expand(Entry.value(after: "--storage") ?? "~/Developer")
-        let r = StorageScanner.scan(storagePath, isCancelled: { false }) { _, _ in }
-        model.storage.root = r.root
-        model.storage.current = r.root
-        model.storage.bigFiles = r.bigFiles
-        model.storage.rootPath = storagePath
+        if !DemoData.isEnabled { scan(model) }
 
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var shots: [(String, AnyView)] = []
@@ -208,9 +191,38 @@ enum Snapshot {
             }
         }
     }
+
+    /// Runs every scanner on this Mac (`--storage` picks the folder to map, ~/Developer by default).
+    private static func scan(_ model: AppModel) {
+        for _ in 0..<12 {
+            usleep(150_000)
+            model.monitor.sample()
+        }
+        let running = RunningApps.snapshot()
+        model.cleanup.apply(CleanupScanner.scan(running: running))
+        model.cleanup.claude = CleanupScanner.claudeFootprint()
+        model.cleanup.lastScan = Date()
+        model.protection.checks = SecurityAudit.run()
+        model.protection.grants = TCCReader.read()
+        model.protection.traces = PrivacyScanner.scan(running: running)
+        model.protection.lastAudit = Date()
+        model.startup.items = LaunchItemScanner.scan()
+        model.startup.lastScan = Date()
+        model.apps.apps = AppInventory.scan(running: running)
+        model.apps.lastScan = Date()
+        model.performance.processes = ProcessList.sample()
+        model.smartScanDate = Date()
+        let storagePath = FS.expand(Entry.value(after: "--storage") ?? "~/Developer")
+        let r = StorageScanner.scan(storagePath, isCancelled: { false }) { _, _ in }
+        model.storage.root = r.root
+        model.storage.current = r.root
+        model.storage.bigFiles = r.bigFiles
+        model.storage.rootPath = storagePath
+    }
 }
 
 /// `CleanMyClaude --selftest` checks the deletion guard rails without touching any file.
+/// With `--demo`, it also checks that the demo mode deletes and runs nothing, on a throwaway file of its own.
 enum SelfTest {
     static func run() -> Bool {
         let h = FS.home
@@ -243,7 +255,21 @@ enum SelfTest {
                 ok = false
             }
         }
-        print(ok ? "✓ garde-fous OK (\(refused.count) refus, \(allowed.count) autorisations, catalogue vérifié)" : "✗ échec")
+        if DemoData.isEnabled {
+            let probe = NSTemporaryDirectory() + "cleanmyclaude-demo-probe-\(getpid())"
+            FileManager.default.createFile(atPath: probe, contents: Data("démo".utf8))
+            let report = Remover.remove([RemovalEntry(path: probe, size: 5)], mode: .delete)
+            if report.removed > 0 || !FS.exists(probe) {
+                print("✗ le mode démo a supprimé un fichier")
+                ok = false
+            }
+            if Shell.run("/usr/bin/true").ok {
+                print("✗ le mode démo a lancé une commande")
+                ok = false
+            }
+            try? FileManager.default.removeItem(atPath: probe)
+        }
+        print(ok ? "✓ garde-fous OK (\(refused.count) refus, \(allowed.count) autorisations, catalogue vérifié\(DemoData.isEnabled ? ", mode démo inerte" : ""))" : "✗ échec")
         return ok
     }
 }

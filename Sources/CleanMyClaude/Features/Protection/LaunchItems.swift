@@ -95,6 +95,7 @@ enum LaunchItemScanner {
                                             "node", "php", "tclsh", "pwsh"]
 
     static func scan() -> [LaunchItem] {
+        if DemoData.isEnabled { return DemoData.launchItems() }
         let uid = getuid()
         let guiDisabled = parseDisabled(Shell.run("/bin/launchctl", ["print-disabled", "gui/\(uid)"]).out)
         let sysDisabled = parseDisabled(Shell.run("/bin/launchctl", ["print-disabled", "system"]).out)
