@@ -334,7 +334,7 @@ enum ToolboxWords {
     roulotte ruban sabot saphir sarbacane    sextant silex sorcier soucoupe sphinx \
     stylo sureau tamis tanuki tartine terrier tisane toboggan topaze torrent toucan tourelle trappeur tremplin \
     triangle troupeau tuba turban vapeur vautour verrou vigie vitrail voyelle  
-    """.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+    """.split(whereSeparator: \.isWhitespace).map(String.init)
 }
 
 // MARK: - Digests
@@ -654,7 +654,7 @@ enum ToolboxText {
     arcu vulputate eu facilisis volutpat nibh tellus molestie nunc mattis rhoncus urna neque viverra justo nec \
     ultrices dui sapien eget mi proin sagittis nisl quam lacus suspendisse faucibus interdum posuere lobortis cursus \
     vel risus commodo viverra maecenas accumsan semper auctor ornare massa tincidunt dictum fusce placerat orci
-    """.split(whereSeparator: { $0 == " " || $0 == "\n" }).map(String.init)
+    """.split(whereSeparator: \.isWhitespace).map(String.init)
 
     /// Classic Lorem ipsum: the first sentence is the usual one, the rest is drawn from `seed`.
     static func lorem(_ count: Int, unit: LoremUnit, seed: UInt64 = 1) -> String {
@@ -679,9 +679,15 @@ enum ToolboxText {
         case .sentences:
             return (0..<n).map { sentence(first: $0 == 0) }.joined(separator: " ")
         case .paragraphs:
-            return (0..<n).map { p in
-                (0..<(4 + Int(rng.next() % 3))).map { sentence(first: p == 0 && $0 == 0) }.joined(separator: " ")
-            }.joined(separator: "\n\n")
+            // Plain loops: Xcode 16's type checker gives up on the nested map version.
+            var paragraphs: [String] = []
+            for p in 0..<n {
+                let length = 4 + Int(rng.next() % 3)
+                var sentences: [String] = []
+                for s in 0..<length { sentences.append(sentence(first: p == 0 && s == 0)) }
+                paragraphs.append(sentences.joined(separator: " "))
+            }
+            return paragraphs.joined(separator: "\n\n")
         }
     }
 }
