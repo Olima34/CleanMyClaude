@@ -69,12 +69,19 @@ enum ModuleRegistry {
         for (_, m) in modules(app) { m.start(app: app) }
     }
 
+    /// Called when the app quits: modules release what they hold (Caféine, timers) and save their data.
+    static func stopAll(_ app: AppModel) {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
+        for (_, m) in modules(app) { m.stop() }
+    }
+
     static func loadDemo(_ app: AppModel) {
         for (_, m) in modules(app) { m.loadDemo() }
     }
 
-    static func applySnapshotTab(_ tab: String, app: AppModel) {
-        for (_, m) in modules(app) { m.applySnapshotTab(tab) }
+    /// `only`: the page being captured, so that a tab name shared by two modules reaches the right one.
+    static func applySnapshotTab(_ tab: String, only: Page? = nil, app: AppModel) {
+        for (page, m) in modules(app) where only == nil || only == page { m.applySnapshotTab(tab) }
     }
 
     static func quickToggles(_ app: AppModel) -> [QuickToggle] {

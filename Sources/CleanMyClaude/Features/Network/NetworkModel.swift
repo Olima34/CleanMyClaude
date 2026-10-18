@@ -167,14 +167,9 @@ final class NetworkModel: AppModule {
         }
     }
 
-    /// networkQuality stays silent until it is done: it is stopped directly (only our own child of that name).
+    /// `Shell.stream` stops networkQuality within a fraction of a second, even while it stays silent.
     func cancelSpeedTest() {
-        guard let cancel = speedCancel else { return }
-        cancel.cancel()
-        let me = getpid()
-        Task.detached {
-            _ = Shell.run("/usr/bin/pkill", ["-TERM", "-P", "\(me)", "-x", "networkQuality"], timeout: 5)
-        }
+        speedCancel?.cancel()
     }
 
     func clearHistory() {

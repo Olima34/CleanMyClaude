@@ -201,7 +201,7 @@ struct ConverterDropTarget: ViewModifier {
     }
 }
 
-/// The shared `DropZone`, or the same drawing without its drop target in snapshots.
+/// The shared `DropZone` (it leaves out its drop target in snapshots).
 struct ConverterDropZone: View {
     var title: String
     var subtitle: String
@@ -209,18 +209,6 @@ struct ConverterDropZone: View {
     var onFiles: ([URL]) -> Void
 
     var body: some View {
-        if Snapshot.isActive {
-            VStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 30, weight: .light)).foregroundStyle(Theme.text3)
-                Text(title).font(.serif(19)).foregroundStyle(Theme.text)
-                Text(subtitle).font(.ui(12)).foregroundStyle(Theme.text3)
-            }
-            .frame(maxWidth: .infinity, minHeight: 150)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Theme.borderStrong, style: StrokeStyle(lineWidth: 1.5, dash: [7, 5])))
-        } else {
-            DropZone(title: title, subtitle: subtitle, symbol: symbol, allowsFolders: true, onFiles: onFiles)
-        }
+        DropZone(title: title, subtitle: subtitle, symbol: symbol, allowsFolders: true, onFiles: onFiles)
     }
 }

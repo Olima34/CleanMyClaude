@@ -59,6 +59,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Modules release what they hold (Caféine, timers) and save their data.
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            if let app = AppContext.model { ModuleRegistry.stopAll(app) }
+        }
+    }
+
     /// The menu bar keeps running when the window is closed.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 

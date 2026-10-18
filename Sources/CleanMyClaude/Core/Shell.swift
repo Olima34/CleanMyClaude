@@ -98,12 +98,23 @@ enum Shell {
         do { try p.run() } catch {
             return Output(status: -1, out: "", err: error.localizedDescription)
         }
+        // A tool may stay silent until it ends (networkQuality -c): the cancel is watched apart from the output.
+        let watcher = DispatchWorkItem {
+            while p.isRunning {
+                if isCancelled() {
+                    terminateTree(p)
+                    return
+                }
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+        }
+        DispatchQueue.global(qos: .utility).async(execute: watcher)
         let all = Box()
         var pending = Data()
         let handle = pipe.fileHandleForReading
         while true {
             if isCancelled() {
-                p.terminate()
+                terminateTree(p)
                 break
             }
             let chunk = handle.availableData
@@ -118,7 +129,21 @@ enum Shell {
         }
         if !pending.isEmpty { onLine(String(decoding: pending, as: UTF8.self)) }
         p.waitUntilExit()
+        watcher.cancel()
         return Output(status: p.terminationStatus, out: String(decoding: all.data, as: UTF8.self), err: "")
+    }
+
+    /// Stops a tool and the processes it started itself (brew launches ruby, curl, git…).
+    private static func terminateTree(_ p: Process) {
+        guard p.isRunning else { return }
+        let pkill = Process()
+        pkill.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pkill.arguments = ["-TERM", "-P", "\(p.processIdentifier)"]
+        pkill.standardOutput = FileHandle.nullDevice
+        pkill.standardError = FileHandle.nullDevice
+        try? pkill.run()
+        pkill.waitUntilExit()
+        p.terminate()
     }
 
     /// Runs a command line through /bin/sh.
@@ -133,7 +158,7 @@ enum Shell {
         let escaped = command
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
-        return appleScript("do shell script \"\(escaped)\" with administrator privileges")
+        return appleScript("do shell script \"\(escaped)\" with administrator privileges without altering line endings")
     }
 
     /// Runs an AppleScript (serialized: NSAppleScript is not thread safe).

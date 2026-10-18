@@ -202,7 +202,7 @@ enum Snapshot {
             model.performance.tab = PerformanceTab(rawValue: tab) ?? model.performance.tab
             model.storage.tab = StorageTab(rawValue: tab) ?? model.storage.tab
             model.apps.filter = AppFilter(rawValue: tab) ?? model.apps.filter
-            ModuleRegistry.applySnapshotTab(tab, app: model)
+            ModuleRegistry.applySnapshotTab(tab, only: only, app: model)
         }
         for (name, view) in shots {
             if let p = Page(rawValue: name) { model.page = p }
@@ -295,6 +295,17 @@ enum SelfTest {
         for f in moduleFailures {
             print("✗ \(f)")
             ok = false
+        }
+        if !DemoData.isEnabled {
+            // A silent tool must stop soon after a cancel (networkQuality, a brew download).
+            let flag = CancelFlag()
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { flag.cancel() }
+            let start = Date()
+            _ = Shell.stream("/bin/sleep", ["20"], isCancelled: { flag.isCancelled }) { _ in }
+            if Date().timeIntervalSince(start) > 3 {
+                print("✗ l'annulation d'un outil silencieux n'a pas abouti")
+                ok = false
+            }
         }
         if DemoData.isEnabled {
             let probe = NSTemporaryDirectory() + "cleanmyclaude-demo-probe-\(getpid())"

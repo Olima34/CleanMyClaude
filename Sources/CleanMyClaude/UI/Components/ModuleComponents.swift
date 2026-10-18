@@ -49,7 +49,22 @@ struct DropZone: View {
     var onFiles: ([URL]) -> Void
     @State private var targeted = false
 
+    @ViewBuilder
     var body: some View {
+        // A drop destination renders as yellow corners in ImageRenderer: none in snapshots.
+        if Snapshot.isActive {
+            zone
+        } else {
+            zone.dropDestination(for: URL.self) { urls, _ in
+                let files = urls.filter(\.isFileURL)
+                guard !files.isEmpty else { return false }
+                onFiles(files)
+                return true
+            } isTargeted: { targeted = $0 }
+        }
+    }
+
+    private var zone: some View {
         Button(action: choose) {
             VStack(spacing: 10) {
                 Image(systemName: symbol).font(.system(size: 30, weight: .light)).foregroundStyle(targeted ? Theme.accent : Theme.text3)
@@ -63,12 +78,6 @@ struct DropZone: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .dropDestination(for: URL.self) { urls, _ in
-            let files = urls.filter(\.isFileURL)
-            guard !files.isEmpty else { return false }
-            onFiles(files)
-            return true
-        } isTargeted: { targeted = $0 }
     }
 
     private func choose() {

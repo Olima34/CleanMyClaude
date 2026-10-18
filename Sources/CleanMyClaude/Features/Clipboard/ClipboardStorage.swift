@@ -72,7 +72,7 @@ enum ClipboardStorage {
     /// Deletes one of the module's own files. Only a bare file name is accepted: nothing outside the folder can be reached.
     static func remove(_ name: String) {
         guard isPlainName(name), !DemoData.isEnabled, !Snapshot.isActive else { return }
-        try? FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+        Remover.removeInternal(folder.appendingPathComponent(name).path)
     }
 
     static func isPlainName(_ name: String) -> Bool {

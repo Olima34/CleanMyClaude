@@ -166,9 +166,19 @@ enum CommandRunner {
     }
 
     /// Copies text and reports it.
-    static func copy(_ text: String) -> CommandOutcome {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        return .copied(text)
+    /// Copies text. `concealed` marks it as a secret (clipboard managers skip it) and clears it after 90 s
+    /// if it is still there.
+    static func copy(_ text: String, concealed: Bool = false) -> CommandOutcome {
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        if concealed {
+            pb.setString("", forType: NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType"))
+            let change = pb.changeCount
+            DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
+                if NSPasteboard.general.changeCount == change { NSPasteboard.general.clearContents() }
+            }
+        }
+        return .copied(concealed ? "••••••" : text)
     }
 }

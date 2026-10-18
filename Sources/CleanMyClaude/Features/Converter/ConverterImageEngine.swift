@@ -217,11 +217,9 @@ enum ConverterImageEngine {
 
 /// Where outputs go, and the clean-up of a half-written output after a failure or a cancel.
 enum ConverterOutputs {
-    /// Removes a partial output this job wrote itself (logged by `Remover`).
+    /// Removes a partial output this job wrote itself, external disks included (logged by `Remover`).
     static func discard(_ url: URL) {
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
-        _ = Remover.remove([RemovalEntry(path: url.path, size: size)], mode: .delete)
+        Remover.discardOutput(url)
     }
 
     static func size(_ url: URL) -> Int64 {

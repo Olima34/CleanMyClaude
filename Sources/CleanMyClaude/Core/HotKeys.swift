@@ -67,13 +67,15 @@ final class HotKeyCenter {
     private var numbers: [String: UInt32] = [:]
     private var nextNumber: UInt32 = 1
     private var handlerInstalled = false
-    private let saved = JSONStore<[String: KeyCombo]>("hotkeys", default: [:])
+    /// The user's choices; a null entry means "no shortcut" (so the default does not come back at the next launch).
+    private let saved = JSONStore<[String: KeyCombo?]>("hotkeys", default: [:])
 
     private init() {}
 
-    /// The shortcut for `id`: the user's choice if any, else `fallback`.
+    /// The shortcut for `id`: the user's choice if any (including none at all), else `fallback`.
     func combo(for id: String, fallback: KeyCombo?) -> KeyCombo? {
-        saved.value[id] ?? fallback
+        if let choice = saved.value[id] { return choice }
+        return fallback
     }
 
     /// Registers the shortcut for `id`. Returns false if macOS refused it (taken or not allowed).
@@ -96,10 +98,10 @@ final class HotKeyCenter {
         return true
     }
 
-    /// Saves the user's new shortcut for `id` and registers it.
+    /// Saves the user's new shortcut for `id` (nil: none, remembered) and registers it.
     @discardableResult
     func change(_ id: String, to combo: KeyCombo?, action: @escaping () -> Void) -> Bool {
-        saved.value[id] = combo
+        saved.value[id] = .some(combo)
         return register(id, combo: combo, action: action)
     }
 

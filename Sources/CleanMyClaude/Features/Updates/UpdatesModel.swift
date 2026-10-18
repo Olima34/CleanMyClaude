@@ -208,17 +208,9 @@ final class UpdatesModel: AppModule {
         runBrew(steps, title: "Mise à jour de \(Fmt.plural(list.count, "paquet", "paquets")) Homebrew", ids: Set(list.map(\.id)))
     }
 
+    /// `Shell.stream` stops brew and what it launched (ruby, curl…), even during a silent download or build.
     func cancelBrew() {
-        guard let cancel = brewCancel else { return }
-        cancel.cancel()
-        // brew may stay silent (a long download, a build): the stream only notices the cancel on its next line,
-        // so its process is stopped after a moment (only our own children running Homebrew).
-        let me = getpid()
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            guard self?.brewJob?.isRunning == true else { return }
-            Task.detached { _ = Shell.run("/usr/bin/pkill", ["-TERM", "-P", "\(me)", "-f", "Homebrew|/bin/brew"], timeout: 5) }
-        }
+        brewCancel?.cancel()
     }
 
     func dismissBrewJob() {

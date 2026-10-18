@@ -109,6 +109,43 @@ enum Remover {
         return report
     }
 
+    /// Deletes one of the app's own data files (a module's thumbnails, caches…) inside `DataStore.folder`.
+    /// The data folder itself and anything outside it are refused.
+    @discardableResult
+    static func removeInternal(_ raw: String) -> Bool {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return false }
+        let path = (raw as NSString).standardizingPath
+        guard path.hasPrefix(DataStore.folder + "/"), !path.contains("/../"), FS.exists(path) || FS.isSymlink(path) else { return false }
+        do {
+            try FS.fm.removeItem(atPath: path)
+            ActionLog.write("INTERNE \(path)")
+            return true
+        } catch {
+            ActionLog.write("ÉCHEC \(path) : \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    /// Deletes a half-written output after a failure or a cancel. Allowed anywhere (an external disk too),
+    /// but only for a name `FileOps` handed out during this run that was created after that, or for a safe path.
+    @discardableResult
+    static func discardOutput(_ url: URL) -> Bool {
+        let path = (url.path as NSString).standardizingPath
+        guard !DemoData.isEnabled, FS.exists(path) || FS.isSymlink(path) else { return false }
+        guard FileOps.isOwnOutput(url) || isSafe(path) else {
+            ActionLog.write("REFUSÉ \(path)")
+            return false
+        }
+        do {
+            try FS.fm.removeItem(atPath: path)
+            ActionLog.write("ABANDONNÉ \(path)")
+            return true
+        } catch {
+            ActionLog.write("ÉCHEC \(path) : \(error.localizedDescription)")
+            return false
+        }
+    }
+
     /// Asks Finder to move an item to the Trash (handles files owned by root with an admin prompt).
     /// Must not be called from the main thread.
     static func recycle(_ path: String) -> Bool {

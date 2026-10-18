@@ -9,8 +9,36 @@ enum FileOps {
         var errorDescription: String? { "Mode démo : aucun fichier n'est écrit." }
     }
 
+    /// Names handed out by `uniqueURL` during this run, with when: `Remover.discardOutput` may delete
+    /// a half-written output at one of them, even outside the home folder.
+    private final class Issued: @unchecked Sendable {
+        let lock = NSLock()
+        var paths: [String: Date] = [:]
+    }
+    private static let issued = Issued()
+
+    /// True when `url` is a name this run handed out and the item there was created afterwards.
+    static func isOwnOutput(_ url: URL) -> Bool {
+        let path = (url.path as NSString).standardizingPath
+        issued.lock.lock()
+        let since = issued.paths[path]
+        issued.lock.unlock()
+        guard let since, let created = (try? FileManager.default.attributesOfItem(atPath: path))?[.creationDate] as? Date else {
+            return false
+        }
+        return created >= since.addingTimeInterval(-2)
+    }
+
     /// A free name next to `url`: "photo.jpg", then "photo 2.jpg", "photo 3.jpg"…
     static func uniqueURL(_ url: URL) -> URL {
+        let found = freeURL(url)
+        issued.lock.lock()
+        issued.paths[(found.path as NSString).standardizingPath] = Date()
+        issued.lock.unlock()
+        return found
+    }
+
+    private static func freeURL(_ url: URL) -> URL {
         let fm = FileManager.default
         guard fm.fileExists(atPath: url.path) else { return url }
         let dir = url.deletingLastPathComponent()
@@ -40,6 +68,16 @@ enum FileOps {
         try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: target, options: .withoutOverwriting)
         ActionLog.write("CRÉÉ \(Fmt.bytes(Int64(data.count))) \(target.path)")
+        return target
+    }
+
+    /// Creates a new folder (never an existing one: "Photos 2" if "Photos" is taken) and returns it.
+    @discardableResult
+    static func makeDirectory(_ url: URL) throws -> URL {
+        guard !DemoData.isEnabled else { throw Failure.demo }
+        let target = uniqueURL(url)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        ActionLog.write("DOSSIER CRÉÉ \(target.path)")
         return target
     }
 
