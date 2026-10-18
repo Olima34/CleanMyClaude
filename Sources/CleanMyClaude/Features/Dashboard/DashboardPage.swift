@@ -26,6 +26,7 @@ struct DashboardPage: View {
                     .frame(width: 430)
             }
             .fixedSize(horizontal: false, vertical: true)
+            ToolsOverview()
         }
     }
 
@@ -229,6 +230,55 @@ struct ScanResultTile: View {
     }
 }
 
+// MARK: - Tools
+
+/// Every tool beyond maintenance, with its live state: one click opens it.
+struct ToolsOverview: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        Panel(title: "Tout sous la main", subtitle: "Tes outils du quotidien, aussi depuis le lanceur \(app.launcher.combo?.display ?? "")",
+              symbol: "square.grid.3x3", tint: Theme.palette[1]) {
+            VStack(spacing: 12) {
+                TileRow(spacing: 12) {
+                    tile(.launcher, tint: Theme.brand, value: app.launcher.combo?.display ?? "—",
+                         detail: "Apps, fichiers, calculs, conversions d'unités et toutes les actions de l'app")
+                    tile(.converter, tint: Theme.accent, value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : "Glisser-déposer",
+                         detail: "Images, vidéos, audio, PDF, documents, OCR et QR codes")
+                    tile(.updates, tint: Theme.good,
+                         value: app.updates.hasChecked ? "\(app.updates.totalAvailable)" : "—",
+                         detail: app.updates.hasChecked
+                            ? (app.updates.totalAvailable == 0 ? "Tout est à jour" : "mises à jour disponibles (Homebrew, apps, macOS)")
+                            : "Homebrew, apps et macOS : pas encore vérifié")
+                }
+                TileRow(spacing: 12) {
+                    tile(.network, tint: Theme.palette[4],
+                         value: app.network.lastSpeed.map { NetworkFormat.bits($0.download) } ?? "—",
+                         detail: app.network.lastSpeed.map { "reçus au dernier test, \(Fmt.relative($0.date))" } ?? "Débit, Wi-Fi, latence et ports ouverts")
+                    tile(.clipboard, tint: Theme.palette[2],
+                         value: app.clipboard.isActive ? Fmt.int(app.clipboard.items.count) : "En pause",
+                         detail: app.clipboard.isActive ? "éléments dans l'historique, mots de passe ignorés" : "Historique désactivé tant que tu ne l'actives pas")
+                    tile(.toolbox, tint: Theme.warn, value: app.toolbox.sidebarBadge ?? "Caféine",
+                         detail: "Couleurs, mots de passe, empreintes, JSON, Base64 et compagnie")
+                }
+                TileRow(spacing: 12) {
+                    tile(.windows, tint: Theme.palette[1],
+                         value: !app.windows.enabled ? "Inactif" : (app.windows.trusted ? "Actif" : "À autoriser"),
+                         detail: "Moitiés, tiers et quarts d'écran au clavier (⌃⌥ + flèches)")
+                    tile(.automation, tint: Theme.palette[3], value: "\(app.automation.activeCount)",
+                         detail: app.automation.activeCount == 0 ? "Aucune automatisation active pour l'instant" : "automatisations actives (quand l'app est ouverte)")
+                    tile(.assistant, tint: Theme.brand, value: app.assistant.isReady ? "Connecté" : "À connecter",
+                         detail: "Pose une question sur ton Mac : Claude propose, tu décides")
+                }
+            }
+        }
+    }
+
+    private func tile(_ page: Page, tint: Color, value: String, detail: String) -> some View {
+        ScanResultTile(symbol: page.symbol, title: page.title, tint: tint, running: false, value: value, detail: detail, page: page)
+    }
+}
+
 // MARK: - Recommendations
 
 struct Advice: Identifiable {
@@ -300,6 +350,13 @@ struct Recommendations: View {
         if let trash = app.cleanup.targets.first(where: { $0.id == "trash" }), trash.size > 1_000_000_000 {
             out.append(Advice(id: "trash", symbol: "trash", title: "Ta Corbeille pèse \(Fmt.bytes(trash.size))",
                               text: "Ce que tu as jeté occupe toujours ton disque tant qu'elle n'est pas vidée.", tint: Theme.warn, page: .cleanup))
+        }
+        // macOS itself is already in the security checks above: only the apps and packages here.
+        let appUpdates = app.updates.totalAvailable - app.updates.macOSLabels.count
+        if app.updates.hasChecked && appUpdates > 0 {
+            out.append(Advice(id: "updates", symbol: "arrow.down.circle", title: "\(Fmt.plural(appUpdates, "app attend sa mise à jour", "apps attendent leur mise à jour"))",
+                              text: "Les correctifs de sécurité arrivent par là : un clic suffit pour Homebrew, les autres apps s'ouvrent sur leur mise à jour.",
+                              tint: Theme.good, page: .updates))
         }
         if m.swapUsed > m.memTotal / 2 || m.pressure != .normal {
             out.append(Advice(id: "memory", symbol: "memorychip", title: "Ta mémoire est à l'étroit",

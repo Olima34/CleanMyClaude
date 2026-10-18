@@ -270,7 +270,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 14) {
                 promise("hand.raised", "Rien sans ton accord", "J'analyse en lecture seule. Je ne supprime que ce que tu coches, après confirmation.")
                 promise("arrow.uturn.backward", "Le plus prudent d'abord", "Les caches se suppriment (les apps les recréent), tout le reste passe par la Corbeille. Un journal note chaque action.")
-                promise("lock", "Tout reste sur ton Mac", "Aucune donnée n'est envoyée nulle part. Le code est ouvert, sur GitHub.")
+                promise("lock", "Rien ne sort sans ton clic", "Tes données restent sur ton Mac. Les rares connexions (test de débit, recherche de mises à jour, Assistant Claude) partent seulement quand tu cliques. Le code est ouvert, sur GitHub.")
             }
             .padding(18)
             .background(RoundedRectangle(cornerRadius: 14).fill(Theme.card))
@@ -292,6 +292,21 @@ struct OnboardingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Les autres autorisations, je ne te les demanderai qu'au moment où tu en auras besoin :")
+                    .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                later("rectangle.split.2x1", "Accessibilité", "ranger tes fenêtres au clavier et coller depuis l'historique du presse-papiers")
+                later("location", "Localisation", "afficher le nom de ton réseau Wi-Fi (macOS le cache sans elle)")
+                later("bell", "Notifications", "te prévenir quand la mémoire sature ou qu'une automatisation a travaillé")
+                HStack(spacing: 6) {
+                    Image(systemName: "command").font(.ui(11, .semibold)).foregroundStyle(Theme.brand)
+                    Text("Astuce : \(app.launcher.combo?.display ?? "⌥Espace") ouvre le lanceur depuis n'importe quelle app.")
+                        .font(.ui(12, .medium)).foregroundStyle(Theme.text)
+                }
+                .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             Button {
                 app.finishOnboarding()
             } label: {
@@ -303,6 +318,14 @@ struct OnboardingView: View {
         .padding(28)
         .frame(width: 520)
         .background(Theme.bg)
+    }
+
+    private func later(_ symbol: String, _ title: String, _ use: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol).font(.ui(11)).foregroundStyle(Theme.text3).frame(width: 16)
+            (Text(title).font(.ui(12, .semibold)).foregroundColor(Theme.text) + Text(" : pour " + use + ".").font(.ui(12)).foregroundColor(Theme.text2))
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func promise(_ symbol: String, _ title: String, _ text: String) -> some View {

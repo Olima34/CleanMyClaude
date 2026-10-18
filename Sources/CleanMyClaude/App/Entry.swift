@@ -192,6 +192,9 @@ enum Snapshot {
         if only == nil || only == .menubar {
             shots.append(("menubar-panel", AnyView(MenuBarPanel())))
         }
+        if only == nil || only == .dashboard {
+            shots.append(("onboarding-panel", AnyView(OnboardingView())))
+        }
         if only == nil || only == .launcher {
             // The floating panel, as if the user had typed `--query` (default: a calculation).
             model.launcher.preview(Entry.value(after: "--query") ?? "1250*1,2", app: model)
@@ -208,7 +211,7 @@ enum Snapshot {
             if let p = Page(rawValue: name) { model.page = p }
             let content = view
                 .environment(model)
-                .frame(width: name == "menubar-panel" ? 340 : (name == "launcher-panel" ? 700 : 1180))
+                .frame(width: ["menubar-panel": 340, "launcher-panel": 700, "onboarding-panel": 520][name] ?? 1180)
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)

@@ -132,14 +132,18 @@ struct MenuBarPanel: View {
             if !embedded {
                 Divider()
                 HStack {
-                    Button("Ouvrir Clean My Claude") { openMain(page: nil) }
+                    Button("Ouvrir l'app") { openMain(page: nil) }
                         .buttonStyle(SoftButtonStyle(prominent: true))
+                        .lineLimit(1)
+                        .fixedSize()
                     Button {
                         app.launcher.show()
                     } label: {
                         Label(app.launcher.combo?.display ?? "Lanceur", systemImage: "command")
                     }
                     .buttonStyle(SoftButtonStyle())
+                    .lineLimit(1)
+                    .fixedSize()
                     .help("Ouvrir le lanceur")
                     Spacer()
                     Button("Quitter") { NSApp.terminate(nil) }
