@@ -297,8 +297,16 @@ struct OnboardingView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Les autres autorisations, je ne te les demanderai qu'au moment où tu en auras besoin :")
-                    .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Les autres autorisations, je ne te les demanderai qu'au moment où tu en auras besoin, ou toutes d'un coup :")
+                        .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button(PermissionCenter.shared.isRunning ? "En cours…" : "Tout autoriser") {
+                        Task { await PermissionCenter.shared.requestAll() }
+                    }
+                    .buttonStyle(SoftButtonStyle(small: true))
+                    .disabled(PermissionCenter.shared.isRunning)
+                }
                 later("rectangle.split.2x1", "Accessibilité", "ranger tes fenêtres au clavier et coller depuis l'historique du presse-papiers")
                 later("location", "Localisation", "afficher le nom de ton réseau Wi-Fi (macOS le cache sans elle)")
                 later("bell", "Notifications", "te prévenir quand la mémoire sature ou qu'une automatisation a travaillé")

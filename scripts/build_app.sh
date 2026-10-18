@@ -102,14 +102,20 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-# Signature. Ad hoc by default: enough to run on the Mac that built it, but macOS then forgets the permissions
-# (Accessibility, Full Disk Access…) at every rebuild. With a stable identity (see README › "Garder les autorisations"),
-# set CMC_SIGN_IDENTITY to its name and the permissions survive rebuilds.
-if [[ -n "${CMC_SIGN_IDENTITY:-}" ]]; then
-  echo "→ Signature avec « $CMC_SIGN_IDENTITY »…"
-  codesign --force --deep --sign "$CMC_SIGN_IDENTITY" "$APP"
+# Signature. With a stable identity, macOS keeps the permissions (Full Disk Access, Accessibility, folders…)
+# from one rebuild to the next. In order: CMC_SIGN_IDENTITY if set, else the local certificate made by
+# scripts/setup_signing.sh ("Clean My Claude Dev"), else ad hoc (macOS then forgets the permissions at every rebuild).
+IDENTITY="${CMC_SIGN_IDENTITY:-}"
+if [[ -z "$IDENTITY" ]]; then
+  # The SHA-1 of the local certificate (it is self-signed, hence "not trusted": codesign accepts it by its hash).
+  IDENTITY="$(security find-identity -p codesigning 2>/dev/null | awk '/"Clean My Claude Dev"/ {print $2; exit}')"
+fi
+if [[ -n "$IDENTITY" ]]; then
+  echo "→ Signature stable (les autorisations de macOS sont conservées)…"
+  codesign --force --deep --sign "$IDENTITY" "$APP"
 else
   codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+  echo "  Astuce : lance une fois ./scripts/setup_signing.sh pour ne plus redonner les autorisations après chaque compilation."
 fi
 
 if [[ $ZIP -eq 1 ]]; then

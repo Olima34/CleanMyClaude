@@ -6,6 +6,7 @@ struct SettingsView: View {
         TabView {
             GeneralSettings().tabItem { Label("Général", systemImage: "gearshape") }
             ShortcutSettings().tabItem { Label("Raccourcis", systemImage: "keyboard") }
+            PermissionsSettings().tabItem { Label("Autorisations", systemImage: "lock.shield") }
             CleanupSettings().tabItem { Label("Nettoyage", systemImage: "sparkles") }
             AboutSettings().tabItem { Label("À propos", systemImage: "info.circle") }
         }

@@ -183,28 +183,27 @@ Le script compile en release, vérifie les garde-fous, génère l'icône, assemb
 
 ### Les autorisations
 
-Aucune n'est obligatoire : chacune est demandée dans la section qui en a besoin, au moment où tu t'en sers, avec une explication.
+Aucune n'est obligatoire : chacune est demandée dans la section qui en a besoin, au moment où tu t'en sers. Ou toutes d'un coup : **Réglages › Autorisations › Tout autoriser** (aussi sur l'écran d'accueil). macOS pose alors ses questions l'une après l'autre, puis ouvre Réglages Système au bon endroit pour les deux qui s'activent à la main (accès complet au disque et accessibilité) ; l'app attend que l'interrupteur soit mis, ou que tu cliques sur « Passer ».
 
 | Autorisation | Pour quoi faire |
 | --- | --- |
-| **Accès complet au disque** (recommandé) | Voir la Corbeille, Mail, Safari et la liste des autorisations de tes apps, et indexer tes fichiers sans que macOS demande dossier par dossier (Documents, Bureau, Téléchargements). Réglages Système › Confidentialité et sécurité › Accès complet au disque |
+| **Accès complet au disque** (recommandé) | Voir la Corbeille, Mail, Safari et la liste des autorisations de tes apps, et indexer tes fichiers sans que macOS demande dossier par dossier |
 | **Accessibilité** | Ranger les fenêtres au clavier, coller directement depuis l'historique du presse-papiers |
-| **Localisation** | Afficher le nom du réseau Wi-Fi (macOS le cache sans elle) |
+| **Bureau, Documents, Téléchargements** | Index des fichiers du lanceur, rangement de Téléchargements, conversions (inutile avec l'accès complet au disque) |
+| **Piloter le Finder et Événements système** | Corbeille des apps installées par un administrateur, mode sombre, redémarrer, éteindre depuis le lanceur |
+| **Localisation** | Afficher le nom du réseau Wi-Fi (ta position n'est jamais lue) |
+| **Réseau local** | Mesurer la latence de ta box et des appareils de ton réseau |
 | **Notifications** | Alertes de disque ou de mémoire, bilan des automatisations |
 
-L'app est signée localement (signature « ad hoc ») : après une recompilation, macOS peut la considérer comme nouvelle et il faut réactiver ces autorisations.
+### Garder les autorisations après chaque compilation
 
-### Garder les autorisations entre deux compilations
-
-Pour que macOS s'en souvienne même après avoir recompilé, signe l'app avec un certificat local stable, une fois pour toutes :
-
-1. Ouvre **Trousseau d'accès › Assistant de certification › Créer un certificat…**
-2. Nom : `Clean My Claude Dev`, type d'identité : **Racine auto-signée**, type de certificat : **Signature de code**, puis Créer.
-3. Compile avec ce certificat :
+Signée « ad hoc » (par défaut), l'app change d'identité à chaque compilation : macOS la prend pour une nouvelle app et oublie ses autorisations. Pour qu'il s'en souvienne, crée une fois pour toutes un certificat de signature local :
 
 ```bash
-CMC_SIGN_IDENTITY="Clean My Claude Dev" ./scripts/build_app.sh
+./scripts/setup_signing.sh
 ```
+
+Le script ajoute à ton trousseau de session un certificat auto-signé « Clean My Claude Dev » (valable 10 ans, clé non exportable, réservée à `codesign`, aucun réglage de confiance modifié). `build_app.sh` l'utilise ensuite tout seul. À la première compilation, macOS demande une fois si `codesign` peut utiliser la clé : saisis ton mot de passe de session et choisis « Toujours autoriser ». Accorde ensuite les autorisations une dernière fois : elles restent acquises après chaque reconstruction. Pour le retirer : `security delete-identity -c "Clean My Claude Dev"`. Une autre identité reste possible avec `CMC_SIGN_IDENTITY="…" ./scripts/build_app.sh`.
 
 ### Connecter l'assistant Claude
 
