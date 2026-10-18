@@ -10,8 +10,27 @@ struct LauncherView: View {
     @FocusState private var focused: Bool
 
     var body: some View {
+        Group {
+            switch app.launcher.mode {
+            case .search: search
+            case .translator: TranslatorPanelView()
+            case .assign(let target, let title): LauncherAssignView(target: target, title: title)
+            }
+        }
+        .frame(width: Self.width, height: Self.height)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.bg))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.borderStrong))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(TranslatorHost(channel: .launcher))
+        .onAppear { DispatchQueue.main.async { focused = true } }
+        .onChange(of: app.launcher.mode) { _, mode in
+            if mode == .search { DispatchQueue.main.async { focused = true } }
+        }
+    }
+
+    private var search: some View {
         @Bindable var model = app.launcher
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             HStack(spacing: 12) {
                 ClaudeSpark(size: 22)
                 if Snapshot.isActive {
@@ -48,12 +67,6 @@ struct LauncherView: View {
             Rectangle().fill(Theme.border).frame(height: 1)
             footer
         }
-        .frame(width: Self.width, height: Self.height)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.borderStrong))
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .background(TranslatorHost(channel: .launcher))
-        .onAppear { DispatchQueue.main.async { focused = true } }
     }
 
     @ViewBuilder
@@ -82,7 +95,7 @@ struct LauncherView: View {
                     .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 4)
                 ForEach(Array(section.items.enumerated()), id: \.offset) { i, item in
                     let index = offsets[si] + i
-                    LauncherRow(command: item, selected: index == model.selection)
+                    LauncherRow(command: item, selected: index == model.selection, hotkey: app.hotkeys.combo(for: item)?.display)
                         .id(index)
                         .onTapGesture { model.selection = index; model.runSelected() }
                         .onHover { if $0 { model.selection = index } }
@@ -97,6 +110,7 @@ struct LauncherView: View {
             hint("↑↓", "Naviguer")
             hint("↩", "Lancer")
             hint("⌘↩", "Action secondaire")
+            hint("⌘K", "Raccourci")
             hint("⎋", "Fermer")
             Spacer()
             Text("Clean My Claude").font(.serif(12)).foregroundStyle(Theme.text3)
@@ -107,12 +121,7 @@ struct LauncherView: View {
     }
 
     private func hint(_ key: String, _ label: String) -> some View {
-        HStack(spacing: 5) {
-            Text(key).font(.ui(10.5, .semibold)).foregroundStyle(Theme.text2)
-                .padding(.horizontal, 5).padding(.vertical, 1.5)
-                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.track))
-            Text(label).font(.ui(11)).foregroundStyle(Theme.text3)
-        }
+        LauncherKeyHint(key: key, label: label)
     }
 
     private static func offsets(_ sections: [LauncherSection]) -> [Int] {
@@ -126,6 +135,8 @@ struct LauncherView: View {
 struct LauncherRow: View {
     var command: AppCommand
     var selected: Bool
+    /// The keyboard shortcut given to this result in Raccourcis, shown like Raycast does.
+    var hotkey: String? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -142,6 +153,11 @@ struct LauncherRow: View {
             }
             if selected, let h = command.hint {
                 Text(h).font(.ui(11)).foregroundStyle(Theme.text3)
+            }
+            if let hotkey {
+                Text(hotkey).font(.ui(10.5, .semibold)).foregroundStyle(Theme.text2)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Theme.track))
             }
         }
         .padding(.horizontal, 12)
@@ -173,6 +189,62 @@ struct CommandIconView: View {
                 .overlay(RoundedRectangle(cornerRadius: size * 0.26).strokeBorder(Theme.borderStrong))
         case .spark:
             ClaudeSpark(size: size * 0.8).frame(width: size, height: size)
+        }
+    }
+}
+
+/// ⌘K: the panel waits for the keys of the new shortcut.
+struct LauncherAssignView: View {
+    @Environment(AppModel.self) private var app
+    var target: HotkeysTarget
+    var title: String
+
+    var body: some View {
+        let current = app.hotkeys.binding(for: target)?.combo
+        VStack(spacing: 18) {
+            Spacer()
+            CommandIconView(icon: app.hotkeys.icon(target), size: 56)
+            VStack(spacing: 6) {
+                Text("Un raccourci pour « \(title) »").font(.serif(24)).foregroundStyle(Theme.text)
+                Text(target.kind).font(.ui(12)).foregroundStyle(Theme.text3)
+            }
+            Text(current?.display ?? "Tape les touches…")
+                .font(.system(size: 26, weight: .semibold, design: .rounded))
+                .foregroundStyle(current == nil ? Theme.text3 : Theme.text)
+                .padding(.horizontal, 22).padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
+            Text(app.launcher.assignMessage ?? (current == nil
+                 ? "Avec ⌘, ⌃ ou ⌥. Il marchera partout, même quand Clean My Claude est caché."
+                 : "Tape d'autres touches pour le changer."))
+                .font(.ui(12.5)).foregroundStyle(app.launcher.assignMessage == nil ? Theme.text2 : Theme.warn)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 520)
+            Spacer()
+            HStack(spacing: 16) {
+                LauncherKeyHint(key: "⌫", label: current == nil ? "Aucun raccourci" : "Retirer le raccourci")
+                LauncherKeyHint(key: "⎋", label: "Annuler")
+                Spacer()
+                Text("Tous tes raccourcis : section Raccourcis").font(.ui(11)).foregroundStyle(Theme.text3)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 9)
+            .background(Theme.sidebar.opacity(0.6))
+        }
+    }
+}
+
+/// A key and what it does, in the panel's footers.
+struct LauncherKeyHint: View {
+    var key: String
+    var label: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(key).font(.ui(10.5, .semibold)).foregroundStyle(Theme.text2)
+                .padding(.horizontal, 5).padding(.vertical, 1.5)
+                .background(RoundedRectangle(cornerRadius: 4).fill(Theme.track))
+            Text(label).font(.ui(11)).foregroundStyle(Theme.text3)
         }
     }
 }

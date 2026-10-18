@@ -10,9 +10,10 @@ struct TranslatorRequest: Equatable {
     var download = false
 }
 
-/// The two places that translate on the device: the page and the launcher panel.
+/// The places that translate on the device: the page, the translator inside the launcher panel,
+/// and the quick results of the launcher's search ("trad …").
 enum TranslatorChannel {
-    case page, launcher
+    case page, panel, launcher
 }
 
 /// Apple's translation only runs inside a view (`translationTask`): this invisible view does it for a channel.
@@ -34,7 +35,7 @@ private struct TranslatorAppleHost: View {
     @State private var configuration: TranslationSession.Configuration?
 
     var body: some View {
-        let ticket = channel == .page ? app.translator.pageTicket : app.translator.launcherTicket
+        let ticket = app.translator.ticket(for: channel)
         Color.clear
             .frame(width: 0, height: 0)
             .translationTask(configuration) { session in

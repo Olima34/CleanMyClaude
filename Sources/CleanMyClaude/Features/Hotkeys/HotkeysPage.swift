@@ -14,9 +14,11 @@ struct HotkeysPage: View {
                 HStack(spacing: 8) {
                     Button { model.chooseApp() } label: { Label("Ajouter une app", systemImage: "plus") }
                         .buttonStyle(SoftButtonStyle(prominent: true))
+                    Button { model.showCommandPicker = true } label: { Label("Ajouter une action", systemImage: "sparkles") }
+                        .buttonStyle(SoftButtonStyle())
                     BorderlessMenu {
                         Button("Un dossier…") { model.chooseFolder() }
-                        Button("Une action de Clean My Claude…") { model.showCommandPicker = true }
+                        Button("Un fichier…") { model.chooseFile() }
                     } label: {
                         Text("Autre…").font(.ui(12.5, .medium)).foregroundStyle(Theme.text2)
                     }
@@ -39,6 +41,8 @@ struct HotkeysPage: View {
                     }
                 }
             }
+
+            HotkeysCatalogPanel()
 
             HStack(alignment: .top, spacing: 14) {
                 let suggestions = model.suggestions
@@ -171,6 +175,114 @@ private struct HotkeysCommandPicker: View {
         }
         .padding(20)
         .frame(width: 520)
+    }
+}
+
+enum HotkeysCatalogKind: String, CaseIterable, Identifiable {
+    case actions, apps
+
+    var id: String { rawValue }
+    var title: String { self == .actions ? "Actions de Clean My Claude" : "Apps" }
+}
+
+/// Every action of the app, or every installed app, each with its shortcut recorder.
+private struct HotkeysCatalogPanel: View {
+    @Environment(AppModel.self) private var app
+    @State private var kind: HotkeysCatalogKind = .actions
+    @State private var query = ""
+
+    private struct Row: Identifiable {
+        let id: String
+        let target: HotkeysTarget
+        let title: String
+        let subtitle: String?
+        let icon: CommandIcon
+        let section: String
+    }
+
+    var body: some View {
+        let rows = filtered
+        Panel(title: "Tout associer", subtitle: "Chaque action de Clean My Claude et chaque app peut avoir son raccourci. Dans le lanceur, ⌘K fait pareil sur le résultat choisi.",
+              symbol: "list.bullet.rectangle", tint: Theme.accent) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    PillPicker(options: HotkeysCatalogKind.allCases, selection: $kind, label: \.title)
+                    Spacer()
+                    if Snapshot.isActive {
+                        Text("Chercher…").font(.ui(12.5)).foregroundStyle(Theme.text3)
+                            .frame(width: 240, alignment: .leading)
+                            .padding(7).background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg.opacity(0.6)))
+                    } else {
+                        TextField(kind == .actions ? "Chercher : analyse, Caféine, traduire…" : "Chercher une app…", text: $query)
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 260)
+                    }
+                }
+                if rows.isEmpty {
+                    Text(kind == .apps && app.launcher.installedApps.isEmpty ? "La liste des apps se charge…" : "Rien ne correspond.")
+                        .font(.ui(12)).foregroundStyle(Theme.text3).padding(.vertical, 6)
+                }
+                let shown = Snapshot.isActive ? Array(rows.prefix(9)) : rows
+                ForEach(Array(shown.enumerated()), id: \.element.id) { i, row in
+                    if i == 0 || shown[i - 1].section != row.section, !row.section.isEmpty {
+                        Text(row.section.uppercased()).font(.ui(10, .semibold)).tracking(0.7).foregroundStyle(Theme.text3)
+                            .padding(.top, i == 0 ? 0 : 8)
+                    }
+                    line(row)
+                }
+                if Snapshot.isActive, rows.count > shown.count {
+                    Text("… et \(rows.count - shown.count) autres").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                }
+            }
+        }
+    }
+
+    private func line(_ row: Row) -> some View {
+        let combo = app.hotkeys.binding(for: row.target)?.combo
+        return HStack(spacing: 10) {
+            CommandIconView(icon: row.icon, size: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(row.title).font(.ui(12.5)).foregroundStyle(Theme.text).lineLimit(1)
+                if let s = row.subtitle, !s.isEmpty { Text(s).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1) }
+            }
+            Spacer()
+            ShortcutRecorder(combo: combo) { new in
+                if let new {
+                    if let other = app.hotkeys.bind(row.target, combo: new) {
+                        HUD.show("\(new.display) est déjà utilisé par \(other)", symbol: "exclamationmark.triangle.fill")
+                    }
+                } else {
+                    app.hotkeys.unbind(row.target)
+                }
+            }
+            .frame(width: 130)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 8).fill(combo == nil ? Color.clear : Theme.accent.opacity(0.07)))
+    }
+
+    private var filtered: [Row] {
+        let all = kind == .actions ? actions : apps
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return all }
+        return all.compactMap { r in Fuzzy.best(q, title: r.title, keywords: [r.subtitle ?? ""]).map { (r, $0) } }
+            .sorted { $0.1 > $1.1 }.map(\.0)
+    }
+
+    private var actions: [Row] {
+        ModuleRegistry.commands(app)
+            .filter { !$0.id.hasPrefix("hk_") }
+            .sorted { ($0.group, $0.title) < ($1.group, $1.title) }
+            .map { c in
+                Row(id: c.id, target: .command(id: c.id, title: c.title), title: c.title, subtitle: c.subtitle, icon: c.icon, section: c.group.title)
+            }
+    }
+
+    private var apps: [Row] {
+        app.launcher.installedApps
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            .map { a in Row(id: a.path, target: .app(path: a.path, name: a.name), title: a.name, subtitle: nil, icon: .file(a.path), section: "") }
     }
 }
 

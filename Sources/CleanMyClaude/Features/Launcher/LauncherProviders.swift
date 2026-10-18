@@ -241,9 +241,18 @@ enum LauncherAppActions {
 
     static func commands(_ app: AppModel) -> [AppCommand] {
         var list: [AppCommand] = Page.allCases.map { p in
-            AppCommand(id: "open_\(p.rawValue)", title: p.title, subtitle: "Ouvrir dans Clean My Claude",
-                       keywords: ["clean my claude", "ouvrir"], icon: .symbol(p.symbol), group: .actions,
-                       assistantSafe: true, hint: "Ouvrir") { ctx in
+            if p == .translator {
+                // Translates right in the launcher panel; ⌘↩ opens the full page.
+                return AppCommand(id: "open_translator", title: p.title, subtitle: "Traduire ici, sans ouvrir la fenêtre · ⌘↩ ouvre la page",
+                                  keywords: ["traduire", "traduction", "translate", "langue"], icon: .symbol(p.symbol, Theme.palette[1]),
+                                  group: .actions, assistantSafe: true, hint: "Traduire", staysInLauncher: true) { ctx in
+                    if ctx.alternate { openMain(ctx.app, p) } else { ctx.app.launcher.showTranslator() }
+                    return .done
+                }
+            }
+            return AppCommand(id: "open_\(p.rawValue)", title: p.title, subtitle: "Ouvrir dans Clean My Claude",
+                              keywords: ["clean my claude", "ouvrir"], icon: .symbol(p.symbol), group: .actions,
+                              assistantSafe: true, hint: "Ouvrir") { ctx in
                 openMain(ctx.app, p)
                 return .done
             }
