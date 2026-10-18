@@ -5,9 +5,9 @@
 <h1 align="center">Clean My Claude</h1>
 
 <p align="center"><b>« Claude, nettoie mon Mac. » Et tant qu'à faire, tout le reste.</b><br>
-L'app Mac tout-en-un, native et sans dépendance : entretien façon CleanMyMac, lanceur façon Raycast,<br>
-convertisseur de fichiers, outils du quotidien, mises à jour, réseau, fenêtres, automatisations et un assistant Claude.<br>
-Libre, gratuite, et rien ne sort de ton Mac sans ton clic.</p>
+L'app Mac tout-en-un, native et sans dépendance : entretien façon CleanMyMac, lanceur façon Raycast avec recherche de fichiers instantanée,<br>
+convertisseur, traducteur, raccourcis d'apps, outils du quotidien, mises à jour, réseau, fenêtres, automatisations et un assistant Claude.<br>
+Toujours là en arrière-plan, sans icône dans le Dock. Libre, gratuite, et rien ne sort de ton Mac sans ton clic.</p>
 
 <p align="center">
   <img src="docs/screenshots/dashboard.png" alt="Tableau de bord : score de santé, stockage, mémoire, processeur, batterie, analyse intelligente, activité en direct, conseils et état de chaque outil" width="900">
@@ -19,8 +19,16 @@ Libre, gratuite, et rien ne sort de ton Mac sans ton clic.</p>
     <th>Convertisseur</th>
   </tr>
   <tr>
-    <td valign="top" align="center"><img src="docs/screenshots/launcher-panel.png" alt="Lanceur : la recherche « pdf » propose les actions du convertisseur et un fichier de l'historique du presse-papiers"></td>
+    <td valign="top" align="center"><img src="docs/screenshots/launcher-panel.png" alt="Lanceur : la recherche « facture » trouve un dossier et des PDF en un instant, avec l'aperçu du dossier sélectionné à droite"></td>
     <td valign="top"><img src="docs/screenshots/converter.png" alt="Convertisseur : photos HEIC à convertir en JPEG sans localisation, vidéos en cours de compression"></td>
+  </tr>
+  <tr>
+    <th>Traducteur</th>
+    <th>Raccourcis</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/translator.png" alt="Traducteur : un texte français traduit en anglais sur le Mac, la liste des langues téléchargées ou à télécharger et l'historique"></td>
+    <td valign="top"><img src="docs/screenshots/hotkeys.png" alt="Raccourcis : des apps, un dossier, un site et une action ouverts par ⌃⌥⌘ + une lettre, avec des suggestions"></td>
   </tr>
   <tr>
     <th>Nettoyage du système</th>
@@ -80,7 +88,7 @@ Libre, gratuite, et rien ne sort de ton Mac sans ton clic.</p>
 
 <sub>Captures réalisées avec des données fictives (mode `--demo`) : ni les apps, ni les fichiers, ni les personnes montrés n'existent.</sub>
 
-> *English: an all-in-one native macOS app: maintenance (cleanup, security audit, startup items, uninstaller, disk map), a Raycast-like launcher, a file converter, everyday tools, clipboard history, updates, network tools, window management, automations and a Claude assistant. The interface is in French.*
+> *English: an all-in-one native macOS app that lives in the background: maintenance (cleanup, security audit, startup items, uninstaller, disk map), a Raycast-like launcher with instant file search and Quick Look previews, a file converter, an on-device or Claude-powered translator, app hotkeys, everyday tools, clipboard history, updates, network tools, window management, automations and a Claude assistant. The interface is in French.*
 
 > Projet personnel et non officiel, sans lien avec Anthropic, MacPaw ni Raycast. « Claude » est une marque d'Anthropic, « CleanMyMac » une marque de MacPaw.
 
@@ -102,8 +110,10 @@ Libre, gratuite, et rien ne sort de ton Mac sans ton clic.</p>
 
 | Section | Contenu |
 | --- | --- |
-| **Lanceur** | `⌥Espace` partout, comme Spotlight ou Raycast : apps classées par fréquence, fichiers, **calculatrice** (virgule française acceptée), **unités** (`10 km en miles`, `5 Go en Mo`, `100 °F en °C`), heure dans le monde, veille, verrouillage, mode sombre, éjection des disques, `quitter Slack`, recherche web (`g`, `ddg`, `yt`, `gh`, `wiki`, `maps`, `trad`), réglages système, emoji, et **toutes les actions de l'app** (`caféine 1h`, `mdp 24`, `#ff8800`, `qr …`, `cb …`, `gauche`, `? une question pour Claude`…) |
+| **Lanceur** | `⌥Espace` partout, comme Spotlight ou Raycast : apps classées par fréquence, **fichiers trouvés instantanément** avec leur **aperçu Quick Look** à côté (voir plus bas), parcours des dossiers (`~/Documents/`, ⇥ pour entrer), recherche dans le contenu (`dans devis cuisine`), **calculatrice** (virgule française acceptée), **unités** (`10 km en miles`, `5 Go en Mo`, `100 °F en °C`), **traduction** (`trad bonjour en espagnol`), heure dans le monde, veille, verrouillage, mode sombre, éjection des disques, `quitter Slack`, recherche web (`g`, `ddg`, `yt`, `gh`, `wiki`, `maps`, `gtrad`), réglages système, emoji, et **toutes les actions de l'app** (`caféine 1h`, `mdp 24`, `#ff8800`, `qr …`, `cb …`, `gauche`, `? une question pour Claude`…) |
+| **Raccourcis** | Un raccourci clavier pour ouvrir **n'importe quelle app** (appuie de nouveau : elle se masque), un dossier, un site ou une action de l'app. Un clic sur une suggestion lui donne `⌃⌥⌘` + une lettre libre de son nom, adaptée à ton clavier (AZERTY ou QWERTY). Aucune autorisation nécessaire |
 | **Convertisseur** | Glisser-déposer, lanceur, Dock ou clic droit dans le Finder (**Services › Convertir avec Clean My Claude**). Images (HEIC, JPEG, PNG, AVIF, TIFF, GIF, BMP, PDF, JPEG 2000 ; redimensionner, compresser, **retirer le GPS** sans recompresser), vidéo (H.264, HEVC, MOV ↔ MP4 sans réencodage, **vidéo → GIF**, extraction de l'audio), audio (AAC, ALAC, WAV, AIFF, FLAC), PDF (fusionner, découper, pivoter, alléger, images ↔ PDF), documents (Word, RTF, HTML, TXT, ODT, Markdown → HTML ou PDF), ZIP, **renommage par lot** avec aperçu, **OCR** en français et en anglais, QR codes. MP3, OGG, MKV ou WebM si `ffmpeg` est installé |
+| **Traducteur** | Deux moteurs : **Apple, sur ton Mac**, hors ligne et instantané (les langues se téléchargent une fois depuis la page), ou **Claude** pour le ton (neutre, formel, familier) et les nuances. Détection de la langue, inversion, historique local, et traduction en direct dans le lanceur |
 | **Boîte à outils** | Pipette et conversions de couleurs, mots de passe et phrases de passe (copie confidentielle effacée au bout de 90 s), empreintes SHA et MD5 de fichiers, Base64, URL, JSON, casse, compteur de mots, Lorem ipsum, UUID, horodatages, et **Caféine** pour empêcher la veille (aussi depuis le menu d'état) |
 | **Presse-papiers** | Historique des textes, images et fichiers copiés, épingles, recherche, rappel depuis le lanceur (`cb …`). **Désactivé tant que tu ne l'actives pas**, il ignore les mots de passe et ce qui est copié depuis un gestionnaire de mots de passe |
 | **Réseau** | Wi-Fi (signal, bruit, canal, débit), adresses locales et publique, **test de débit** (`networkQuality` d'Apple), latence en direct, **ports ouverts** et l'app qui les écoute |
@@ -139,7 +149,25 @@ Tes fichiers, ton historique de presse-papiers et l'état de ton Mac restent sur
 | « Lancer le test » dans Réseau | Apple (`networkQuality`) | Un test de débit |
 | « Afficher » l'IP publique | `api.ipify.org` | Aucune donnée : il te renvoie ton adresse |
 | Une question à l'assistant | Anthropic, via ton abonnement Claude ou ta clé API | Ta question ; l'état du Mac (charge, espace, apps gourmandes) seulement si tu actives « Consulter l'état du Mac » |
+| « Traduire avec Claude » | Anthropic, via ton abonnement Claude ou ta clé API | Le texte à traduire (la traduction Apple, elle, reste sur ton Mac) |
 | Une recherche web dans le lanceur | Ton navigateur | Ce que tu as tapé, comme dans la barre d'adresse |
+
+## La recherche de fichiers, en un millième de seconde
+
+Spotlight met une à quatre secondes à répondre à une recherche par nom : trop lent pour suivre la frappe. Le lanceur garde donc **en mémoire les noms des fichiers** de ton dossier personnel et d'iCloud Drive (environ 2 Mo pour 100 000 fichiers), lus une fois en arrière-plan en quelques secondes, puis **tenus à jour en direct** : macOS (FSEvents) signale les dossiers qui changent et seuls ceux-là sont relus.
+
+| Mesuré sur un Mac de 116 000 fichiers | Temps |
+| --- | --- |
+| Spotlight, nom contenant « facture » | 0,9 s |
+| Spotlight, nom contenant « png » | 3,6 s |
+| Index du lanceur, n'importe quelle recherche | 1 à 3 ms |
+| Construction de l'index (une fois, au lancement) | 2,8 s |
+
+Le classement favorise le nom exact, puis le début du nom, puis le début d'un mot ; ensuite les fichiers modifiés récemment, ceux du Bureau, des Documents, des Téléchargements et d'iCloud Drive, et ceux que tu ouvres souvent. Un mot peut viser un dossier : `edf mars` trouve `Factures/EDF/mars.pdf`. Les dossiers cachés, `~/Library` et les dépendances (`node_modules`, `Pods`…) sont laissés de côté, et l'intérieur des paquets (`.app`, `.photoslibrary`…) n'est pas parcouru. L'index ne quitte jamais la mémoire de ton Mac. Spotlight reste utilisé pour chercher dans le contenu (`dans …`).
+
+## Toujours là, sans prendre de place
+
+Comme Raycast, Clean My Claude n'a pas d'icône dans le Dock : il vit dans la barre des menus et derrière `⌥Espace`. Il s'ouvre à l'ouverture de session sans afficher de fenêtre (réglable), et sa fenêtre se rouvre depuis l'étincelle de la barre des menus, le lanceur ou en relançant l'app. Les réglages permettent de garder l'icône dans le Dock, toujours ou seulement quand la fenêtre est ouverte. Au repos, fenêtre ouverte et tous les modules actifs : environ 1,7 % de processeur et 93 Mo de mémoire.
 
 ## Installation
 
@@ -159,7 +187,7 @@ Aucune n'est obligatoire : chacune est demandée dans la section qui en a besoin
 
 | Autorisation | Pour quoi faire |
 | --- | --- |
-| **Accès complet au disque** (recommandé) | Voir la Corbeille, Mail, Safari et la liste des autorisations de tes apps. Réglages Système › Confidentialité et sécurité › Accès complet au disque |
+| **Accès complet au disque** (recommandé) | Voir la Corbeille, Mail, Safari et la liste des autorisations de tes apps, et indexer tes fichiers sans que macOS demande dossier par dossier (Documents, Bureau, Téléchargements). Réglages Système › Confidentialité et sécurité › Accès complet au disque |
 | **Accessibilité** | Ranger les fenêtres au clavier, coller directement depuis l'historique du presse-papiers |
 | **Localisation** | Afficher le nom du réseau Wi-Fi (macOS le cache sans elle) |
 | **Notifications** | Alertes de disque ou de mémoire, bilan des automatisations |
@@ -205,16 +233,18 @@ swift build
 .build/debug/CleanMyClaude --dump --storage ~/Developer --duplicates ~/Downloads
 .build/debug/CleanMyClaude --snapshot out/        # rend chaque page en PNG (--page, --tab, --light, --scale 2)
 .build/debug/CleanMyClaude --ask "Pourquoi mon Mac chauffe ?" --model haiku   # une question à l'assistant
+.build/debug/CleanMyClaude --translate "Merci pour ton aide" --to en --tone formal   # le traducteur, moteur Claude
+.build/debug/CleanMyClaude --dump --only launcher # construit l'index des fichiers et chronomètre quelques recherches
 .build/debug/CleanMyClaude --demo                 # lance l'app avec des données fictives, sans lire le disque
 ```
 
 `--demo` fonctionne aussi avec `--dump` et `--snapshot`. Les données de démonstration décrivent un Mac inventé : un dossier personnel fictif, des apps aux noms et icônes inventés, leurs caches, processus, agents de démarrage, mises à jour, conversions et historique de presse-papiers. En mode démo, aucun scanner ne lit le disque, aucune commande ni requête n'est lancée et `Remover` refuse toute suppression ; `--selftest --demo` le vérifie sur un fichier témoin. Les captures de ce README en sortent :
 
 ```bash
-for p in dashboard cleanup protection performance apps storage menubar updates converter toolbox clipboard network windows automation assistant; do
+for p in dashboard cleanup protection performance apps storage menubar updates converter translator hotkeys toolbox clipboard network windows automation assistant; do
   .build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page $p
 done
-.build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page launcher --query pdf
+.build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page launcher --query facture
 rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-panel.png
 pngquant --quality 80-95 --force --ext .png docs/screenshots/*.png   # optionnel : divise le poids par quatre
 ```
@@ -229,7 +259,8 @@ Sources/CleanMyClaude/
 ├── Core/       mesures système, tailles via fts(3), Shell, Remover, FileOps, HTTP, commandes du lanceur,
 │               raccourcis globaux, panneaux flottants, stockage, Trousseau, notifications, planificateur
 ├── Features/   une section par dossier : Dashboard, Cleanup, Protection, Performance, Updates, Apps, Storage,
-│               Launcher, Converter, Toolbox, Clipboard, Network, Windows, Automation, Assistant, MenuBar
+│               Launcher, Hotkeys, Converter, Translator, Toolbox, Clipboard, Network, Windows, Automation,
+│               Assistant, MenuBar
 └── UI/         thème et composants partagés avec ClaudeStats
 ```
 

@@ -18,7 +18,7 @@ Relis toujours la capture PNG de ta page. `./scripts/build_app.sh` installe l'ap
 
 - `Core/` : services partagés. Toute suppression passe par `Remover` (`removeInternal` pour les fichiers de l'app dans `DataStore`, `discardOutput` pour une sortie à moitié écrite), toute écriture de fichier par `FileOps` (jamais d'écrasement, `makeDirectory` pour un dossier), tout accès réseau par `HTTP` (HTTPS, sur action de l'utilisateur), tout processus par `Shell` (`run`, `stream`, `which`, `runAsAdmin`). Commandes du lanceur : `Core/Commands.swift` (`CommandRunner.copy(_:concealed:)` pour un secret). Raccourcis globaux : `HotKeyCenter`. Panneaux flottants et messages furtifs : `FloatingPanel`, `HUD`. Persistance : `JSONStore` (dossier `DataStore`). Secrets : `Keychain`. Notifications : `Notifier`. Tâches périodiques : `Scheduler`. Autorisations : `AppPermission` + `PermissionCard`.
 - `App/ModuleRegistry.swift` : le protocole `AppModule` et la liste des modules. Le lanceur, le mode démo, les autotests, les captures et le menu d'état passent par lui.
-- `Features/<Module>/` : un dossier par module (`Launcher`, `Converter`, `Toolbox`, `Clipboard`, `Updates`, `Network`, `Windows`, `Automation`, `Assistant`), avec au minimum `<Module>Model` (`@Observable @MainActor`, conforme à `AppModule`), `<Module>Page` et `<Module>BottomBar`.
+- `Features/<Module>/` : un dossier par module (`Launcher`, `Hotkeys`, `Converter`, `Translator`, `Toolbox`, `Clipboard`, `Updates`, `Network`, `Windows`, `Automation`, `Assistant`), avec au minimum `<Module>Model` (`@Observable @MainActor`, conforme à `AppModule`), `<Module>Page` et `<Module>BottomBar`.
 
 ## Règles pour travailler sur un module
 
