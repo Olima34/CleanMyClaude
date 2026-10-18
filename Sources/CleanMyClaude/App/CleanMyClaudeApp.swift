@@ -264,11 +264,18 @@ final class FinderServices: NSObject {
 /// `cleanmyclaude://run/act_smart_scan` a launcher command (risky ones still ask first).
 @MainActor
 enum URLActions {
+    /// Opening a link brings the app to the front, and its main window would take the keyboard from the launcher panel
+    /// (which then closes): the app steps back first, like when the panel opens with its shortcut.
+    private static func inPanel(_ open: @escaping @MainActor () -> Void) {
+        NSApp.deactivate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { MainActor.assumeIsolated { open() } }
+    }
+
     static func handle(_ url: URL, app: AppModel) {
         let parts = [url.host ?? ""] + url.pathComponents.filter { $0 != "/" }
         switch parts.first {
         case "launcher":
-            app.launcher.show()
+            inPanel { app.launcher.show() }
         case "page":
             if let name = parts.dropFirst().first, let page = Page(rawValue: name) {
                 app.page = page
@@ -276,7 +283,11 @@ enum URLActions {
             }
         case "run":
             if let id = parts.dropFirst().first, let command = ModuleRegistry.commands(app).first(where: { $0.id == id }) {
-                Task { await CommandRunner.execute(command, app: app) }
+                if command.staysInLauncher {
+                    inPanel { Task { await CommandRunner.execute(command, app: app) } }
+                } else {
+                    Task { await CommandRunner.execute(command, app: app) }
+                }
             }
         default:
             NotificationCenter.default.post(name: .openMainWindow, object: nil)

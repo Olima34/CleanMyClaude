@@ -30,7 +30,18 @@ final class FloatingPanel: NSPanel {
 
     override func resignKey() {
         super.resignKey()
-        if closesOnResignKey && isVisible { close() }
+        guard closesOnResignKey, isVisible else { return }
+        // Closes when the user goes elsewhere, not when one of the app's own windows (an alert, a system sheet)
+        // takes the keyboard for a moment: that one comes and goes, the panel stays.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.isVisible, !self.isKeyWindow else { return }
+            if let key = NSApp.keyWindow, key !== self, key.isVisible, !(key is FloatingPanel) {
+                // The main window or the settings: the user moved on.
+                let id = key.identifier?.rawValue ?? ""
+                if !(id.hasPrefix("main") || id.contains("Settings")) { return }
+            }
+            self.close()
+        }
     }
 
     override func cancelOperation(_ sender: Any?) {

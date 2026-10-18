@@ -113,7 +113,21 @@ struct LauncherView: View {
             hint("⌘K", "Raccourci")
             hint("⎋", "Fermer")
             Spacer()
-            Text("Clean My Claude").font(.serif(12)).foregroundStyle(Theme.text3)
+            // Opens the app on the dashboard.
+            Button {
+                app.launcher.hide()
+                app.page = .dashboard
+                NotificationCenter.default.post(name: .openMainWindow, object: nil)
+            } label: {
+                HStack(spacing: 5) {
+                    ClaudeSpark(size: 11)
+                    Text("Clean My Claude").font(.serif(12))
+                }
+                .foregroundStyle(Theme.text2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Ouvrir Clean My Claude sur le tableau de bord")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 9)

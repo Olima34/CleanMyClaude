@@ -31,6 +31,21 @@ enum Entry {
             }
             return
         }
+        if args.contains("--languages") {
+            // What Apple's on-device translation has on this Mac, from French (the same check as the app).
+            final class Done: @unchecked Sendable { var value = false }
+            let done = Done()
+            Task.detached {
+                for l in TranslatorLanguage.all where l.code != "fr" {
+                    let s = await TranslatorAvailability.status(from: "fr", to: l.code)
+                    print("fr → \(l.code) (\(l.name)) : \(s.label)")
+                }
+                done.value = true
+            }
+            // The framework answers on the main run loop: keep it turning while waiting.
+            while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return
+        }
         if let text = value(after: "--translate") {
             // The translator's Claude engine, from the command line (the on-device engine needs a window).
             let detected = TranslatorLanguage.detect(text)

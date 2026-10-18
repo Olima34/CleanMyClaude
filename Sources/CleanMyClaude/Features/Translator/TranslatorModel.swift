@@ -65,6 +65,11 @@ final class TranslatorModel: AppModule {
     var effectiveTarget: String { TranslatorLanguage.effectiveTarget(targetCode, detected: sourceCode ?? detectedCode) }
     var effectiveSource: String? { sourceCode ?? detectedCode }
 
+    /// The languages that translate offline with French (the guesses favour them).
+    var installedCodes: [String] {
+        ["fr"] + TranslatorLanguage.all.map(\.code).filter { languageStatus[$0] == .installed }
+    }
+
     // MARK: Module
 
     func start(app: AppModel) {
@@ -123,7 +128,7 @@ final class TranslatorModel: AppModule {
 
     func results(for query: String, app: AppModel) -> [AppCommand] {
         guard let parsed = TranslatorLanguage.parseLauncher(query) else { return [] }
-        let detected = TranslatorLanguage.detect(parsed.text)
+        let detected = TranslatorLanguage.bestGuess(parsed.text, preferring: installedCodes)
         let target = TranslatorLanguage.effectiveTarget(parsed.target ?? targetCode, detected: detected)
         let key = target + "|" + parsed.text
         let route = "\(TranslatorLanguage.named(detected)) → \(TranslatorLanguage.named(target))"
@@ -168,6 +173,11 @@ final class TranslatorModel: AppModule {
         }
         if TranslatorLanguage.detect("Bonjour à tous, la réunion est décalée à demain matin.") != "fr" { failures.append("détection du français") }
         if TranslatorLanguage.detect("The meeting has been moved to tomorrow morning.") != "en" { failures.append("détection de l'anglais") }
+        // Short words must still get a source language (else Apple opens its own window over the launcher panel).
+        for word in ["bonjour", "merci", "ok", "hello", "gracias"] where TranslatorLanguage.bestGuess(word, preferring: ["fr", "en", "es"]) == nil {
+            failures.append("aucune langue devinée pour « \(word) »")
+        }
+        if TranslatorLanguage.bestGuess("bonjour", preferring: ["fr", "en"]) != "fr" { failures.append("« bonjour » devrait être deviné en français") }
         if TranslatorLanguage.effectiveTarget("en", detected: "en") != "fr" { failures.append("un texte déjà anglais devrait partir en français") }
         if TranslatorLanguage.effectiveTarget("fr", detected: "fr") != "en" { failures.append("un texte déjà français devrait partir en anglais") }
         if TranslatorLanguage.effectiveTarget("es", detected: "fr") != "es" { failures.append("la langue choisie doit être respectée") }
@@ -199,7 +209,7 @@ final class TranslatorModel: AppModule {
             sourceText = text
         }
         error = nil
-        if languageStatus.isEmpty { Task { await refreshLanguageStatuses() } }
+        Task { await refreshLanguageStatuses() } // a language may have been downloaded since
         guard !sourceText.isEmpty else { return }
         if claude { Task { await translateWithClaude() } } else { translateSoon(delay: 0.05) }
     }
@@ -253,7 +263,7 @@ final class TranslatorModel: AppModule {
     func translateSoon(delay: Double = 0.45) {
         autoWork?.cancel()
         guard !DemoData.isEnabled else { return }
-        detectedCode = TranslatorLanguage.detect(sourceText)
+        detectedCode = TranslatorLanguage.bestGuess(sourceText, preferring: installedCodes)
         refreshPairStatus()
         guard engine == .apple else { return }
         let work = DispatchWorkItem { [weak self] in MainActor.assumeIsolated { self?.translateOnDevice() } }
@@ -272,10 +282,20 @@ final class TranslatorModel: AppModule {
             error = "La traduction sur l'appareil demande macOS 15 : passe par Claude."
             return
         }
-        let source = effectiveSource
+        let source = effectiveSource ?? TranslatorLanguage.bestGuess(sourceText, preferring: installedCodes)
         let target = effectiveTarget
+        let inPanel = panelActive
         Task {
             let status = source == nil ? TranslatorPairStatus.unknown : await TranslatorAvailability.status(from: source!, to: target)
+            // In the launcher panel, Apple is only called for languages already on the Mac: anything else
+            // (a download, a language to pick) would open a system window that takes the keyboard and closes the panel.
+            if inPanel, status != .installed {
+                pairStatus = status == .unknown ? .unsupported : status
+                isTranslating = false
+                resultText = ""
+                error = status == .downloadable ? nil : "Je ne reconnais pas la langue de ce texte : choisis-la dans le Traducteur, ou ⌘↩ pour Claude."
+                return
+            }
             if !download, status == .downloadable {
                 pairStatus = .downloadable
                 error = nil
@@ -372,16 +392,15 @@ final class TranslatorModel: AppModule {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 Task {
-                    if let source {
-                        let status = await TranslatorAvailability.status(from: source, to: target)
-                        if status != .installed {
-                            self.launcherNotes[key] = status == .downloadable
-                                ? "Télécharge le \(TranslatorLanguage.named(target).lowercased()) dans le Traducteur (↩)"
-                                : "Apple ne traduit pas cette paire : choisis Claude"
-                            self.launcherAsked = nil
-                            self.app?.launcher.refreshKeepingSelection()
-                            return
-                        }
+                    // Never without a known, installed source: Apple would open its own window over the panel.
+                    let status = source == nil ? TranslatorPairStatus.unsupported : await TranslatorAvailability.status(from: source!, to: target)
+                    if status != .installed {
+                        self.launcherNotes[key] = status == .downloadable
+                            ? "Télécharge le \(TranslatorLanguage.named(target).lowercased()) dans le Traducteur (↩)"
+                            : "Langue non reconnue ou non proposée par Apple : choisis Claude"
+                        self.launcherAsked = nil
+                        self.app?.launcher.refreshKeepingSelection()
+                        return
                     }
                     self.launcherRequest = TranslatorRequest(text: text, source: source, target: target)
                     self.launcherTicket += 1

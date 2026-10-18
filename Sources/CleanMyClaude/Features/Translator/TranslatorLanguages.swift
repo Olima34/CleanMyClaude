@@ -62,6 +62,24 @@ struct TranslatorLanguage: Identifiable, Hashable {
         return language.rawValue
     }
 
+    /// Always an answer for a non-empty text: the sure detection, else the likeliest language, favouring `preferred`
+    /// (those installed on the Mac). Apple's on-device translation must never be left to guess: when unsure, it shows
+    /// its own "choose the language" window, which takes the keyboard and closes the launcher panel.
+    static func bestGuess(_ text: String, preferring preferred: [String] = []) -> String? {
+        if let sure = detect(text) { return sure }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.languageConstraints = all.compactMap { NLLanguage(rawValue: $0.code) }
+        recognizer.processString(trimmed)
+        let hypotheses = recognizer.languageHypotheses(withMaximum: 8)
+        if let favourite = hypotheses.filter({ preferred.contains($0.key.rawValue) }).max(by: { $0.value < $1.value }),
+           favourite.value >= 0.05 {
+            return favourite.key.rawValue
+        }
+        return hypotheses.max(by: { $0.value < $1.value })?.key.rawValue ?? preferred.first
+    }
+
     /// Where the text goes: the chosen language, unless the text is already in it (then French, or English from French).
     static func effectiveTarget(_ chosen: String, detected: String?) -> String {
         guard let detected, detected == chosen else { return chosen }
