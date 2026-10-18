@@ -198,6 +198,12 @@ struct ExplorerTab: View {
                         .contextMenu {
                             if c.isDirectory { Button("Ouvrir") { model.open(c) } }
                             Button("Afficher dans le Finder") { Finder.reveal(c.path) }
+                            Button("Demander à Claude ce que c'est") {
+                                app.assistant.explain(c.name, details: [
+                                    "\(c.isDirectory ? "Dossier" : "Fichier") : \(FS.pretty(c.path))",
+                                    "Taille : \(Fmt.bytes(c.size))\(c.isDirectory ? ", \(Fmt.plural(c.files, "fichier", "fichiers"))" : "")"
+                                ])
+                            }
                             Divider()
                             Button("Mettre à la Corbeille…") { confirm = c; asking = true }
                         }

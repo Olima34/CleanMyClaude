@@ -192,6 +192,15 @@ struct ProcessTable: View {
                             .help("Quitter")
                         }
                     }
+                    .contextMenu {
+                        Button("Demander à Claude ce que c'est") {
+                            app.assistant.explain(g.name, details: [
+                                g.appPath.map { "App : \(FS.pretty($0))" } ?? "Processus (pas une app)",
+                                "\(g.processCount) processus, \(Fmt.dec(g.cpu)) % de processeur, \(Fmt.bytes(g.memory)) de mémoire"
+                            ])
+                        }
+                        if let a = g.appPath { Button("Afficher dans le Finder") { Finder.reveal(a) } }
+                    }
                 }
                 if list.isEmpty {
                     EmptyHint(text: "Lecture des processus…")

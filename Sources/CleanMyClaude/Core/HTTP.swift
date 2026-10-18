@@ -39,6 +39,25 @@ enum HTTP {
         return try await send(req)
     }
 
+    /// For slow answers (an AI model thinking before its first byte): five minutes instead of twenty seconds.
+    private static let patientSession: URLSession = {
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 300
+        c.timeoutIntervalForResource = 600
+        return URLSession(configuration: c)
+    }()
+
+    /// Like `send`, but hands back error responses too (their body often explains what went wrong).
+    /// `patient` allows up to five minutes of silence from the server.
+    static func sendKeepingErrors(_ request: URLRequest, patient: Bool = false) async throws -> (Data, HTTPURLResponse) {
+        guard !DemoData.isEnabled else { throw Failure.demo }
+        guard request.url?.scheme == "https" else { throw Failure.insecure }
+        ActionLog.write("RÉSEAU \(request.httpMethod ?? "GET") \(request.url?.host ?? "?")")
+        let (data, response) = try await (patient ? patientSession : session).data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw Failure.empty }
+        return (data, http)
+    }
+
     static func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         guard !DemoData.isEnabled else { throw Failure.demo }
         guard request.url?.scheme == "https" else { throw Failure.insecure }

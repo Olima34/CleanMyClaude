@@ -239,6 +239,14 @@ struct LaunchItemRow: View {
                             Task { await startup.setDisabled(item, !item.disabled) }
                         }
                         Button("Afficher dans le Finder") { Finder.reveal(item.plistPath) }
+                        Button("Demander à Claude ce que c'est") {
+                            app.assistant.explain(item.label, details: [
+                                "Type : \(item.domain.title.lowercased())",
+                                "Programme : \(item.commandLine)",
+                                "Signature : \(item.signature.label)",
+                                item.flags.isEmpty ? "Aucun signal particulier" : "Signalé : \(item.flags.map(\.rawValue).joined(separator: ", "))"
+                            ])
+                        }
                         if let p = item.program, FS.exists(p) {
                             Button("Afficher le programme") { Finder.reveal(p) }
                         }
