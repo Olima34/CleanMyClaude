@@ -119,8 +119,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             LoginItem.applyDefaultOnce()
             NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
-                guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }
-                MainActor.assumeIsolated { AppContext.applyDockIcon(windowClosing: true) }
+                guard let w = note.object as? NSWindow else { return }
+                MainActor.assumeIsolated {
+                    if w.identifier?.rawValue.hasPrefix("main") ?? false {
+                        AppContext.applyDockIcon(windowClosing: true)
+                    } else if !(w is NSPanel), w.styleMask.contains(.titled), w.isKeyWindow {
+                        // Without a Dock icon, closing the settings would send the app behind the others and hide its
+                        // main window: it comes back to the front instead.
+                        DispatchQueue.main.async {
+                            guard let main = AppContext.mainWindow, !main.isMiniaturized else { return }
+                            main.makeKeyAndOrderFront(nil)
+                            NSApp.activate(ignoringOtherApps: true)
+                        }
+                    }
+                }
             }
             NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
                 guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }

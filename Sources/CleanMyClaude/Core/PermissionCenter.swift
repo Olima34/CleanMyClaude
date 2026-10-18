@@ -93,6 +93,8 @@ final class PermissionCenter {
     /// what to do when the switch is already on).
     var waitingForSettings = false
     var waitingSince: Date?
+    /// After a reset, macOS may leave the app out of the list: the user adds it back (+, or a drag from the Finder).
+    var addBack: PermissionKind?
     /// Answers macOS gave that cannot be read again later (System Events not running, local network).
     @ObservationIgnored private var remembered: [PermissionKind: PermissionState] = [:]
     @ObservationIgnored private var lastNetworkCheck = Date.distantPast
@@ -254,7 +256,15 @@ final class PermissionCenter {
         ActionLog.write("AUTORISATION RÉINITIALISÉE \(service) : \(r.ok ? "ok" : r.all.trimmingCharacters(in: .whitespacesAndNewlines))")
         skipWait = true // a wait in progress stops; the new request below waits again
         try? await Task.sleep(nanoseconds: 600_000_000)
+        if kind.needsSettings {
+            // macOS does not always put the app back in the list by itself: shown in the Finder, ready to be
+            // dragged in (or picked after +), with System Settings opened above.
+            addBack = kind
+            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: Bundle.main.bundlePath)])
+            try? await Task.sleep(nanoseconds: 400_000_000)
+        }
         await request(kind)
+        addBack = nil
         await refresh()
     }
 

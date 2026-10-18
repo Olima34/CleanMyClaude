@@ -92,7 +92,11 @@ private struct PermissionSettingsRow: View {
                 Spacer()
                 trailing
             }
-            if isCurrent, center.waitingForSettings {
+            if isCurrent, center.waitingForSettings, center.addBack == kind {
+                Text("Clean My Claude n'est plus dans la liste ? Glisse-la depuis la fenêtre du Finder qui vient de s'ouvrir dans la liste de Réglages Système (ou clique sur + et choisis-la), puis active l'interrupteur.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .padding(.leading, 30)
+            } else if isCurrent, center.waitingForSettings {
                 // The switch may already be on for an older build of the app: macOS then ignores it.
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     if let since = center.waitingSince, context.date.timeIntervalSince(since) > 5 {
