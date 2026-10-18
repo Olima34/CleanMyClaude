@@ -71,6 +71,8 @@ struct AppCommand: Identifiable {
     var hint: String? = nil
     /// For dynamic results (calculator, files…): relevance set by the provider, added to the match score.
     var boost: Double = 0
+    /// The command shows its own view inside the launcher panel (the translator): the panel stays open.
+    var staysInLauncher = false
     let run: @MainActor (CommandContext) async -> CommandOutcome
 
     static func isValidID(_ id: String) -> Bool {
