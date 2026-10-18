@@ -29,6 +29,10 @@ final class TranslatorModel: AppModule {
     }
 
     var detectedCode: String?
+    /// True while the translator is shown inside the launcher panel: on-device translations go through its channel.
+    var panelActive = false
+    /// Who wrote the current result (shown as a badge in the panel).
+    var resultEngine: TranslatorEngine?
     var resultText = ""
     var resultFrom: String?
     var resultTo: String?
@@ -41,8 +45,10 @@ final class TranslatorModel: AppModule {
 
     /// Bumped to make the on-device host translate (see `TranslatorHost`).
     var pageTicket = 0
+    var panelTicket = 0
     var launcherTicket = 0
     @ObservationIgnored private var pageRequest: TranslatorRequest?
+    @ObservationIgnored private var panelRequest: TranslatorRequest?
     @ObservationIgnored private var launcherRequest: TranslatorRequest?
     @ObservationIgnored private var launcherCache: [String: String] = [:]
     @ObservationIgnored private var launcherNotes: [String: String] = [:]
@@ -79,6 +85,7 @@ final class TranslatorModel: AppModule {
         resultText = "Shall we meet tomorrow at 9 a.m. outside the studio to finish the Boussole mockups? I'll bring the croissants."
         resultFrom = "fr"
         resultTo = "en"
+        resultEngine = .apple
         pairStatus = .installed
         languageStatus = ["en": .installed, "es": .installed, "de": .installed, "it": .downloadable, "pt": .downloadable,
                           "ja": .downloadable, "zh-Hans": .downloadable, "ko": .downloadable, "nl": .downloadable, "ru": .downloadable,
@@ -104,11 +111,11 @@ final class TranslatorModel: AppModule {
 
     func commands(app: AppModel) -> [AppCommand] {
         [
-            AppCommand(id: "trad_clipboard", title: "Traduire le presse-papiers", subtitle: "Le texte copié, dans le Traducteur",
+            AppCommand(id: "trad_clipboard", title: "Traduire le presse-papiers", subtitle: "Le texte copié, traduit dans le lanceur",
                        keywords: ["traduire", "traduction", "translate", "presse-papiers"], icon: .symbol("character.bubble", Theme.palette[1]),
-                       group: .tools, assistantSafe: true, hint: "Ouvrir") { ctx in
+                       group: .tools, assistantSafe: true, hint: "Traduire", staysInLauncher: true) { ctx in
                 guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return .message("Rien à traduire dans le presse-papiers.") }
-                ctx.app.translator.open(text)
+                ctx.app.launcher.showTranslator(text: text)
                 return .done
             }
         ]
@@ -128,15 +135,16 @@ final class TranslatorModel: AppModule {
             out.append(AppCommand(id: "trad_result", title: done ?? note ?? "Traduction…",
                                   subtitle: route + (done != nil ? " · sur ton Mac" : ""),
                                   icon: .symbol("character.bubble", Theme.palette[1]), group: .translation,
-                                  hint: done != nil ? "Copier" : "Ouvrir", boost: 2000) { ctx in
+                                  hint: done != nil ? "Copier" : "Traduire ici", boost: 2000, staysInLauncher: done == nil) { ctx in
                 if let done { return CommandRunner.copy(done) }
-                ctx.app.translator.open(parsed.text, target: target)
+                ctx.app.launcher.showTranslator(text: parsed.text, target: target)
                 return .done
             })
         }
         out.append(AppCommand(id: "trad_claude", title: "Traduire avec Claude", subtitle: "« \(parsed.text) » · \(route), avec les nuances",
-                              icon: .spark, group: .translation, hint: "Ouvrir", boost: TranslatorAvailability.isAvailable ? 1990 : 2000) { ctx in
-            ctx.app.translator.open(parsed.text, target: target, engine: .claude)
+                              icon: .spark, group: .translation, hint: "Traduire ici", boost: TranslatorAvailability.isAvailable ? 1990 : 2000,
+                              staysInLauncher: true) { ctx in
+            ctx.app.launcher.showTranslator(text: parsed.text, target: target, claude: true)
             return .done
         })
         return out
@@ -163,6 +171,11 @@ final class TranslatorModel: AppModule {
         if TranslatorLanguage.effectiveTarget("en", detected: "en") != "fr" { failures.append("un texte déjà anglais devrait partir en français") }
         if TranslatorLanguage.effectiveTarget("fr", detected: "fr") != "en" { failures.append("un texte déjà français devrait partir en anglais") }
         if TranslatorLanguage.effectiveTarget("es", detected: "fr") != "es" { failures.append("la langue choisie doit être respectée") }
+        let chips = ["en", "fr", "es", "de"]
+        if Self.cycled(chips, from: "en", by: 1, skipping: "fr") != "es" { failures.append("⇥ doit sauter la langue du texte") }
+        if Self.cycled(chips, from: "en", by: -1, skipping: nil) != "de" { failures.append("⇧⇥ doit revenir à la dernière langue") }
+        if Self.cycled(chips, from: "it", by: 1, skipping: nil) != "en" { failures.append("⇥ depuis une langue hors liste") }
+        if Array(Self.panelTargets(installed: ["es", "ja"]).prefix(4)) != ["en", "fr", "es", "ja"] { failures.append("langues du panneau : installées en premier") }
         let codes = TranslatorLanguage.all.map(\.code)
         if Set(codes).count != codes.count { failures.append("langue en double") }
         if !Self.claudeSystem(target: "en", source: nil, tone: .formal).contains("Anglais") { failures.append("consigne de Claude") }
@@ -173,6 +186,45 @@ final class TranslatorModel: AppModule {
         ["moteur : \(engine.title), vers \(TranslatorLanguage.named(targetCode))",
          "traduction sur l'appareil : \(TranslatorAvailability.isAvailable ? "disponible (macOS 15+)" : "indisponible")",
          "historique : \(history.count) traductions"]
+    }
+
+    // MARK: Translating in the launcher panel
+
+    /// Called by the launcher when it shows the translator (prefilled from "trad …", the clipboard or a shortcut).
+    func enterPanel(text: String?, target: String?, claude: Bool) {
+        panelActive = true
+        if let target { targetCode = target }
+        if let text {
+            sourceCode = nil
+            sourceText = text
+        }
+        error = nil
+        if languageStatus.isEmpty { Task { await refreshLanguageStatuses() } }
+        guard !sourceText.isEmpty else { return }
+        if claude { Task { await translateWithClaude() } } else { translateSoon(delay: 0.05) }
+    }
+
+    /// The languages offered as chips in the panel: English and French, then the ones on this Mac, then common ones.
+    var panelTargets: [String] {
+        Self.panelTargets(installed: TranslatorLanguage.all.map(\.code).filter { languageStatus[$0] == .installed })
+    }
+
+    static func panelTargets(installed: [String]) -> [String] {
+        var list = ["en", "fr"]
+        for code in installed + ["es", "de", "it", "pt", "ja", "zh-Hans"] where !list.contains(code) { list.append(code) }
+        return Array(list.prefix(8))
+    }
+
+    /// ⇥ and ⇧⇥: the next or previous chip, skipping the language the text is already in.
+    func cycleTarget(_ delta: Int) {
+        if let next = Self.cycled(panelTargets, from: targetCode, by: delta, skipping: effectiveSource) { targetCode = next }
+    }
+
+    static func cycled(_ list: [String], from current: String, by delta: Int, skipping: String?) -> String? {
+        let choices = list.filter { $0 != skipping }
+        guard !choices.isEmpty else { return nil }
+        guard let i = choices.firstIndex(of: current) else { return delta > 0 ? choices.first : choices.last }
+        return choices[(i + delta % choices.count + choices.count) % choices.count]
     }
 
     // MARK: Translating on the page
@@ -237,8 +289,14 @@ final class TranslatorModel: AppModule {
             }
             isTranslating = true
             error = nil
-            pageRequest = TranslatorRequest(text: sourceText, source: source, target: target, download: download)
-            pageTicket += 1
+            let request = TranslatorRequest(text: sourceText, source: source, target: target, download: download)
+            if panelActive {
+                panelRequest = request
+                panelTicket += 1
+            } else {
+                pageRequest = request
+                pageTicket += 1
+            }
         }
     }
 
@@ -256,7 +314,19 @@ final class TranslatorModel: AppModule {
     }
 
     func request(for channel: TranslatorChannel) -> TranslatorRequest? {
-        channel == .page ? pageRequest : launcherRequest
+        switch channel {
+        case .page: return pageRequest
+        case .panel: return panelRequest
+        case .launcher: return launcherRequest
+        }
+    }
+
+    func ticket(for channel: TranslatorChannel) -> Int {
+        switch channel {
+        case .page: return pageTicket
+        case .panel: return panelTicket
+        case .launcher: return launcherTicket
+        }
     }
 
     func appleFinished(_ request: TranslatorRequest, result: String?, channel: TranslatorChannel) {
@@ -266,11 +336,12 @@ final class TranslatorModel: AppModule {
             if let result { launcherCache[key] = result }
             launcherAsked = nil
             app?.launcher.refreshKeepingSelection()
-        case .page:
+        case .page, .panel:
             isTranslating = false
             if request.download { Task { await refreshLanguageStatuses(); refreshPairStatus() } }
             guard let result, request.text == sourceText else { return }
             resultText = result
+            resultEngine = .apple
             resultFrom = request.source ?? detectedCode
             resultTo = request.target
             pairStatus = .installed
@@ -284,7 +355,7 @@ final class TranslatorModel: AppModule {
             launcherNotes[request.target + "|" + request.text] = TranslatorAvailability.message(error)
             launcherAsked = nil
             app?.launcher.refreshKeepingSelection()
-        case .page:
+        case .page, .panel:
             isTranslating = false
             self.error = TranslatorAvailability.message(error)
         }
@@ -348,6 +419,7 @@ final class TranslatorModel: AppModule {
                                                          prompt: sourceText, model: claudeModel)
             guard text == sourceText.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
             resultText = result.trimmingCharacters(in: .whitespacesAndNewlines)
+            resultEngine = .claude
             resultFrom = source
             resultTo = target
             remember(TranslatorEntry(date: Date(), source: sourceText, result: resultText, from: source, to: target, engine: .claude))

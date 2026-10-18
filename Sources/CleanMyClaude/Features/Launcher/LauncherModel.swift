@@ -2,6 +2,13 @@ import SwiftUI
 import AppKit
 import Carbon.HIToolbox
 
+/// What the panel shows: the search, the translator, or the capture of a shortcut for a result.
+enum LauncherMode: Equatable {
+    case search
+    case translator
+    case assign(target: HotkeysTarget, title: String)
+}
+
 /// One block of the results list.
 struct LauncherSection: Identifiable {
     let id: String
@@ -22,6 +29,9 @@ final class LauncherModel: AppModule {
     var sections: [LauncherSection] = []
     var selection = 0
     var isOpen = false
+    var mode: LauncherMode = .search
+    /// What the shortcut capture has to say (a key without modifier, keys already taken…).
+    var assignMessage: String?
     var combo: KeyCombo?
     var hotKeyActive = false
     var includeFiles = UserDefaults.standard.object(forKey: "launcher.files") as? Bool ?? true {
@@ -96,6 +106,19 @@ final class LauncherModel: AppModule {
     func setCombo(_ newCombo: KeyCombo?) {
         combo = newCombo
         hotKeyActive = HotKeyCenter.shared.change(Self.hotKeyID, to: newCombo) { [weak self] in self?.toggle() }
+    }
+
+    func applySnapshotTab(_ tab: String) {
+        switch tab {
+        case "translator":
+            mode = .translator
+        case "assign":
+            let target = apps.first.map { HotkeysTarget.app(path: $0.path, name: $0.name) } ?? .command(id: "open_translator", title: "Traducteur")
+            mode = .assign(target: target, title: target.title)
+            assignMessage = "⌃⌥⌘M est déjà utilisé par Monteur : choisis-en un autre."
+        default:
+            break
+        }
     }
 
     func loadDemo() {
@@ -230,6 +253,7 @@ final class LauncherModel: AppModule {
         self.app = app
         if !DemoData.isEnabled, Date().timeIntervalSince(appsIndexedAt) > 600 { reindexApps() }
         catalog = ModuleRegistry.commands(app) + LauncherAppIndex.commands(apps)
+        leaveMode()
         query = ""
         refresh()
         let p = panel ?? makePanel()
@@ -243,12 +267,54 @@ final class LauncherModel: AppModule {
         panel?.close()
     }
 
+    /// The translator right in the panel: from the "Traducteur" result, "trad …", the clipboard or a global shortcut.
+    func showTranslator(text: String? = nil, target: String? = nil, claude: Bool = false) {
+        guard let app = app ?? AppContext.model else { return }
+        // Its shortcut pressed again closes it, like the launcher's own.
+        if isOpen, mode == .translator, text == nil, !claude {
+            hide()
+            return
+        }
+        if !isOpen { show() }
+        mode = .translator
+        app.translator.enterPanel(text: text, target: target, claude: claude)
+    }
+
+    /// Back to the search, in the same panel.
+    func backToSearch() {
+        leaveMode()
+        refresh()
+    }
+
+    private func leaveMode() {
+        mode = .search
+        assignMessage = nil
+        app?.translator.panelActive = false
+    }
+
+    /// The apps the launcher knows (read only: the Raccourcis page lists them).
+    var installedApps: [LauncherApp] { apps }
+
+    /// ⌘K: the selected result gets a keyboard shortcut (an app, a file, a folder or an action of the app).
+    func startAssign() {
+        let items = flat
+        guard items.indices.contains(selection) else { return }
+        let command = items[selection]
+        guard let target = HotkeysModel.target(for: command, catalogIDs: Set(catalog.map(\.id))) else {
+            HUD.show("Ce résultat change avec ta saisie : pas de raccourci possible", symbol: "keyboard")
+            return
+        }
+        assignMessage = nil
+        mode = .assign(target: target, title: command.title)
+    }
+
     private func makePanel() -> FloatingPanel {
         let p = FloatingPanel(size: NSSize(width: LauncherView.width, height: LauncherView.height))
         p.onClose = { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.isOpen = false
+                self.leaveMode()
                 self.removeKeyMonitor()
                 self.fileQuery?.stop()
             }
@@ -262,6 +328,19 @@ final class LauncherModel: AppModule {
         removeKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let panel = self.panel, event.window === panel else { return event }
+            switch self.mode {
+            case .search: return self.searchKey(event)
+            case .translator: return self.translatorKey(event)
+            case .assign(let target, let title): return self.assignKey(event, target: target, title: title)
+            }
+        }
+    }
+
+    private func searchKey(_ event: NSEvent) -> NSEvent? {
+            if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "k" {
+                startAssign()
+                return nil
+            }
             switch Int(event.keyCode) {
             case kVK_DownArrow:
                 self.move(1); return nil
@@ -289,6 +368,68 @@ final class LauncherModel: AppModule {
             default:
                 return event
             }
+    }
+
+    /// ↩ copies the translation, ⌘↩ asks Claude, ⇥ changes the language, ⎋ clears then goes back to the search.
+    private func translatorKey(_ event: NSEvent) -> NSEvent? {
+        guard let t = app?.translator else { return event }
+        let flags = event.modifierFlags
+        switch Int(event.keyCode) {
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            if flags.contains(.option) || flags.contains(.shift) { return event } // a new line in the text
+            if flags.contains(.command) {
+                Task { await t.translateWithClaude() }
+                return nil
+            }
+            if !t.resultText.isEmpty, !t.isTranslating {
+                _ = CommandRunner.copy(t.resultText)
+                HUD.show("Traduction copiée", symbol: "doc.on.clipboard.fill")
+                hide()
+            } else {
+                t.translate()
+            }
+            return nil
+        case kVK_Tab:
+            t.cycleTarget(flags.contains(.shift) ? -1 : 1)
+            return nil
+        case kVK_Escape:
+            if t.sourceText.isEmpty { backToSearch() } else { t.sourceText = ""; t.resultText = "" }
+            return nil
+        default:
+            return event
+        }
+    }
+
+    /// The next key with ⌘, ⌃ or ⌥ becomes the shortcut; ⌫ removes the current one, ⎋ cancels.
+    private func assignKey(_ event: NSEvent, target: HotkeysTarget, title: String) -> NSEvent? {
+        guard let app else { return nil }
+        let plain = event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+        switch Int(event.keyCode) {
+        case kVK_Escape:
+            backToSearch()
+            return nil
+        case kVK_Delete where plain, kVK_ForwardDelete where plain:
+            if app.hotkeys.binding(for: target)?.combo != nil {
+                app.hotkeys.unbind(target)
+                HUD.show("Raccourci retiré : \(title)", symbol: "keyboard")
+            }
+            backToSearch()
+            return nil
+        default:
+            let combo = KeyCombo(keyCode: UInt32(event.keyCode), modifiers: KeyCombo.carbon(from: event.modifierFlags))
+            guard combo.hasModifier else {
+                assignMessage = "Ajoute ⌘, ⌃ ou ⌥ à la touche (⌃⌥⌘ + une lettre est rarement pris)."
+                return nil
+            }
+            if let other = app.hotkeys.bind(target, combo: combo) {
+                assignMessage = "\(combo.display) est déjà utilisé par \(other). Choisis-en un autre."
+                return nil
+            }
+            HUD.show("\(combo.display) → \(title)", symbol: "keyboard")
+            let keep = selection
+            backToSearch()
+            selection = min(keep, max(0, flat.count - 1))
+            return nil
         }
     }
 
@@ -320,7 +461,8 @@ final class LauncherModel: AppModule {
     func run(_ command: AppCommand, alternate: Bool = false) {
         guard let app else { return }
         let q = query
-        hide()
+        // A command with its own view (the translator) replaces the results instead of closing the panel.
+        if !command.staysInLauncher { hide() }
         Task { await CommandRunner.execute(command, app: app, query: q, alternate: alternate) }
     }
 

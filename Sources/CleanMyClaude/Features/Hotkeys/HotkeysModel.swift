@@ -6,13 +6,14 @@ import Carbon.HIToolbox
 enum HotkeysTarget: Codable, Equatable {
     case app(path: String, name: String)
     case folder(path: String)
+    case file(path: String)
     case website(url: String)
     case command(id: String, title: String)
 
     var title: String {
         switch self {
         case .app(_, let name): return name
-        case .folder(let path): return (path as NSString).lastPathComponent
+        case .folder(let path), .file(let path): return (path as NSString).lastPathComponent
         case .website(let url): return URL(string: url)?.host ?? url
         case .command(_, let title): return title
         }
@@ -22,8 +23,20 @@ enum HotkeysTarget: Codable, Equatable {
         switch self {
         case .app: return "App"
         case .folder(let path): return "Dossier · " + FS.pretty((path as NSString).deletingLastPathComponent)
+        case .file(let path): return "Fichier · " + FS.pretty((path as NSString).deletingLastPathComponent)
         case .website(let url): return "Site web · " + url
         case .command: return "Commande de Clean My Claude"
+        }
+    }
+
+    /// What makes two targets the same (a command keeps its shortcut if its title changes).
+    var key: String {
+        switch self {
+        case .app(let path, _): return "app:" + path
+        case .folder(let path): return "folder:" + path
+        case .file(let path): return "file:" + path
+        case .website(let url): return "web:" + url
+        case .command(let id, _): return "cmd:" + id
         }
     }
 }
@@ -120,6 +133,33 @@ final class HotkeysModel: AppModule {
         if let c = Self.suggestedCombo(for: "Safari", taken: taken), c == Self.hyper("S") { failures.append("raccourcis : lettre déjà prise réattribuée") }
         if Self.suggestedCombo(for: "Safari", taken: []) == nil { failures.append("raccourcis : aucune lettre proposée") }
         if Self.normalizedURL("claude.ai") != "https://claude.ai" { failures.append("raccourcis : adresse web sans https") }
+        // Which launcher results can get a shortcut, and what they open.
+        func command(_ id: String, _ group: CommandSection, _ icon: CommandIcon) -> AppCommand {
+            AppCommand(id: id, title: "Essai", icon: icon, group: group) { _ in .done }
+        }
+        let ids: Set<String> = ["open_translator", "act_smart_scan"]
+        let folders: (String) -> Bool = { $0.hasSuffix("/Factures") }
+        let targets: [(AppCommand, String?)] = [
+            (command("app_x", .apps, .file("/Applications/Essai.app")), "app:/Applications/Essai.app"),
+            (command("file_1", .files, .file("/Users/t/Documents/Factures")), "folder:/Users/t/Documents/Factures"),
+            (command("file_2", .files, .file("/Users/t/Documents/devis.pdf")), "file:/Users/t/Documents/devis.pdf"),
+            (command("open_translator", .actions, .symbol("character.bubble")), "cmd:open_translator"),
+            (command("calc_result", .calculator, .symbol("function")), nil),
+            (command("hk_1234", .tools, .symbol("keyboard")), nil)
+        ]
+        for (c, expected) in targets where Self.target(for: c, catalogIDs: ids, isFolder: folders)?.key != expected {
+            failures.append("raccourcis : cible de « \(c.id) » (\(Self.target(for: c, catalogIDs: ids, isFolder: folders)?.key ?? "aucune"))")
+        }
+        let k1 = KeyCombo(keyCode: 17, modifiers: UInt32(cmdKey | optionKey)), k2 = KeyCombo(keyCode: 3, modifiers: UInt32(controlKey | optionKey))
+        var list = Self.upserting(.command(id: "open_translator", title: "Traducteur"), combo: k1, into: [])
+        list = Self.upserting(.command(id: "open_translator", title: "Traducteur (nouveau titre)"), combo: k2, into: list)
+        if list.count != 1 || list.first?.combo != k2 { failures.append("raccourcis : un même élément ne doit avoir qu'un raccourci") }
+        list = Self.upserting(.app(path: "/Applications/Essai.app", name: "Essai"), combo: k1, into: list)
+        if Self.conflict(k1, among: list, exceptKey: "cmd:open_translator") != "Essai" { failures.append("raccourcis : conflit non vu") }
+        if Self.conflict(k1, among: list, exceptKey: "app:/Applications/Essai.app") != nil { failures.append("raccourcis : faux conflit avec soi-même") }
+        if Self.reservedReason(KeyCombo(keyCode: 8, modifiers: UInt32(cmdKey))) == nil { failures.append("raccourcis : ⌘C global aurait dû être refusé") }
+        if Self.reservedReason(KeyCombo(keyCode: 8, modifiers: UInt32(cmdKey | shiftKey))) == nil { failures.append("raccourcis : ⌘⇧C global aurait dû être refusé") }
+        if Self.reservedReason(k1) != nil || Self.reservedReason(k2) != nil { failures.append("raccourcis : ⌥⌘ et ⌃⌥ doivent être acceptés") }
         if Self.normalizedURL("javascript:alert(1)") != nil { failures.append("raccourcis : seules les adresses web sont acceptées") }
         return failures
     }
@@ -144,11 +184,82 @@ final class HotkeysModel: AppModule {
 
     /// The other shortcut of the app that already uses `combo`, if any (launcher, windows, another binding).
     func conflict(for combo: KeyCombo?, except id: UUID) -> String? {
-        guard let combo, let app = app ?? AppContext.model else { return nil }
+        guard let combo else { return nil }
+        if let reserved = Self.reservedReason(combo) { return reserved }
+        let exceptKey = bindings.first { $0.id == id }?.target.key ?? ""
+        if let other = Self.conflict(combo, among: bindings, exceptKey: exceptKey) { return other }
+        guard let app = app ?? AppContext.model else { return nil }
         if app.launcher.combo == combo { return "le lanceur" }
         if let action = app.windows.combos.first(where: { $0.value == combo })?.key { return "Fenêtres (\(action.title))" }
-        if let other = bindings.first(where: { $0.id != id && $0.combo == combo }) { return other.target.title }
         return nil
+    }
+
+    static func conflict(_ combo: KeyCombo, among bindings: [HotkeysBinding], exceptKey: String) -> String? {
+        bindings.first { $0.target.key != exceptKey && $0.combo == combo }?.target.title
+    }
+
+    /// `bindings` with `target` given `combo` (an existing shortcut of the same target is replaced).
+    static func upserting(_ target: HotkeysTarget, combo: KeyCombo, into bindings: [HotkeysBinding]) -> [HotkeysBinding] {
+        var out = bindings
+        if let i = out.firstIndex(where: { $0.target.key == target.key }) {
+            out[i].combo = combo
+            out[i].target = target
+        } else {
+            out.append(HotkeysBinding(target: target, combo: combo))
+        }
+        return out
+    }
+
+    /// ⌘ alone (or ⌘⇧) belongs to the apps: a global ⌘C or ⌘K would stop working everywhere else.
+    static func reservedReason(_ combo: KeyCombo) -> String? {
+        combo.modifiers & UInt32(controlKey | optionKey) == 0
+            ? "les apps (⌘ seul est réservé à leurs raccourcis : ajoute ⌃ ou ⌥)" : nil
+    }
+
+    /// Gives `target` this shortcut, creating it if needed. Returns what already uses the keys, or nil when it worked.
+    @discardableResult
+    func bind(_ target: HotkeysTarget, combo: KeyCombo) -> String? {
+        if let reserved = Self.reservedReason(combo) { return reserved }
+        let existing = bindings.first { $0.target.key == target.key }
+        if let other = conflict(for: combo, except: existing?.id ?? UUID()) { return other }
+        bindings = Self.upserting(target, combo: combo, into: bindings)
+        guard let b = bindings.first(where: { $0.target.key == target.key }) else { return nil }
+        register(b)
+        return refused.contains(b.id) ? "une autre app (macOS l'a refusé)" : nil
+    }
+
+    func unbind(_ target: HotkeysTarget) {
+        guard let b = bindings.first(where: { $0.target.key == target.key }) else { return }
+        remove(b.id)
+    }
+
+    func binding(for target: HotkeysTarget) -> HotkeysBinding? {
+        bindings.first { $0.target.key == target.key }
+    }
+
+    /// The shortcut given to a launcher result, if any: its command, or the app, file or folder it opens.
+    func combo(for command: AppCommand) -> KeyCombo? {
+        guard !bindings.isEmpty, !command.id.hasPrefix("hk_") else { return nil }
+        var keys = ["cmd:" + command.id]
+        if case .file(let path) = command.icon { keys += ["app:" + path, "folder:" + path, "file:" + path] }
+        return bindings.first { keys.contains($0.target.key) }?.combo
+    }
+
+    /// What a launcher result opens, as a shortcut target; nil for results that change with the typing
+    /// (calculations, translations…) and for the shortcuts themselves.
+    static func target(for command: AppCommand, catalogIDs: Set<String>,
+                       isFolder: (String) -> Bool = HotkeysModel.isPlainFolder) -> HotkeysTarget? {
+        if case .file(let path) = command.icon {
+            if command.group == .apps { return .app(path: path, name: command.title) }
+            if command.group == .files { return isFolder(path) ? .folder(path: path) : .file(path: path) }
+        }
+        guard !command.id.hasPrefix("hk_"), catalogIDs.contains(command.id) else { return nil }
+        return .command(id: command.id, title: command.title)
+    }
+
+    nonisolated static func isPlainFolder(_ path: String) -> Bool {
+        let v = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])
+        return v?.isDirectory == true && v?.isPackage != true
     }
 
     func setCombo(_ combo: KeyCombo?, for id: UUID) {
@@ -173,7 +284,7 @@ final class HotkeysModel: AppModule {
 
     /// Adds a target with a free ⌃⌥⌘ + letter already set (changeable), and registers it.
     func add(_ target: HotkeysTarget) {
-        if let existing = bindings.first(where: { $0.target == target }) {
+        if let existing = bindings.first(where: { $0.target.key == target.key }) {
             HUD.show("Déjà là : \(existing.combo?.display ?? "sans raccourci")", symbol: "keyboard")
             return
         }
@@ -192,6 +303,16 @@ final class HotkeysModel: AppModule {
         panel.prompt = "Ajouter"
         guard panel.runModal() == .OK else { return }
         for url in panel.urls { add(.app(path: url.path, name: FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: ""))) }
+    }
+
+    func chooseFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Ajouter"
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls { add(.file(path: url.path)) }
     }
 
     func chooseFolder() {
@@ -238,7 +359,7 @@ final class HotkeysModel: AppModule {
             NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
                 if let error { DispatchQueue.main.async { HUD.show("Impossible d'ouvrir : \(error.localizedDescription)", symbol: "xmark.octagon.fill") } }
             }
-        case .folder(let path):
+        case .folder(let path), .file(let path):
             NSWorkspace.shared.open(URL(fileURLWithPath: path))
         case .website(let raw):
             if let url = URL(string: raw) { NSWorkspace.shared.open(url) }
@@ -269,7 +390,7 @@ final class HotkeysModel: AppModule {
 
     func icon(_ target: HotkeysTarget) -> CommandIcon {
         switch target {
-        case .app(let path, _), .folder(let path): return .file(path)
+        case .app(let path, _), .folder(let path), .file(let path): return .file(path)
         case .website: return .symbol("globe", Theme.palette[1])
         case .command: return .symbol("sparkles", Theme.accent)
         }
