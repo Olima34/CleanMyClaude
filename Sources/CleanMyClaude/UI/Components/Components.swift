@@ -1,0 +1,731 @@
+import SwiftUI
+import AppKit
+
+// MARK: - Card
+
+struct Card<Content: View>: View {
+    var padding: CGFloat = 18
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) { content }
+            .padding(padding)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+    }
+}
+
+/// A card with a title row.
+struct Panel<Content: View, Trailing: View>: View {
+    var title: String
+    var subtitle: String? = nil
+    var symbol: String? = nil
+    var tint: Color = Theme.accent
+    @ViewBuilder var trailing: Trailing
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Card {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    if let symbol {
+                        Image(systemName: symbol)
+                            .font(.ui(12, .medium))
+                            .foregroundStyle(tint)
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(title)
+                            .font(.ui(13.5, .semibold))
+                            .foregroundStyle(Theme.text)
+                        if let subtitle {
+                            Text(subtitle)
+                                .font(.ui(11.5))
+                                .foregroundStyle(Theme.text3)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    trailing
+                }
+                content
+            }
+        }
+    }
+}
+
+extension Panel where Trailing == EmptyView {
+    init(title: String, subtitle: String? = nil, symbol: String? = nil, tint: Color = Theme.accent,
+         @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.symbol = symbol
+        self.tint = tint
+        self.trailing = EmptyView()
+        self.content = content()
+    }
+}
+
+// MARK: - Equal-height row
+
+/// A row whose cells all share the height of the tallest one.
+struct TileRow<Content: View>: View {
+    var spacing: CGFloat = 14
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(alignment: .top, spacing: spacing) { content }
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+// MARK: - Stat tile
+
+struct StatTile: View {
+    var symbol: String
+    var value: String
+    var label: String
+    var detail: String? = nil
+    var tint: Color = Theme.accent
+
+    var body: some View {
+        Card(padding: 16) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 7) {
+                    IconBadge(symbol: symbol, tint: tint)
+                    Text(label)
+                        .font(.ui(12))
+                        .foregroundStyle(Theme.text2)
+                        .lineLimit(1)
+                }
+                Text(value)
+                    .font(.serif(28))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .contentTransition(.numericText())
+                if let detail {
+                    Text(detail)
+                        .font(.ui(11))
+                        .foregroundStyle(Theme.text3)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+}
+
+struct IconBadge: View {
+    var symbol: String
+    var tint: Color = Theme.accent
+    var size: CGFloat = 22
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.ui(size * 0.5, .semibold))
+            .foregroundStyle(tint)
+            .frame(width: size, height: size)
+            .background(Circle().fill(tint.opacity(0.14)))
+    }
+}
+
+// MARK: - Headers
+
+/// The top of every section: icon, serif title, explanation and actions.
+struct PageHero<Trailing: View>: View {
+    var symbol: String
+    var title: String
+    var subtitle: String
+    var tint: Color = Theme.accent
+    var seed: UInt64 = 3
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            MatrixBackdrop(seed: seed, opacity: 0.4)
+                .frame(height: 130)
+                .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+                .offset(y: -12)
+            HStack(alignment: .center, spacing: 18) {
+                Image(systemName: symbol)
+                    .font(.ui(24, .medium))
+                    .foregroundStyle(tint)
+                    .frame(width: 58, height: 58)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.opacity(0.14)))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(tint.opacity(0.22)))
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.serif(30))
+                        .foregroundStyle(Theme.text)
+                    Text(subtitle)
+                        .font(.ui(13))
+                        .foregroundStyle(Theme.text2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                trailing
+            }
+            .padding(.top, 14)
+            .padding(.bottom, 6)
+        }
+    }
+}
+
+extension PageHero where Trailing == EmptyView {
+    init(symbol: String, title: String, subtitle: String, tint: Color = Theme.accent, seed: UInt64 = 3) {
+        self.symbol = symbol
+        self.title = title
+        self.subtitle = subtitle
+        self.tint = tint
+        self.seed = seed
+        self.trailing = EmptyView()
+    }
+}
+
+struct SectionLabel: View {
+    var text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(.ui(10.5, .semibold))
+            .tracking(0.8)
+            .foregroundStyle(Theme.text3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 6)
+    }
+}
+
+// MARK: - Tags and status
+
+struct Tag: View {
+    var text: String
+    var symbol: String? = nil
+    var tint: Color = Theme.text2
+    var filled = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let symbol { Image(systemName: symbol).font(.ui(9.5, .semibold)) }
+            Text(text).font(.ui(11, .medium)).lineLimit(1)
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(filled ? tint.opacity(0.14) : Theme.track))
+    }
+}
+
+enum Status: Int, Comparable {
+    case ok, info, warn, bad, unknown
+
+    static func < (a: Status, b: Status) -> Bool { a.rawValue < b.rawValue }
+
+    var color: Color {
+        switch self {
+        case .ok: return Theme.good
+        case .info: return Theme.accent
+        case .warn: return Theme.warn
+        case .bad: return Theme.bad
+        case .unknown: return Theme.text3
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .ok: return "checkmark.circle.fill"
+        case .info: return "info.circle.fill"
+        case .warn: return "exclamationmark.triangle.fill"
+        case .bad: return "xmark.octagon.fill"
+        case .unknown: return "questionmark.circle"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .ok: return "OK"
+        case .info: return "Info"
+        case .warn: return "À vérifier"
+        case .bad: return "À corriger"
+        case .unknown: return "Inconnu"
+        }
+    }
+}
+
+struct StatusBadge: View {
+    var status: Status
+    var text: String? = nil
+
+    var body: some View {
+        Tag(text: text ?? status.label, symbol: status.symbol, tint: status.color, filled: true)
+    }
+}
+
+// MARK: - Rows and bars
+
+struct UsageBar: View {
+    var fraction: Double
+    var tint: Color = Theme.accent
+    var height: CGFloat = 6
+
+    var body: some View {
+        GeometryReader { g in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Theme.track)
+                Capsule().fill(tint)
+                    .frame(width: max(fraction > 0 ? 4 : 0, g.size.width * min(1, max(0, fraction))))
+            }
+        }
+        .frame(height: height)
+    }
+}
+
+/// A bar split in colored segments (memory breakdown, disk usage…).
+struct SegmentedBar: View {
+    var segments: [(value: Double, color: Color)]
+    var total: Double
+    var height: CGFloat = 12
+
+    var body: some View {
+        GeometryReader { g in
+            HStack(spacing: 2) {
+                ForEach(Array(segments.enumerated()), id: \.offset) { _, s in
+                    if s.value > 0 && total > 0 {
+                        RoundedRectangle(cornerRadius: 3)
+                            .fill(s.color)
+                            .frame(width: max(2, (g.size.width - CGFloat(segments.count) * 2) * CGFloat(s.value / total)))
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .background(RoundedRectangle(cornerRadius: 4).fill(Theme.track))
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+        .frame(height: height)
+    }
+}
+
+struct LegendDot: View {
+    var color: Color
+    var label: String
+    var value: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label).font(.ui(11.5)).foregroundStyle(Theme.text2)
+            Text(value).font(.ui(11.5, .medium)).foregroundStyle(Theme.text).monospacedDigit()
+        }
+    }
+}
+
+struct RankRow: View {
+    var symbol: String? = nil
+    var name: String
+    var value: String
+    var fraction: Double
+    var tint: Color = Theme.accent
+    var detail: String? = nil
+
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                if let symbol {
+                    Image(systemName: symbol)
+                        .font(.ui(11))
+                        .foregroundStyle(tint)
+                        .frame(width: 16)
+                }
+                Text(name)
+                    .font(.ui(12.5))
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let detail {
+                    Text(detail)
+                        .font(.ui(11))
+                        .foregroundStyle(Theme.text3)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                Text(value)
+                    .font(.ui(12, .medium))
+                    .foregroundStyle(Theme.text2)
+                    .monospacedDigit()
+            }
+            UsageBar(fraction: fraction, tint: tint.opacity(hovering ? 1 : 0.85), height: 5)
+                .padding(.leading, symbol != nil ? 24 : 0)
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+    }
+}
+
+struct EmptyHint: View {
+    var text: String
+    var symbol: String? = nil
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if let symbol {
+                Image(systemName: symbol).font(.ui(20)).foregroundStyle(Theme.text3)
+            }
+            Text(text)
+                .font(.ui(12))
+                .foregroundStyle(Theme.text3)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity, minHeight: 70)
+    }
+}
+
+/// A hoverable row background.
+struct HoverRow<Content: View>: View {
+    var selected = false
+    @ViewBuilder var content: Content
+    @State private var hovering = false
+
+    var body: some View {
+        content
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Theme.selected : (hovering ? Theme.hover.opacity(0.6) : .clear)))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+    }
+}
+
+// MARK: - Callout
+
+struct Callout: View {
+    var symbol: String = "lightbulb"
+    var title: String
+    var text: String
+    var tint: Color = Theme.accent
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: symbol)
+                .font(.ui(13, .medium))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 8).fill(tint.opacity(0.14)))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.ui(12.5, .semibold))
+                    .foregroundStyle(Theme.text)
+                Text(text)
+                    .font(.ui(12))
+                    .foregroundStyle(Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.opacity(0.18)))
+    }
+}
+
+// MARK: - Segmented pills
+
+struct PillPicker<T: Hashable & Identifiable>: View {
+    var options: [T]
+    @Binding var selection: T
+    var label: (T) -> String
+    var badge: ((T) -> String?)? = nil
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options) { o in
+                let on = o == selection
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { selection = o }
+                } label: {
+                    HStack(spacing: 5) {
+                        Text(label(o))
+                            .font(.ui(12, on ? .semibold : .regular))
+                        if let b = badge?(o) {
+                            Text(b)
+                                .font(.ui(10, .semibold))
+                                .foregroundStyle(on ? Theme.accent : Theme.text3)
+                                .monospacedDigit()
+                        }
+                    }
+                    .foregroundStyle(on ? Theme.text : Theme.text2)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? Theme.selected : .clear))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
+    }
+}
+
+// MARK: - Rings and gauges
+
+struct ProgressRing: View {
+    var progress: Double
+    var tint: Color = Theme.accent
+    var lineWidth: CGFloat = 5
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Theme.track, lineWidth: lineWidth)
+            Circle()
+                .trim(from: 0, to: max(0.001, min(1, progress)))
+                .stroke(tint, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.easeOut(duration: 0.4), value: progress)
+        }
+    }
+}
+
+/// A ring with its value in the middle.
+struct Gauge: View {
+    var value: Double
+    var text: String
+    var caption: String? = nil
+    var tint: Color = Theme.accent
+    var size: CGFloat = 64
+    var lineWidth: CGFloat = 6
+
+    var body: some View {
+        ZStack {
+            ProgressRing(progress: value, tint: tint, lineWidth: lineWidth)
+            VStack(spacing: 0) {
+                Text(text)
+                    .font(.serif(size * 0.27))
+                    .foregroundStyle(Theme.text)
+                    .monospacedDigit()
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                if let caption {
+                    Text(caption)
+                        .font(.ui(size * 0.13))
+                        .foregroundStyle(Theme.text3)
+                }
+            }
+            .padding(lineWidth + 4)
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// A small line chart drawn with a Canvas (cheap enough for the menu bar).
+struct Sparkline: View {
+    var values: [Double]
+    var maxValue: Double? = nil
+    var tint: Color = Theme.accent
+    var fill = true
+
+    var body: some View {
+        Canvas { ctx, size in
+            guard values.count > 1 else { return }
+            let top = max(maxValue ?? (values.max() ?? 1), 0.0001)
+            let step = size.width / CGFloat(values.count - 1)
+            var line = Path()
+            for (i, v) in values.enumerated() {
+                let p = CGPoint(x: CGFloat(i) * step, y: size.height - size.height * CGFloat(min(1, v / top)))
+                if i == 0 { line.move(to: p) } else { line.addLine(to: p) }
+            }
+            if fill {
+                var area = line
+                area.addLine(to: CGPoint(x: size.width, y: size.height))
+                area.addLine(to: CGPoint(x: 0, y: size.height))
+                area.closeSubpath()
+                ctx.fill(area, with: .linearGradient(Gradient(colors: [tint.opacity(0.32), tint.opacity(0.02)]),
+                                                     startPoint: .zero, endPoint: CGPoint(x: 0, y: size.height)))
+            }
+            ctx.stroke(line, with: .color(tint), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
+    }
+}
+
+// MARK: - Checkbox
+
+enum CheckState { case on, off, mixed }
+
+struct CheckBox: View {
+    var state: CheckState
+    var disabled = false
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 4.5)
+                    .fill(state == .off ? Color.clear : Theme.accent)
+                RoundedRectangle(cornerRadius: 4.5)
+                    .strokeBorder(state == .off ? Theme.borderStrong : Theme.accent, lineWidth: 1.2)
+                if state == .on {
+                    Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                } else if state == .mixed {
+                    Image(systemName: "minus").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                }
+            }
+            .frame(width: 16, height: 16)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.4 : 1)
+    }
+}
+
+// MARK: - Buttons
+
+struct SoftButtonStyle: ButtonStyle {
+    var prominent = false
+    var destructive = false
+    var small = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        let fill: Color = destructive ? Theme.bad : (prominent ? Theme.accent : Theme.card)
+        let filled = prominent || destructive
+        configuration.label
+            .font(.ui(small ? 11.5 : 12, .medium))
+            .foregroundStyle(filled ? Color.white : Theme.text)
+            .padding(.horizontal, small ? 9 : 12)
+            .padding(.vertical, small ? 5 : 7)
+            .background(RoundedRectangle(cornerRadius: 8).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(filled ? Color.clear : Theme.border))
+            .opacity(configuration.isPressed ? 0.75 : 1)
+            .contentShape(Rectangle())
+    }
+}
+
+/// The big "Analyser" button of each section.
+struct ScanButton: View {
+    var title: String
+    var symbol: String = "sparkle.magnifyingglass"
+    var running = false
+    var runningTitle = "Analyse…"
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if running {
+                    ProgressView().controlSize(.small).scaleEffect(0.75).tint(.white)
+                } else {
+                    Image(systemName: symbol).font(.ui(13, .semibold))
+                }
+                Text(running ? runningTitle : title).font(.ui(13, .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 10)
+            .background(Capsule().fill(Theme.accent))
+            .shadow(color: Theme.accent.opacity(0.35), radius: 10, y: 3)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(running)
+    }
+}
+
+// MARK: - Icons
+
+/// The Finder icon of a file or app.
+struct FileIcon: View {
+    var path: String
+    var size: CGFloat = 24
+
+    var body: some View {
+        Group {
+            if let cg = IconCache.icon(for: path) {
+                Image(decorative: cg, scale: 2).resizable().interpolation(.high)
+            } else {
+                Image(systemName: "doc").resizable().scaledToFit().foregroundStyle(Theme.text3)
+            }
+        }
+        .frame(width: size, height: size)
+    }
+}
+
+/// Finder icons, flattened to bitmaps once (lazy icon images do not render well off screen).
+enum IconCache {
+    nonisolated(unsafe) private static var cache: [String: CGImage] = [:]
+    private static let lock = NSLock()
+
+    static func icon(for path: String) -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        if let img = cache[path] { return img }
+        // Redrawn into a plain sRGB bitmap: icons may come in wide color spaces that skew off-screen renders.
+        let side = 128
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: side, height: side, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        let icon = NSWorkspace.shared.icon(forFile: path)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: false)
+        icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let cg = ctx.makeImage() else { return nil }
+        cache[path] = cg
+        return cg
+    }
+}
+
+// MARK: - Flow layout
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+    var lineSpacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 600
+        var x: CGFloat = 0, y: CGFloat = 0, lineH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > width && x > 0 { x = 0; y += lineH + lineSpacing; lineH = 0 }
+            x += s.width + spacing
+            lineH = max(lineH, s.height)
+        }
+        return CGSize(width: width, height: y + lineH)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var x = bounds.minX, y = bounds.minY, lineH: CGFloat = 0
+        for v in subviews {
+            let s = v.sizeThatFits(.unspecified)
+            if x + s.width > bounds.maxX && x > bounds.minX { x = bounds.minX; y += lineH + lineSpacing; lineH = 0 }
+            v.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(s))
+            x += s.width + spacing
+            lineH = max(lineH, s.height)
+        }
+    }
+}
+
+// MARK: - Helpers
+
+extension View {
+    /// Shows a native confirmation alert before running a destructive action.
+    func confirmAction(_ title: String, message: String, button: String, isPresented: Binding<Bool>,
+                       destructive: Bool = true, action: @escaping () -> Void) -> some View {
+        alert(title, isPresented: isPresented) {
+            Button(button, role: destructive ? .destructive : nil, action: action)
+            Button("Annuler", role: .cancel) {}
+        } message: {
+            Text(message)
+        }
+    }
+}
+
+enum Finder {
+    static func reveal(_ path: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: path)])
+    }
+
+    static func open(_ urlString: String) {
+        if let url = URL(string: urlString) { NSWorkspace.shared.open(url) }
+    }
+}

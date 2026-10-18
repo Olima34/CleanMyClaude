@@ -1,0 +1,21 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Build the app bundle
+        run: ./scripts/build_app.sh --no-install --zip
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: CleanMyClaude
+          path: build/CleanMyClaude.zip
