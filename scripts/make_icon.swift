@@ -20,7 +20,6 @@ let orange: UInt32 = 0xFF7A4D   // the creature, a punchier Claude orange
 let gold: UInt32 = 0xFFB01F     // broom handle
 let red: UInt32 = 0xFF3D5A      // broom binding
 let yellow: UInt32 = 0xFFE23D   // bristles
-let fileColors: [UInt32] = [0x00D0FF, 0xFF2E97, 0xA8FF2E, 0xFFD60A, 0xA45BFF, 0xFF8A1F]
 
 // MARK: Background
 
@@ -44,19 +43,19 @@ func glow(_ c: CGPoint, _ r: CGFloat, _ hex: UInt32, _ a: CGFloat) {
     let g = CGGradient(colorsSpace: cs, colors: [rgb(hex, a), rgb(hex, 0)] as CFArray, locations: [0, 1])!
     ctx.drawRadialGradient(g, startCenter: c, startRadius: 0, endCenter: c, endRadius: r, options: [])
 }
-glow(CGPoint(x: 380, y: 380), 330, orange, 0.30)
+glow(CGPoint(x: 420, y: 380), 330, orange, 0.30)
 glow(CGPoint(x: 780, y: 650), 280, 0xFF2E97, 0.20)
 glow(CGPoint(x: 700, y: 820), 220, 0x00D0FF, 0.16)
 
 // MARK: Floor shadow
 
 ctx.setFillColor(rgb(0x000000, 0.55))
-ctx.fillEllipse(in: CGRect(x: 150, y: 214, width: 560, height: 56))
+ctx.fillEllipse(in: CGRect(x: 190, y: 214, width: 560, height: 56))
 
 // MARK: The creature (9×5 pixel grid, plus an arm reaching for the broom)
 
 let p: CGFloat = 46
-let x0: CGFloat = 140
+let x0: CGFloat = 180
 let top: CGFloat = 480
 let grid: [[Int]] = [
     [0, 1, 1, 1, 1, 1, 1, 1, 0, 0],
@@ -71,8 +70,8 @@ func pixelRect(_ col: Int, _ row: Int) -> CGRect {
 
 // MARK: Broom (drawn before the arm so the hand holds it)
 
-let handleTop = CGPoint(x: 430, y: 660)
-let handleEnd = CGPoint(x: 600, y: 330)
+let handleTop = CGPoint(x: 470, y: 660)
+let handleEnd = CGPoint(x: 640, y: 330)
 let d = CGPoint(x: handleEnd.x - handleTop.x, y: handleEnd.y - handleTop.y)
 let len = (d.x * d.x + d.y * d.y).squareRoot()
 let dir = CGPoint(x: d.x / len, y: d.y / len)
@@ -145,7 +144,7 @@ func file(_ c: CGPoint, _ w: CGFloat, _ angle: CGFloat, _ hex: UInt32) {
     ctx.saveGState()
     ctx.translateBy(x: c.x, y: c.y)
     ctx.rotate(by: angle * .pi / 180)
-    ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 14, color: rgb(hex, 0.55))
+    ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 18, color: rgb(hex, 0.45))
     let fold = w * 0.3
     let body = CGMutablePath()
     body.move(to: CGPoint(x: -w / 2, y: -h / 2))
@@ -165,10 +164,10 @@ func file(_ c: CGPoint, _ w: CGFloat, _ angle: CGFloat, _ hex: UInt32) {
     corner.addLine(to: CGPoint(x: w / 2, y: h / 2 - fold))
     corner.closeSubpath()
     ctx.addPath(corner)
-    ctx.setFillColor(rgb(0xFFFFFF, 0.55))
+    ctx.setFillColor(rgb(0xCFCFCF))
     ctx.fillPath()
     // Text lines.
-    ctx.setFillColor(rgb(0xFFFFFF, 0.85))
+    ctx.setFillColor(rgb(0xA6A6A6))
     let lh = max(4, w * 0.08)
     for (i, frac) in [0.62, 0.78, 0.5].enumerated() {
         let y = h / 2 - fold - lh * 2.2 - CGFloat(i) * lh * 2.4
@@ -178,7 +177,7 @@ func file(_ c: CGPoint, _ w: CGFloat, _ angle: CGFloat, _ hex: UInt32) {
 }
 
 /// Speed lines behind a file, pointing back to the broom.
-let sweepOrigin = CGPoint(x: 690, y: 290)
+let sweepOrigin = CGPoint(x: 730, y: 290)
 func speedLines(_ c: CGPoint, _ w: CGFloat, _ hex: UInt32) {
     let vx = c.x - sweepOrigin.x, vy = c.y - sweepOrigin.y
     let l = (vx * vx + vy * vy).squareRoot()
@@ -201,29 +200,27 @@ func speedLines(_ c: CGPoint, _ w: CGFloat, _ hex: UInt32) {
 ctx.setLineCap(.round)
 ctx.setLineWidth(16)
 ctx.setStrokeColor(rgb(0xFFFFFF, 0.07))
-ctx.move(to: CGPoint(x: 600, y: 210))
-ctx.addQuadCurve(to: CGPoint(x: 905, y: 610), control: CGPoint(x: 880, y: 260))
+ctx.move(to: CGPoint(x: 640, y: 210))
+ctx.addQuadCurve(to: CGPoint(x: 905, y: 610), control: CGPoint(x: 900, y: 260))
 ctx.strokePath()
 ctx.setLineWidth(8)
 ctx.setStrokeColor(rgb(0xFFFFFF, 0.06))
-ctx.move(to: CGPoint(x: 650, y: 200))
-ctx.addQuadCurve(to: CGPoint(x: 905, y: 470), control: CGPoint(x: 860, y: 220))
+ctx.move(to: CGPoint(x: 690, y: 200))
+ctx.addQuadCurve(to: CGPoint(x: 905, y: 470), control: CGPoint(x: 885, y: 220))
 ctx.strokePath()
 
+let white: UInt32 = 0xFFFFFF
 let files: [(CGPoint, CGFloat, CGFloat, UInt32)] = [
-    (CGPoint(x: 762, y: 418), 78, -16, fileColors[0]),
-    (CGPoint(x: 828, y: 566), 66, 18, fileColors[1]),
-    (CGPoint(x: 668, y: 628), 56, -28, fileColors[2]),
-    (CGPoint(x: 852, y: 720), 50, 30, fileColors[3]),
-    (CGPoint(x: 750, y: 800), 44, -10, fileColors[4]),
-    (CGPoint(x: 858, y: 850), 32, 24, fileColors[5])
+    (CGPoint(x: 800, y: 450), 80, -16, white),
+    (CGPoint(x: 858, y: 628), 62, 18, white),
+    (CGPoint(x: 752, y: 760), 50, -12, white)
 ]
 for (c, w, _, hex) in files { speedLines(c, w, hex) }
 for (c, w, a, hex) in files { file(c, w, a, hex) }
 
 // Dust pixels kicked up by the broom.
 let dust: [(CGFloat, CGFloat, CGFloat, UInt32)] = [
-    (706, 262, 14, 0xFFE23D), (744, 300, 10, 0x00D0FF), (690, 330, 9, 0xFF2E97), (770, 268, 8, 0xA8FF2E),
+    (746, 262, 14, 0xFFE23D), (784, 300, 10, 0x00D0FF), (730, 330, 9, 0xFF2E97), (810, 268, 8, 0xA8FF2E),
     (640, 520, 10, 0xFFD60A), (880, 600, 9, 0x00D0FF), (720, 880, 8, 0xFF2E97), (610, 720, 8, 0xA45BFF)
 ]
 for (x, y, s, hex) in dust {
