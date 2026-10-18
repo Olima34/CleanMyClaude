@@ -38,8 +38,14 @@ struct LauncherPreview: View {
                 .font(.ui(10.5)).foregroundStyle(Theme.text3)
         }
         .padding(14)
-        .onAppear { info = LauncherFileInfo.read(path) }
-        .onChange(of: path) { _, p in info = LauncherFileInfo.read(p) }
+        .task(id: path) {
+            info = LauncherFileInfo.read(path)
+            guard info.size == "…" else { return }
+            // A package (an app): its content is added up in the background.
+            let target = path
+            let bytes = await Task.detached(priority: .utility) { FileSizer.size(of: target) }.value
+            if !Task.isCancelled, target == path { info.size = Fmt.bytes(bytes) }
+        }
     }
 
     private func row(_ label: String, _ value: String) -> some View {
@@ -72,7 +78,8 @@ struct LauncherFileInfo {
             let count = (try? FileManager.default.contentsOfDirectory(atPath: path))?.filter { !$0.hasPrefix(".") }.count ?? 0
             info.size = Fmt.plural(count, "élément", "éléments")
         } else {
-            info.size = Fmt.bytes(Int64(v.fileSize ?? v.totalFileAllocatedSize ?? 0))
+            // An app or another package is a folder for the disk: its real size is the sum of its content.
+            info.size = v.isPackage == true ? "…" : Fmt.bytes(Int64(v.fileSize ?? v.totalFileAllocatedSize ?? 0))
         }
         info.modified = v.contentModificationDate.map(stamp) ?? ""
         info.created = v.creationDate.map(stamp) ?? ""

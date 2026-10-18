@@ -28,6 +28,10 @@ final class LauncherModel: AppModule {
     }
     var sections: [LauncherSection] = []
     var selection = 0
+    /// Set by the arrow keys: only then does the list scroll to the selection (never while the trackpad scrolls it).
+    @ObservationIgnored var scrollToSelection = false
+    @ObservationIgnored private var lastScroll = Date.distantPast
+    @ObservationIgnored private var scrollMonitor: Any?
     var isOpen = false
     var mode: LauncherMode = .search
     /// What the shortcut capture has to say (a key without modifier, keys already taken…).
@@ -261,6 +265,7 @@ final class LauncherModel: AppModule {
         p.present()
         isOpen = true
         installKeyMonitor()
+        installScrollMonitor()
     }
 
     func hide() {
@@ -436,11 +441,30 @@ final class LauncherModel: AppModule {
     private func removeKeyMonitor() {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+        scrollMonitor = nil
+    }
+
+    /// The trackpad moves the rows under a still pointer: those hovers must not change the selection.
+    private func installScrollMonitor() {
+        if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            if let self, event.window === self.panel { self.lastScroll = Date() }
+            return event
+        }
+    }
+
+    /// A row under the pointer: selected when the pointer moved, not when the list scrolled under it.
+    func hover(_ index: Int) {
+        guard Date().timeIntervalSince(lastScroll) > 0.35, selection != index else { return }
+        scrollToSelection = false
+        selection = index
     }
 
     func move(_ delta: Int) {
         let count = flat.count
         guard count > 0 else { return }
+        scrollToSelection = true
         selection = (selection + delta + count) % count
     }
 

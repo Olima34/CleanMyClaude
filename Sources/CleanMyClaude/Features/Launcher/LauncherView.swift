@@ -76,7 +76,10 @@ struct LauncherView: View {
         } else {
             ScrollViewReader { proxy in
                 ScrollView { list }
-                    .onChange(of: app.launcher.selection) { _, s in proxy.scrollTo(s) }
+                    .onChange(of: app.launcher.selection) { _, s in
+                        // Only for the arrow keys: a trackpad scroll is never pulled back to the selection.
+                        if app.launcher.scrollToSelection { proxy.scrollTo(s) }
+                    }
             }
         }
     }
@@ -98,7 +101,7 @@ struct LauncherView: View {
                     LauncherRow(command: item, selected: index == model.selection, hotkey: app.hotkeys.combo(for: item)?.display)
                         .id(index)
                         .onTapGesture { model.selection = index; model.runSelected() }
-                        .onHover { if $0 { model.selection = index } }
+                        .onHover { if $0 { model.hover(index) } }
                 }
             }
         }
