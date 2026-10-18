@@ -62,6 +62,29 @@ struct TranslatorLanguage: Identifiable, Hashable {
         return language.rawValue
     }
 
+    /// A sentence typed or pasted in the launcher (not a command, a calculation, a path or an app name):
+    /// its language when it is clear, so that « Traduire » comes first. nil otherwise.
+    static func sentenceLanguage(_ query: String) -> String? {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let words = text.split(whereSeparator: { $0 == " " || $0 == "\n" })
+        guard words.count >= 3 || (words.count >= 2 && text.count >= 12) || (text.count >= 18 && text.contains(where: { ",.!?".contains($0) })) else { return nil }
+        let lower = Fuzzy.fold(text)
+        let prefixes = ["g ", "ddg ", "yt ", "gh ", "wiki ", "maps ", "gtrad ", "trad ", "tr ", "traduire ", "traduis ", "translate ",
+                        "dans ", "in ", "quitter ", "forcer ", "volume ", "heure ", "?", ":", "/", "~", "#", "cb ", "qr ", "mdp ", "cafeine "]
+        if prefixes.contains(where: { lower.hasPrefix($0) }) { return nil }
+        // A calculation or a conversion ("10 km en miles") starts with a number.
+        if let first = text.first, first.isNumber { return nil }
+        // Mostly letters: a calculation, a conversion or a path is not a sentence.
+        let letters = text.filter(\.isLetter).count
+        guard Double(letters) / Double(max(1, text.count)) > 0.6 else { return nil }
+        let recognizer = NLLanguageRecognizer()
+        recognizer.languageConstraints = all.compactMap { NLLanguage(rawValue: $0.code) }
+        recognizer.processString(text)
+        guard let (language, confidence) = recognizer.languageHypotheses(withMaximum: 1).first,
+              confidence >= (words.count >= 3 ? 0.5 : 0.75) else { return nil }
+        return language.rawValue
+    }
+
     /// Always an answer for a non-empty text: the sure detection, else the likeliest language, favouring `preferred`
     /// (those installed on the Mac). Apple's on-device translation must never be left to guess: when unsure, it shows
     /// its own "choose the language" window, which takes the keyboard and closes the launcher panel.

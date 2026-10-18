@@ -41,32 +41,37 @@ struct ConverterPage: View {
 
 // MARK: - Destination
 
-/// Where the results go: next to the originals or in a chosen folder.
+/// Where the results go: Téléchargements (by default), next to the originals, or a chosen folder.
 struct ConverterDestinationPicker: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let model = app.converter
         HStack(spacing: 9) {
-            Image(systemName: model.outputFolder == nil ? "arrow.down.doc" : "folder")
+            Image(systemName: model.destination.symbol)
                 .font(.ui(13, .medium))
                 .foregroundStyle(Theme.palette[1])
             VStack(alignment: .leading, spacing: 1) {
-                Text("Résultats").font(.ui(10.5)).foregroundStyle(Theme.text3)
-                Text(model.destinationLabel).font(.ui(12, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                Text("Enregistrer").font(.ui(10.5)).foregroundStyle(Theme.text3)
+                BorderlessMenu {
+                    Button("Dans Téléchargements") { model.destination = .downloads }
+                    Button("À côté des originaux") { model.destination = .beside }
+                    Divider()
+                    Button("Choisir un dossier…") { model.chooseFolder() }
+                } label: {
+                    Text(model.destinationLabel).font(.ui(12, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                }
             }
-            Button(model.outputFolder == nil ? "Choisir un dossier…" : "Changer…") { model.chooseFolder() }
-                .buttonStyle(SoftButtonStyle(small: true))
-            if model.outputFolder != nil {
-                Button { model.outputFolder = nil } label: {
-                    Image(systemName: "xmark.circle.fill").font(.ui(12)).foregroundStyle(Theme.text3)
+            if let folder = model.outputFolder {
+                Button { NSWorkspace.shared.open(folder) } label: {
+                    Image(systemName: "arrow.up.forward.square").font(.ui(12)).foregroundStyle(Theme.text3)
                 }
                 .buttonStyle(.plain)
-                .help("Revenir à côté des originaux")
+                .help("Ouvrir ce dossier dans le Finder")
             }
         }
         .padding(.leading, 12)
-        .padding(.trailing, 8)
+        .padding(.trailing, 10)
         .padding(.vertical, 7)
         .background(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).fill(Theme.card))
         .overlay(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))

@@ -843,3 +843,57 @@ final class ConverterJob: Identifiable {
     var isActive: Bool { state == .waiting || state == .running }
     var isFinished: Bool { !isActive }
 }
+
+// MARK: - Destination
+
+/// Where the converted files go.
+enum ConverterDestination: Equatable {
+    case downloads, beside, folder(URL)
+
+    private static let key = "converter.destination"
+    static var downloadsURL: URL { URL(fileURLWithPath: FS.home + "/Downloads") }
+
+    var folder: URL? {
+        switch self {
+        case .downloads: return Self.downloadsURL
+        case .beside: return nil
+        case .folder(let url): return url
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .downloads: return "Dans Téléchargements"
+        case .beside: return "À côté des originaux"
+        case .folder(let url): return "Dans « \(url.lastPathComponent) »"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .downloads: return "arrow.down.circle"
+        case .beside: return "arrow.down.doc"
+        case .folder: return "folder"
+        }
+    }
+
+    /// Téléchargements unless the user chose otherwise (a chosen folder that no longer exists falls back to it).
+    static func saved() -> ConverterDestination {
+        guard !DemoData.isEnabled, let raw = UserDefaults.standard.string(forKey: key) else { return .downloads }
+        switch raw {
+        case "beside": return .beside
+        case "downloads": return .downloads
+        default: return FS.isDirectory(raw) ? .folder(URL(fileURLWithPath: raw)) : .downloads
+        }
+    }
+
+    func save() {
+        let raw: String
+        switch self {
+        case .downloads: raw = "downloads"
+        case .beside: raw = "beside"
+        case .folder(let url): raw = url.path
+        }
+        UserDefaults.standard.set(raw, forKey: Self.key)
+    }
+}

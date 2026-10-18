@@ -11,8 +11,12 @@ final class ConverterModel: AppModule {
     var files: [ConverterFile] = []
     var operation: ConverterOperation?
     var options = ConverterOptions()
-    /// nil: outputs go next to the originals.
-    var outputFolder: URL?
+    /// Where results are saved: Téléchargements by default, next to the originals, or a chosen folder.
+    var destination: ConverterDestination = ConverterDestination.saved() {
+        didSet { if !DemoData.isEnabled { destination.save() } }
+    }
+    /// The folder handed to the engines (nil: next to each original).
+    var outputFolder: URL? { destination.folder }
     var jobs: [ConverterJob] = []
     var message: String?
     var qrText = ""
@@ -142,10 +146,7 @@ final class ConverterModel: AppModule {
 
     // MARK: - Output folder
 
-    var destinationLabel: String {
-        guard let outputFolder else { return "À côté des originaux" }
-        return "Dans « \(outputFolder.lastPathComponent) »"
-    }
+    var destinationLabel: String { destination.label }
 
     func chooseFolder() {
         let panel = NSOpenPanel()
@@ -155,7 +156,8 @@ final class ConverterModel: AppModule {
         panel.allowsMultipleSelection = false
         panel.prompt = "Choisir"
         panel.message = "Où ranger les fichiers convertis ?"
-        if panel.runModal() == .OK, let url = panel.url { outputFolder = url }
+        panel.directoryURL = outputFolder ?? ConverterDestination.downloadsURL
+        if panel.runModal() == .OK, let url = panel.url { destination = .folder(url) }
     }
 
     // MARK: - Queue

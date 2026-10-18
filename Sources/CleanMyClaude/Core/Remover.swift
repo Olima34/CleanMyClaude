@@ -179,7 +179,24 @@ enum ActionLog {
         return f
     }()
 
+    private final class Quiet: @unchecked Sendable {
+        let lock = NSLock()
+        var prefixes: [String] = []
+    }
+    private static let quiet = Quiet()
+
+    /// Lines about paths under `folder` are not written (a module's scratch folder, such as the converter's previews).
+    static func quiet(under folder: String) {
+        quiet.lock.lock()
+        if !quiet.prefixes.contains(folder) { quiet.prefixes.append(folder) }
+        quiet.lock.unlock()
+    }
+
     static func write(_ line: String) {
+        quiet.lock.lock()
+        let muted = quiet.prefixes.contains { line.contains($0) }
+        quiet.lock.unlock()
+        if muted { return }
         let text = "\(stamp.string(from: Date())) \(line)\n"
         queue.async {
             try? FS.fm.createDirectory(atPath: folder, withIntermediateDirectories: true)

@@ -127,7 +127,20 @@ final class TranslatorModel: AppModule {
     }
 
     func results(for query: String, app: AppModel) -> [AppCommand] {
-        guard let parsed = TranslatorLanguage.parseLauncher(query) else { return [] }
+        guard let parsed = TranslatorLanguage.parseLauncher(query) else {
+            // Any sentence typed or pasted: translating it comes first, ↩ opens the translator with it, already translated.
+            guard let language = TranslatorLanguage.sentenceLanguage(query) else { return [] }
+            let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            let target = TranslatorLanguage.effectiveTarget(targetCode, detected: language)
+            let shown = text.count > 60 ? String(text.prefix(57)) + "…" : text
+            return [AppCommand(id: "trad_sentence", title: "Traduire « \(shown) »",
+                               subtitle: "\(TranslatorLanguage.named(language)) détecté → \(TranslatorLanguage.named(target)) · ↩ traduit ici",
+                               keywords: [], icon: .symbol("character.bubble", Theme.palette[1]), group: .translation,
+                               hint: "Traduire", boost: 1200, staysInLauncher: true) { ctx in
+                ctx.app.launcher.showTranslator(text: text)
+                return .done
+            }]
+        }
         let detected = TranslatorLanguage.bestGuess(parsed.text, preferring: installedCodes)
         let target = TranslatorLanguage.effectiveTarget(parsed.target ?? targetCode, detected: detected)
         let key = target + "|" + parsed.text
@@ -178,6 +191,14 @@ final class TranslatorModel: AppModule {
             failures.append("aucune langue devinée pour « \(word) »")
         }
         if TranslatorLanguage.bestGuess("bonjour", preferring: ["fr", "en"]) != "fr" { failures.append("« bonjour » devrait être deviné en français") }
+        for sentence in ["Bonjour je m'appelle Vianney", "Where is the nearest train station?", "Gracias por todo, nos vemos mañana"]
+            where TranslatorLanguage.sentenceLanguage(sentence) == nil {
+            failures.append("phrase à traduire non reconnue : « \(sentence) »")
+        }
+        for notSentence in ["safari", "10 km en miles", "2+2*3", "quitter Slack", "g météo paris", "~/Documents/", "facture"]
+            where TranslatorLanguage.sentenceLanguage(notSentence) != nil {
+            failures.append("« \(notSentence) » n'est pas une phrase à traduire")
+        }
         if TranslatorLanguage.effectiveTarget("en", detected: "en") != "fr" { failures.append("un texte déjà anglais devrait partir en français") }
         if TranslatorLanguage.effectiveTarget("fr", detected: "fr") != "en" { failures.append("un texte déjà français devrait partir en anglais") }
         if TranslatorLanguage.effectiveTarget("es", detected: "fr") != "es" { failures.append("la langue choisie doit être respectée") }

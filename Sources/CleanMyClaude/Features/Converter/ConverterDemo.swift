@@ -55,7 +55,7 @@ enum ConverterDemo {
         model.jobs = []
         model.message = nil
         model.qrText = ""
-        model.outputFolder = nil
+        model.destination = .downloads
         model.files = []
         switch scene {
         case .images:
