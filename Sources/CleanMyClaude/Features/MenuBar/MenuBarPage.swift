@@ -121,19 +121,14 @@ struct MenuBarLabelPreview: View {
 }
 
 struct LaunchAtLoginToggle: View {
-    @State private var on = SMAppService.mainApp.status == .enabled
+    @State private var on = LoginItem.isEnabled
     @State private var error: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Toggle("Ouvrir à l'ouverture de session", isOn: Binding(get: { on }, set: { v in
-                do {
-                    if v { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
-                    on = v
-                    error = nil
-                } catch {
-                    self.error = "Impossible : lance l'app assemblée depuis Applications (\(error.localizedDescription))."
-                }
+                error = LoginItem.set(v)
+                if error == nil { on = v }
             }))
             if let error { Text(error).font(.ui(11)).foregroundStyle(Theme.warn) }
         }

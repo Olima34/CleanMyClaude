@@ -298,12 +298,13 @@ struct OnboardingView: View {
                 later("rectangle.split.2x1", "Accessibilité", "ranger tes fenêtres au clavier et coller depuis l'historique du presse-papiers")
                 later("location", "Localisation", "afficher le nom de ton réseau Wi-Fi (macOS le cache sans elle)")
                 later("bell", "Notifications", "te prévenir quand la mémoire sature ou qu'une automatisation a travaillé")
-                HStack(spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Image(systemName: "command").font(.ui(11, .semibold)).foregroundStyle(Theme.brand)
-                    Text("Astuce : \(app.launcher.combo?.display ?? "⌥Espace") ouvre le lanceur depuis n'importe quelle app.")
-                        .font(.ui(12, .medium)).foregroundStyle(Theme.text)
+                    Text("Je reste discret, sans icône dans le Dock : \(app.launcher.combo?.display ?? "⌥Espace") ouvre le lanceur depuis n'importe quelle app, et l'étincelle de la barre des menus me rouvre.")
+                        .font(.ui(12, .medium)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.top, 4)
+                if !Snapshot.isActive { LaunchAtLoginToggle().font(.ui(12)) }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

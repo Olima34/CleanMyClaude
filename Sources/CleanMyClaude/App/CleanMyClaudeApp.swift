@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ServiceManagement
 
 /// The app model, reachable from AppKit entry points (delegate, Finder service) that SwiftUI does not reach.
 @MainActor
@@ -10,10 +11,8 @@ enum AppContext {
 
     /// Brings the main window to the front, recreating it if it was closed.
     static func showMainWindow() {
-        let existing = NSApp.windows.first { w in
-            (w.identifier?.rawValue.hasPrefix("main") ?? false) && (w.isVisible || w.isMiniaturized)
-        }
-        if let w = existing {
+        if DockIconMode.current == .whileWindowOpen { NSApp.setActivationPolicy(.regular) }
+        if let w = mainWindow {
             if w.isMiniaturized { w.deminiaturize(nil) }
             w.makeKeyAndOrderFront(nil)
         } else {
@@ -21,15 +20,111 @@ enum AppContext {
         }
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    static var mainWindow: NSWindow? {
+        NSApp.windows.first { w in
+            (w.identifier?.rawValue.hasPrefix("main") ?? false) && (w.isVisible || w.isMiniaturized)
+        }
+    }
+
+    /// No Dock icon by default, like Raycast: the app lives in the menu bar and behind its shortcut.
+    static func applyDockIcon(windowClosing: Bool = false) {
+        let windowOpen = !windowClosing && mainWindow != nil
+        let regular: Bool
+        switch DockIconMode.current {
+        case .never: regular = false
+        case .whileWindowOpen: regular = windowOpen
+        case .always: regular = true
+        }
+        let policy: NSApplication.ActivationPolicy = regular ? .regular : .accessory
+        guard NSApp.activationPolicy() != policy else { return }
+        NSApp.setActivationPolicy(policy)
+        // Leaving .regular hides the app's windows from the front: keep the open window where it is.
+        if !regular, windowOpen { DispatchQueue.main.async { NSApp.activate(ignoringOtherApps: true) } }
+    }
+}
+
+/// When the app shows an icon in the Dock (and in ⌘⇥).
+enum DockIconMode: String, CaseIterable, Identifiable {
+    case never, whileWindowOpen, always
+
+    static let key = "app.dockIcon"
+    var id: String { rawValue }
+
+    static var current: DockIconMode {
+        UserDefaults.standard.string(forKey: key).flatMap(DockIconMode.init(rawValue:)) ?? .never
+    }
+
+    var title: String {
+        switch self {
+        case .never: return "Jamais, comme Raycast"
+        case .whileWindowOpen: return "Quand la fenêtre est ouverte"
+        case .always: return "Toujours"
+        }
+    }
+}
+
+/// Launch at login: on by default (the launcher and the shortcuts must always answer), once per Mac; the user can turn it off.
+enum LoginItem {
+    static let defaultAppliedKey = "app.loginItemDefaulted"
+
+    static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
+
+    @discardableResult
+    static func set(_ on: Bool) -> String? {
+        do {
+            if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+            return nil
+        } catch {
+            return "Impossible : lance l'app assemblée depuis Applications (\(error.localizedDescription))."
+        }
+    }
+
+    static func applyDefaultOnce() {
+        guard !DemoData.isEnabled, !UserDefaults.standard.bool(forKey: defaultAppliedKey),
+              Bundle.main.bundlePath.hasSuffix(".app") else { return }
+        UserDefaults.standard.set(true, forKey: defaultAppliedKey)
+        if !isEnabled { set(true) }
+    }
+
+    /// True when macOS opened the app at login (no window then, just the menu bar and the shortcuts).
+    static var launchedAtLogin: Bool {
+        guard let event = NSAppleEventManager.shared().currentAppleEvent else { return false }
+        return event.eventID == AEEventID(kAEOpenApplication)
+            && event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
+    }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let services = FinderServices()
     private var statusItem: StatusItemController?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Read now: the launch event is gone once the app has finished launching.
+        atLogin = LoginItem.launchedAtLogin
+    }
+
+    private var atLogin = false
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        MainActor.assumeIsolated {
+            AppContext.applyDockIcon()
+            if atLogin {
+                // Opened at login: stay in the background, like Raycast.
+                DispatchQueue.main.async { AppContext.mainWindow?.close() }
+            } else {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+            LoginItem.applyDefaultOnce()
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
+                guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }
+                MainActor.assumeIsolated { AppContext.applyDockIcon(windowClosing: true) }
+            }
+            NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
+                guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }
+                MainActor.assumeIsolated { AppContext.applyDockIcon() }
+            }
+        }
         MainActor.assumeIsolated {
             Notifier.setUp()
             NSApp.servicesProvider = services

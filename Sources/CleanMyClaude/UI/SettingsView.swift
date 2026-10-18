@@ -17,11 +17,16 @@ struct GeneralSettings: View {
     @Environment(AppModel.self) private var app
     @AppStorage(Preferences.menuMetricKey) private var metric: MenuMetric = .cpuMemory
     @AppStorage(Preferences.alertsKey) private var alerts = false
+    @AppStorage(DockIconMode.key) private var dockIcon: DockIconMode = .never
 
     var body: some View {
         Form {
             Section {
                 LaunchAtLoginToggle()
+                Picker("Icône dans le Dock", selection: $dockIcon) {
+                    ForEach(DockIconMode.allCases) { Text($0.title).tag($0) }
+                }
+                .onChange(of: dockIcon) { _, _ in AppContext.applyDockIcon() }
                 Picker("Barre des menus", selection: $metric) {
                     ForEach(MenuMetric.allCases) { Text($0.title).tag($0) }
                 }

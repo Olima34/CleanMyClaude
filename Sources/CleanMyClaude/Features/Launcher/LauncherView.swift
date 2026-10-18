@@ -2,6 +2,10 @@ import SwiftUI
 
 /// The floating search panel.
 struct LauncherView: View {
+    static let width: CGFloat = 860
+    static let height: CGFloat = 500
+    static let previewWidth: CGFloat = 340
+
     @Environment(AppModel.self) private var app
     @FocusState private var focused: Bool
 
@@ -14,7 +18,7 @@ struct LauncherView: View {
                     Text(model.query).font(.system(size: 21)).foregroundStyle(Theme.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    TextField("Apps, fichiers, calculs, commandes…", text: $model.query)
+                    TextField("Apps, fichiers, calculs, traductions, commandes…", text: $model.query)
                         .textFieldStyle(.plain)
                         .font(.system(size: 21, weight: .regular))
                         .foregroundStyle(Theme.text)
@@ -30,13 +34,21 @@ struct LauncherView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 15)
             Rectangle().fill(Theme.border).frame(height: 1)
-            results
-                .frame(height: 470 - 58 - 38 - 2, alignment: .top)
-                .clipped()
+            HStack(spacing: 0) {
+                results
+                    .frame(maxWidth: .infinity, alignment: .top)
+                if let path = model.selectedFile {
+                    Rectangle().fill(Theme.border).frame(width: 1)
+                    LauncherPreview(path: path)
+                        .frame(width: Self.previewWidth)
+                }
+            }
+            .frame(height: Self.height - 58 - 38 - 2, alignment: .top)
+            .clipped()
             Rectangle().fill(Theme.border).frame(height: 1)
             footer
         }
-        .frame(width: 700, height: 470)
+        .frame(width: Self.width, height: Self.height)
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.bg))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.borderStrong))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))

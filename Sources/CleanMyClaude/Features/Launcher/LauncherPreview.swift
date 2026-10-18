@@ -1,0 +1,172 @@
+import SwiftUI
+import AppKit
+import Quartz
+import UniformTypeIdentifiers
+
+/// The pane next to the results: a Quick Look preview of the selected file, without opening it, and its details.
+struct LauncherPreview: View {
+    var path: String
+    @State private var info = LauncherFileInfo()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Group {
+                if Snapshot.isActive || DemoData.isEnabled {
+                    LauncherDemoPreview(path: path)
+                } else {
+                    LauncherQuickLook(url: URL(fileURLWithPath: path))
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 236)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+
+            Text((path as NSString).lastPathComponent)
+                .font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                .lineLimit(2).truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 5) {
+                row("Type", info.kind)
+                row(info.isDir ? "Contenu" : "Taille", info.size)
+                row("Modifié", info.modified)
+                row("Créé", info.created)
+                row("Dossier", FS.pretty((path as NSString).deletingLastPathComponent))
+            }
+            Spacer(minLength: 0)
+            Text(info.isDir ? "↩ Ouvrir · ⇥ Entrer · ⌘↩ Finder · ⌘⇧C Chemin" : "↩ Ouvrir · ⌘↩ Afficher dans le Finder · ⌘⇧C Chemin")
+                .font(.ui(10.5)).foregroundStyle(Theme.text3)
+        }
+        .padding(14)
+        .onAppear { info = LauncherFileInfo.read(path) }
+        .onChange(of: path) { _, p in info = LauncherFileInfo.read(p) }
+    }
+
+    private func row(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label).font(.ui(11)).foregroundStyle(Theme.text3).frame(width: 58, alignment: .leading)
+            Text(value.isEmpty ? "—" : value).font(.ui(11.5)).foregroundStyle(Theme.text2)
+                .lineLimit(1).truncationMode(.middle)
+        }
+    }
+}
+
+/// What the pane says about a file, read in one call (no content is read).
+struct LauncherFileInfo {
+    var kind = ""
+    var size = ""
+    var modified = ""
+    var created = ""
+    var isDir = false
+
+    static func read(_ path: String) -> LauncherFileInfo {
+        if DemoData.isEnabled { return demo(path) }
+        let url = URL(fileURLWithPath: path)
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .fileSizeKey, .totalFileAllocatedSizeKey,
+                                         .contentModificationDateKey, .creationDateKey, .localizedTypeDescriptionKey]
+        guard let v = try? url.resourceValues(forKeys: keys) else { return LauncherFileInfo(kind: "Introuvable") }
+        var info = LauncherFileInfo()
+        info.kind = v.localizedTypeDescription ?? ""
+        info.isDir = v.isDirectory == true && v.isPackage != true
+        if info.isDir {
+            let count = (try? FileManager.default.contentsOfDirectory(atPath: path))?.filter { !$0.hasPrefix(".") }.count ?? 0
+            info.size = Fmt.plural(count, "élément", "éléments")
+        } else {
+            info.size = Fmt.bytes(Int64(v.fileSize ?? v.totalFileAllocatedSize ?? 0))
+        }
+        info.modified = v.contentModificationDate.map(stamp) ?? ""
+        info.created = v.creationDate.map(stamp) ?? ""
+        return info
+    }
+
+    private static func stamp(_ d: Date) -> String {
+        d.formatted(.dateTime.day().month(.abbreviated).year().hour().minute().locale(Fmt.fr))
+    }
+
+    /// Fictional but stable details for the demo's fictional files.
+    private static func demo(_ path: String) -> LauncherFileInfo {
+        let ext = (path as NSString).pathExtension.lowercased()
+        let seed = path.utf8.reduce(7) { ($0 &* 31 &+ Int($1)) & 0xFFFFFF }
+        let isDir = ext.isEmpty
+        let type = UTType(filenameExtension: ext)?.localizedDescription ?? "Dossier"
+        let modified = Date().addingTimeInterval(-Double(seed % 40) * 86_400 - Double(seed % 7) * 3600)
+        return LauncherFileInfo(kind: isDir ? "Dossier" : type,
+                                size: isDir ? Fmt.plural(4 + seed % 30, "élément", "éléments") : Fmt.bytes(Int64(40_000 + seed % 4_000_000)),
+                                modified: stamp(modified), created: stamp(modified.addingTimeInterval(-86_400 * 12)), isDir: isDir)
+    }
+}
+
+/// Quick Look's own view: the same preview as the space bar in the Finder, drawn by macOS.
+struct LauncherQuickLook: NSViewRepresentable {
+    var url: URL
+
+    func makeNSView(context: Context) -> QLPreviewView {
+        let view = QLPreviewView(frame: .zero, style: .compact) ?? QLPreviewView()
+        view.autostarts = true
+        view.shouldCloseWithWindow = false
+        view.previewItem = url as NSURL
+        return view
+    }
+
+    func updateNSView(_ view: QLPreviewView, context: Context) {
+        if (view.previewItem as? NSURL) as URL? != url { view.previewItem = url as NSURL }
+    }
+
+    static func dismantleNSView(_ view: QLPreviewView, coordinator: ()) {
+        view.close()
+    }
+}
+
+/// Snapshots cannot draw Quick Look: a sheet of paper or an image-like card stands in for it.
+struct LauncherDemoPreview: View {
+    var path: String
+
+    var body: some View {
+        let ext = (path as NSString).pathExtension.lowercased()
+        ZStack {
+            if ["jpg", "jpeg", "heic", "png"].contains(ext) {
+                LinearGradient(colors: [Color(hex: 0xF2A65A), Color(hex: 0xD9576B), Color(hex: 0x5B4B8A)], startPoint: .top, endPoint: .bottom)
+                Circle().fill(Color(hex: 0xFFE3A3).opacity(0.9)).frame(width: 54).offset(y: 18)
+                Rectangle().fill(Color(hex: 0x1F2A44)).frame(height: 70).frame(maxHeight: .infinity, alignment: .bottom)
+            } else if ext.isEmpty {
+                FileIcon(path: path, size: 96)
+            } else {
+                RoundedRectangle(cornerRadius: 4).fill(Color.white)
+                    .frame(width: 150, height: 200)
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                    .overlay(alignment: .topLeading) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0xD97757)).frame(width: 60, height: 8)
+                            ForEach(0..<9, id: \.self) { i in
+                                RoundedRectangle(cornerRadius: 1.5).fill(Color.black.opacity(0.16))
+                                    .frame(width: i % 3 == 2 ? 80 : 118, height: 5)
+                            }
+                            RoundedRectangle(cornerRadius: 2).fill(Color.black.opacity(0.08)).frame(width: 118, height: 34)
+                        }
+                        .padding(14)
+                    }
+            }
+        }
+    }
+}
+
+/// The demo's fictional home: what the launcher finds when Camille types.
+enum LauncherDemoFiles {
+    static var paths: [(path: String, isDir: Bool)] {
+        let h = FS.home
+        let dirs = ["Documents", "Documents/Factures", "Documents/Factures/2026", "Documents/Atelier", "Documents/Atelier/Boussole",
+                    "Desktop", "Downloads", "Pictures/Vacances Bretagne", "Developer/boussole-web", "Documents/Administratif"]
+        let files = [
+            "Documents/Factures/2026/Facture EDF mars 2026.pdf", "Documents/Factures/2026/Facture Orange avril 2026.pdf",
+            "Documents/Factures/2026/Facture Atelier Lumen.pdf", "Documents/Factures/Facture plombier 2025.pdf",
+            "Documents/Atelier/Boussole/Maquettes Boussole v3.fig", "Documents/Atelier/Boussole/Brief Boussole.docx",
+            "Documents/Atelier/Devis Atelier Lumen.pdf", "Documents/Atelier/Planning printemps.numbers",
+            "Desktop/Présentation client.key", "Desktop/Notes réunion lundi.md", "Downloads/rapport-annuel-2025.pdf",
+            "Downloads/Formulaire inscription.pdf", "Pictures/Vacances Bretagne/Falaises au coucher du soleil.heic",
+            "Pictures/Vacances Bretagne/Plage de Pen Hat.jpg", "Developer/boussole-web/README.md",
+            "Documents/Administratif/Attestation assurance habitation.pdf", "Documents/Administratif/Avis d'imposition 2026.pdf",
+            "Documents/Rapport d'activité 2025.pages", "Documents/CV Camille Martin.pdf"
+        ]
+        return dirs.map { (h + "/" + $0, true) } + files.map { (h + "/" + $0, false) }
+    }
+}

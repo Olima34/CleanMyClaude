@@ -211,7 +211,7 @@ enum Snapshot {
             if let p = Page(rawValue: name) { model.page = p }
             let content = view
                 .environment(model)
-                .frame(width: ["menubar-panel": 340, "launcher-panel": 700, "onboarding-panel": 520][name] ?? 1180)
+                .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "onboarding-panel": 520][name] ?? 1180)
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)

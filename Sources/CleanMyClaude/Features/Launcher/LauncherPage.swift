@@ -5,7 +5,10 @@ struct LauncherPage: View {
 
     private let examples: [(String, String, String)] = [
         ("app.badge", "slack", "Ouvre une app (les plus utilisées remontent en premier)"),
-        ("doc.text.magnifyingglass", "facture mars", "Trouve un fichier avec Spotlight"),
+        ("doc.text.magnifyingglass", "facture edf", "Trouve un fichier instantanément, avec son aperçu à côté"),
+        ("folder", "~/Documents/", "Parcourt les dossiers (⇥ entre dans le dossier choisi)"),
+        ("text.magnifyingglass", "dans devis cuisine", "Cherche aussi dans le contenu des fichiers (Spotlight)"),
+        ("character.bubble", "trad bonjour en anglais", "Traduit sur ton Mac, ou avec Claude"),
         ("function", "1250*1,2 + 15%", "Calcule, virgule française comprise"),
         ("ruler", "10 km en miles", "Convertit longueurs, poids, °C, Go, durées…"),
         ("globe.europe.africa", "heure Tokyo", "Donne l'heure dans une autre ville"),
@@ -48,14 +51,24 @@ struct LauncherPage: View {
                 Card(padding: 18) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 8) {
-                            IconBadge(symbol: "slider.horizontal.3", tint: Theme.accent, size: 28)
-                            Text("Recherche").font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                            IconBadge(symbol: "bolt.horizontal", tint: Theme.accent, size: 28)
+                            Text("Recherche de fichiers instantanée").font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                            Spacer()
+                            indexBadge
                         }
-                        Toggle("Chercher aussi dans mes fichiers (Spotlight)", isOn: $model.includeFiles)
+                        Toggle("Chercher aussi dans mes fichiers", isOn: $model.includeFiles)
                             .switchToggles()
                             .font(.ui(12.5))
-                        Text("La recherche de fichiers commence à 3 lettres, dans ton dossier personnel. Rien ne quitte ton Mac, sauf si tu choisis une recherche web.")
+                        Text(indexExplanation)
                             .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                        if model.includeFiles, model.indexState == .off, !DemoData.isEnabled {
+                            Button("Activer la recherche instantanée") { app.launcher.enableIndex() }
+                                .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                        } else if case .ready = model.indexState, !DemoData.isEnabled {
+                            Button("Tout relire") { app.launcher.fileIndex.rebuild() }
+                                .buttonStyle(SoftButtonStyle(small: true))
+                                .help("Relit tout ton dossier personnel (quelques secondes, en arrière-plan)")
+                        }
                     }
                 }
             }
@@ -83,6 +96,25 @@ struct LauncherPage: View {
                     }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private var indexBadge: some View {
+        switch app.launcher.indexState {
+        case .ready(let count): StatusBadge(status: .ok, text: Fmt.plural(count, "fichier", "fichiers"))
+        case .building: StatusBadge(status: .info, text: "Indexation…")
+        case .off: StatusBadge(status: .warn, text: app.launcher.includeFiles ? "Spotlight" : "Désactivée")
+        }
+    }
+
+    private var indexExplanation: String {
+        switch app.launcher.indexState {
+        case .ready, .building:
+            return "Les noms de tes fichiers sont gardés en mémoire, sur ton Mac : une recherche prend un millième de seconde, et chaque changement est suivi en direct. ~/Library, les dossiers cachés et les dépendances (node_modules…) sont laissés de côté."
+        case .off:
+            if !app.launcher.includeFiles { return "Le lanceur ne cherche que les apps, les réglages et les commandes." }
+            return "Pour l'instant, c'est Spotlight qui cherche (une seconde ou plus). L'index instantané lit les noms de tes fichiers une fois ; sans l'accès complet au disque, macOS te demandera d'autoriser Documents, Bureau et Téléchargements."
         }
     }
 

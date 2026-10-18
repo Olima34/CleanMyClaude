@@ -25,7 +25,17 @@ final class LauncherModel: AppModule {
     var combo: KeyCombo?
     var hotKeyActive = false
     var includeFiles = UserDefaults.standard.object(forKey: "launcher.files") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(includeFiles, forKey: "launcher.files") }
+        didSet {
+            guard !DemoData.isEnabled else { return }
+            UserDefaults.standard.set(includeFiles, forKey: "launcher.files")
+            if includeFiles { startIndexIfAllowed() } else { fileIndex.stop() }
+        }
+    }
+    /// The instant file index: off, being built, or ready with its number of items.
+    var indexState: LauncherFileIndex.State = .off
+    /// The user asked for the index (without Full Disk Access, reading Documents or Desktop makes macOS ask first).
+    var indexConsent = UserDefaults.standard.bool(forKey: "launcher.indexConsent") {
+        didSet { if !DemoData.isEnabled { UserDefaults.standard.set(indexConsent, forKey: "launcher.indexConsent") } }
     }
 
     @ObservationIgnored private weak var app: AppModel?
@@ -38,6 +48,10 @@ final class LauncherModel: AppModule {
     @ObservationIgnored private var fileQuery: NSMetadataQuery?
     @ObservationIgnored private var fileObserver: NSObjectProtocol?
     @ObservationIgnored private var fileWork: DispatchWorkItem?
+    @ObservationIgnored let fileIndex = LauncherFileIndex()
+    /// The demo's fictional files, searched like the real index.
+    @ObservationIgnored private var demoFiles: LauncherFileIndex.Snapshot?
+    @ObservationIgnored private var fileKinds: [String: Bool] = [:]
 
     /// Flat list of what is shown, in order (for keyboard navigation).
     var flat: [AppCommand] { sections.flatMap(\.items) }
@@ -51,6 +65,32 @@ final class LauncherModel: AppModule {
         combo = HotKeyCenter.shared.combo(for: Self.hotKeyID, fallback: Self.defaultCombo)
         hotKeyActive = HotKeyCenter.shared.register(Self.hotKeyID, combo: combo) { [weak self] in self?.toggle() }
         reindexApps()
+        fileIndex.onChange = { [weak self] state in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.indexState = state
+                    if self.isOpen, case .ready = state { self.refreshKeepingSelection() }
+                }
+            }
+        }
+        startIndexIfAllowed()
+    }
+
+    func stop() {
+        fileIndex.stop()
+    }
+
+    /// With Full Disk Access, or once the user asked for it: no surprise macOS prompt at launch.
+    private func startIndexIfAllowed() {
+        guard includeFiles, !DemoData.isEnabled, !Snapshot.isActive, let app else { return }
+        if app.fullDiskAccess || indexConsent { fileIndex.start() }
+    }
+
+    func enableIndex() {
+        indexConsent = true
+        includeFiles = true
+        startIndexIfAllowed()
     }
 
     func setCombo(_ newCombo: KeyCombo?) {
@@ -66,6 +106,8 @@ final class LauncherModel: AppModule {
         for (id, n) in [("act_smart_scan", 14), ("open_converter", 9), ("sys_darkmode", 7), ("set_com_apple_wifi_settings_extension", 4)] {
             CommandRunner.usage.value[id] = .init(count: n, last: Date().addingTimeInterval(-3600))
         }
+        demoFiles = LauncherFileIndex.snapshot(paths: LauncherDemoFiles.paths, home: FS.home)
+        indexState = .ready(count: 148_312)
     }
 
     func commands(app: AppModel) -> [AppCommand] {
@@ -106,12 +148,64 @@ final class LauncherModel: AppModule {
         if Fuzzy.score("reglages", in: "Réglages Système") == nil { failures.append("recherche sans accents") }
         if Fuzzy.score("vsc", in: "Visual Studio Code") == nil { failures.append("recherche par initiales") }
         if LauncherEmoji.search("coeur").isEmpty { failures.append("emoji introuvables") }
+        failures += Self.fileIndexChecks()
+        return failures
+    }
+
+    /// The index's rules and ranking, on made-up paths (nothing is read from the disk).
+    static func fileIndexChecks() -> [String] {
+        var failures: [String] = []
+        let h = "/Users/test"
+        let roots = [h, h + "/Library/Mobile Documents/com~apple~CloudDocs"]
+        let indexable: [(String, Bool)] = [
+            (h + "/Documents/Factures", true), (h + "/Library/Caches", false), (h + "/Developer/app/node_modules/x", false),
+            (h + "/.config", false), (h + "/Developer/site/.git", false), (h + "/Pictures/Photos.photoslibrary/originals", false),
+            (h + "/Library/Mobile Documents/com~apple~CloudDocs/Notes", true), ("/private/tmp", false)
+        ]
+        for (path, expected) in indexable where LauncherFileIndex.isIndexable(path, roots: roots, home: h) != expected {
+            failures.append("index : « \(path) » \(expected ? "aurait dû être indexé" : "n'aurait pas dû l'être")")
+        }
+        let snapshot = LauncherFileIndex.snapshot(paths: [
+            (h + "/Documents/Factures", true), (h + "/Documents/Factures/EDF", true),
+            (h + "/Documents/Factures/EDF/mars 2026.pdf", false), (h + "/Documents/Résumé.pdf", false),
+            (h + "/Documents/Archives/vieux/très/loin/facture.pdf", false), (h + "/Desktop/facture.pdf", false),
+            (h + "/Documents/préfacture.txt", false), (h + "/Documents/Rapport annuel.pages", false)
+        ], home: h)
+        func first(_ q: String) -> String? {
+            LauncherFileIndex.search(q, in: snapshot, checkDates: false).first.map { ($0.path as NSString).lastPathComponent }
+        }
+        if first("facture") != "facture.pdf" { failures.append("index : « facture » devrait d'abord trouver facture.pdf (\(first("facture") ?? "rien"))") }
+        if LauncherFileIndex.search("facture", in: snapshot, checkDates: false).first?.path != h + "/Desktop/facture.pdf" {
+            failures.append("index : le fichier du Bureau devrait passer avant celui rangé très loin")
+        }
+        if first("resume") != "Résumé.pdf" { failures.append("index : recherche sans accents") }
+        if first("edf mars") != "mars 2026.pdf" { failures.append("index : un mot peut viser le dossier (« edf mars »)") }
+        if first("rapport annuel") != "Rapport annuel.pages" { failures.append("index : plusieurs mots") }
+        if !LauncherFileIndex.search("zzz", in: snapshot, checkDates: false).isEmpty { failures.append("index : résultat inventé") }
+        let order = LauncherFileIndex.search("fact", in: snapshot, checkDates: false).map(\.name)
+        if let pre = order.firstIndex(of: "préfacture.txt"), let start = order.firstIndex(of: "Factures"), pre < start {
+            failures.append("index : un nom qui commence par la recherche passe avant un nom qui la contient")
+        }
+        if LauncherModel.fileID("/a/b") == LauncherModel.fileID("/a/c") || !AppCommand.isValidID(LauncherModel.fileID("/a/b é")) {
+            failures.append("index : identifiants de fichiers")
+        }
         return failures
     }
 
     func dump() -> [String] {
         let apps = LauncherAppIndex.scan()
-        return ["\(apps.count) apps indexées : \(apps.prefix(8).map(\.name).joined(separator: ", "))…",
+        var lines: [String] = []
+        if !DemoData.isEnabled {
+            let index = LauncherFileIndex()
+            let built = index.buildNow()
+            lines.append("index des fichiers : \(Fmt.int(built.count)) éléments en \(String(format: "%.2f", built.seconds)) s")
+            for q in ["facture", "rapport annuel", "png", "a"] {
+                let t = Date()
+                let hits = LauncherFileIndex.search(q, in: index.snapshot, limit: 5)
+                lines.append("« \(q) » : \(String(format: "%.1f", Date().timeIntervalSince(t) * 1000)) ms → \(hits.prefix(3).map { FS.pretty($0.path) }.joined(separator: " · "))")
+            }
+        }
+        return lines + ["\(apps.count) apps indexées : \(apps.prefix(8).map(\.name).joined(separator: ", "))…",
                 "2,5*(3+1) = \(LauncherCalculator.evaluate("2,5*(3+1)").map(LauncherCalculator.format) ?? "?")",
                 "10 km en miles : \(LauncherUnits.convert("10 km en miles")?.to ?? "?")",
                 "heure Tokyo : \(LauncherWorldClock.answer("heure Tokyo")?.time ?? "?")"]
@@ -150,7 +244,7 @@ final class LauncherModel: AppModule {
     }
 
     private func makePanel() -> FloatingPanel {
-        let p = FloatingPanel(size: NSSize(width: 700, height: 470))
+        let p = FloatingPanel(size: NSSize(width: LauncherView.width, height: LauncherView.height))
         p.onClose = { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
@@ -178,6 +272,20 @@ final class LauncherModel: AppModule {
             case kVK_Escape:
                 if self.query.isEmpty { self.hide() } else { self.query = "" }
                 return nil
+            case kVK_Tab:
+                // Tab enters the selected folder ("~/Documents/Factures/"), or completes a path being typed.
+                if let path = self.selectedFile, self.isPathQuery(self.query) || self.fileKinds[path] == true {
+                    self.query = FS.pretty(path) + (self.fileKinds[path] == true ? "/" : "")
+                    return nil
+                }
+                return event
+            case kVK_ANSI_C where event.modifierFlags.contains([.command, .shift]):
+                if let path = self.selectedFile {
+                    _ = CommandRunner.copy(path)
+                    HUD.show("Chemin copié", symbol: "doc.on.clipboard.fill")
+                    return nil
+                }
+                return event
             default:
                 return event
             }
@@ -193,6 +301,14 @@ final class LauncherModel: AppModule {
         let count = flat.count
         guard count > 0 else { return }
         selection = (selection + delta + count) % count
+    }
+
+    /// The file or folder under the selection, for the preview pane.
+    var selectedFile: String? {
+        let items = flat
+        guard items.indices.contains(selection), items[selection].group == .files,
+              case .file(let path) = items[selection].icon else { return nil }
+        return path
     }
 
     func runSelected(alternate: Bool = false) {
@@ -229,6 +345,16 @@ final class LauncherModel: AppModule {
             fileQuery?.stop()
             return
         }
+        // "~/Documents/fa" or "/Applications": browse the folders, nothing else.
+        if isPathQuery(q) {
+            fileWork?.cancel()
+            fileQuery?.stop()
+            let items = pathResults(q)
+            sections = items.isEmpty ? [] : [LauncherSection(id: "path", title: "Dossier", items: items)]
+            return
+        }
+        let instant = instantFiles(q)
+        if let instant { fileResults = instant }
         var scored: [(AppCommand, Double)] = []
         for c in catalog {
             if let s = Fuzzy.best(q, title: c.title, keywords: c.keywords + [c.subtitle ?? ""]) {
@@ -238,10 +364,16 @@ final class LauncherModel: AppModule {
         for c in ModuleRegistry.results(for: q, app: app) {
             scored.append((c, c.boost + CommandRunner.frecency(c.id)))
         }
-        for c in fileResults { scored.append((c, c.boost)) }
+        for c in fileResults { scored.append((c, c.boost + CommandRunner.frecency(c.id))) }
         scored.sort { $0.1 > $1.1 }
         sections = arrange(scored.map(\.0))
-        scheduleFileSearch(q)
+        if instant == nil { scheduleFileSearch(q) } else { fileWork?.cancel(); fileQuery?.stop() }
+    }
+
+    private func refreshKeepingSelection() {
+        let keep = selection
+        refreshKeepingFiles()
+        selection = min(keep, max(0, flat.count - 1))
     }
 
     /// Best match first, then each kind of result together, capped per kind.
@@ -250,7 +382,7 @@ final class LauncherModel: AppModule {
         var out = [LauncherSection(id: "best", title: "Meilleur résultat", items: [best])]
         var byGroup: [CommandSection: [AppCommand]] = [:]
         for c in ranked.dropFirst() { byGroup[c.group, default: []].append(c) }
-        let caps: [CommandSection: Int] = [.apps: 6, .files: 8, .emoji: 24, .settings: 4, .web: 2]
+        let caps: [CommandSection: Int] = [.apps: 6, .files: 12, .emoji: 24, .settings: 4, .web: 2]
         for g in CommandSection.allCases {
             guard let items = byGroup[g], !items.isEmpty else { continue }
             out.append(LauncherSection(id: "\(g.rawValue)", title: g.title, items: Array(items.prefix(caps[g] ?? 5))))
@@ -270,25 +402,85 @@ final class LauncherModel: AppModule {
         return out
     }
 
-    /// Spotlight search in the home folder, a moment after the last keystroke.
+    // MARK: Files
+
+    /// "dans facture edf": Spotlight looks inside the files too.
+    static let contentPrefixes = ["dans ", "in "]
+
+    func isPathQuery(_ q: String) -> Bool {
+        q.hasPrefix("/") || q.hasPrefix("~/") || q == "~"
+    }
+
+    /// Results from the instant index, or nil when Spotlight must answer (content search, index not ready).
+    private func instantFiles(_ q: String) -> [AppCommand]? {
+        guard includeFiles, q.count >= 2, !q.hasPrefix(":"), !q.hasPrefix("?") else { return [] }
+        if Self.contentPrefixes.contains(where: { q.lowercased().hasPrefix($0) }) { return nil }
+        let snapshot: LauncherFileIndex.Snapshot
+        if let demoFiles {
+            snapshot = demoFiles
+        } else if case .ready = indexState {
+            snapshot = fileIndex.snapshot
+        } else {
+            return nil
+        }
+        let hits = LauncherFileIndex.search(q, in: snapshot, limit: 24, checkDates: !DemoData.isEnabled)
+        return hits.enumerated().map { rank, hit in
+            fileKinds[hit.path] = hit.isDir
+            return fileCommand(hit.path, isDir: hit.isDir, boost: hit.score * 0.45 - Double(rank) * 0.01)
+        }
+    }
+
+    /// The content of the folder being typed, filtered by the last part.
+    private func pathResults(_ q: String) -> [AppCommand] {
+        let expanded = FS.expand(q)
+        let dir: String, partial: String
+        if expanded.hasSuffix("/") || q == "~" {
+            dir = q == "~" ? FS.home : String(expanded.dropLast())
+            partial = ""
+        } else {
+            dir = (expanded as NSString).deletingLastPathComponent
+            partial = (expanded as NSString).lastPathComponent
+        }
+        guard !DemoData.isEnabled, let names = try? FileManager.default.contentsOfDirectory(atPath: dir.isEmpty ? "/" : dir) else { return [] }
+        let wanted = Fuzzy.fold(partial)
+        var rows: [(name: String, isDir: Bool, score: Int)] = []
+        for name in names where partial.hasPrefix(".") || !name.hasPrefix(".") {
+            let folded = Fuzzy.fold(name)
+            let score = wanted.isEmpty ? 1 : (folded.hasPrefix(wanted) ? 2 : (folded.contains(wanted) ? 1 : 0))
+            guard score > 0 else { continue }
+            rows.append((name, FS.isDirectory((dir == "/" ? "" : dir) + "/" + name), score))
+        }
+        rows.sort { ($0.score, $0.isDir ? 1 : 0, $1.name.lowercased()) > ($1.score, $1.isDir ? 1 : 0, $0.name.lowercased()) }
+        return rows.prefix(40).enumerated().map { rank, row in
+            let path = (dir == "/" ? "" : dir) + "/" + row.name
+            fileKinds[path] = row.isDir
+            return fileCommand(path, isDir: row.isDir, boost: 400 - Double(rank))
+        }
+    }
+
+    /// Spotlight, a moment after the last keystroke: for content searches, and while the index is not ready.
     private func scheduleFileSearch(_ q: String) {
         fileWork?.cancel()
-        guard includeFiles, q.count >= 3, !DemoData.isEnabled, !q.hasPrefix(":") else {
+        let content = Self.contentPrefixes.first { q.lowercased().hasPrefix($0) }
+        let text = content.map { String(q.dropFirst($0.count)).trimmingCharacters(in: .whitespaces) } ?? q
+        guard includeFiles, text.count >= (content == nil ? 3 : 2), !DemoData.isEnabled, !q.hasPrefix(":") else {
             if !fileResults.isEmpty { fileResults = [] }
             return
         }
         let work = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.searchFiles(q) }
+            MainActor.assumeIsolated { self?.searchSpotlight(text, query: q, content: content != nil) }
         }
         fileWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
     }
 
-    private func searchFiles(_ q: String) {
+    private func searchSpotlight(_ text: String, query q: String, content: Bool) {
         fileQuery?.stop()
         if let fileObserver { NotificationCenter.default.removeObserver(fileObserver) }
         let mq = NSMetadataQuery()
-        mq.predicate = NSPredicate(format: "kMDItemDisplayName CONTAINS[cd] %@ AND NOT (kMDItemContentType == 'com.apple.application-bundle')", q)
+        mq.predicate = content
+            ? NSPredicate(format: "(kMDItemTextContent CONTAINS[cd] %@ OR kMDItemDisplayName CONTAINS[cd] %@) AND NOT (kMDItemContentType == 'com.apple.application-bundle')", text, text)
+            : NSPredicate(format: "kMDItemDisplayName CONTAINS[cd] %@ AND NOT (kMDItemContentType == 'com.apple.application-bundle')", text)
         mq.searchScopes = [NSMetadataQueryUserHomeScope]
         mq.sortDescriptors = [NSSortDescriptor(key: "kMDItemLastUsedDate", ascending: false)]
         fileObserver = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: mq, queue: .main) { [weak self] _ in
@@ -296,15 +488,15 @@ final class LauncherModel: AppModule {
                 guard let self, let mq = self.fileQuery, self.query.trimmingCharacters(in: .whitespaces) == q else { return }
                 mq.stop()
                 var found: [AppCommand] = []
-                for i in 0..<min(mq.resultCount, 12) {
+                for i in 0..<min(mq.resultCount, 16) {
                     guard let item = mq.result(at: i) as? NSMetadataItem,
                           let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else { continue }
-                    found.append(Self.fileCommand(path, rank: i))
+                    let isDir = (item.value(forAttribute: "kMDItemContentType") as? String) == "public.folder"
+                    self.fileKinds[path] = isDir
+                    found.append(self.fileCommand(path, isDir: isDir, boost: (content ? 600 : 300) - Double(i) * 5))
                 }
                 self.fileResults = found
-                let keep = self.selection
-                self.refreshKeepingFiles()
-                self.selection = min(keep, max(0, self.flat.count - 1))
+                self.refreshKeepingSelection()
             }
         }
         fileQuery = mq
@@ -319,10 +511,20 @@ final class LauncherModel: AppModule {
         fileWork = work
     }
 
-    private static func fileCommand(_ path: String, rank: Int) -> AppCommand {
+    /// Stable id per path (FNV-1a), so that the files opened often come first next time.
+    static func fileID(_ path: String) -> String {
+        var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+        for b in path.utf8 {
+            hash ^= UInt64(b)
+            hash = hash &* 0x0000_0100_0000_01B3
+        }
+        return "file_" + String(hash, radix: 16)
+    }
+
+    private func fileCommand(_ path: String, isDir: Bool, boost: Double) -> AppCommand {
         let name = (path as NSString).lastPathComponent
-        return AppCommand(id: "file_\(rank)", title: name, subtitle: FS.pretty((path as NSString).deletingLastPathComponent),
-                          icon: .file(path), group: .files, hint: "Ouvrir · ⌘ Afficher", boost: 300 - Double(rank) * 5) { ctx in
+        return AppCommand(id: Self.fileID(path), title: name, subtitle: FS.pretty((path as NSString).deletingLastPathComponent),
+                          icon: .file(path), group: .files, hint: isDir ? "Ouvrir · ⇥ Entrer" : "Ouvrir · ⌘ Afficher", boost: boost) { ctx in
             if ctx.alternate { Finder.reveal(path) } else { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
             return .done
         }
