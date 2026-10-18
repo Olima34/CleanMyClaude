@@ -67,12 +67,12 @@ struct ToolboxCaffeinePill: View {
                 Image(systemName: m.caffeineActive ? "cup.and.saucer.fill" : "cup.and.saucer").font(.ui(12, .semibold))
                 Text(m.caffeineActive ? "Caféine · \(m.caffeineShortRemaining(Date()))" : "Caféine").font(.ui(12, .semibold))
             }
-            .foregroundStyle(m.caffeineActive ? Color.white : Theme.text2)
+            .foregroundStyle(m.caffeineActive ? Theme.onBrand : Theme.text2)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(Capsule().fill(m.caffeineActive ? Theme.brand : Theme.card))
-            .overlay(Capsule().strokeBorder(m.caffeineActive ? Color.clear : Theme.border))
-            .contentShape(Capsule())
+            .background(PillShape().fill(m.caffeineActive ? Theme.brand : Theme.card))
+            .overlay(PillShape().strokeBorder(m.caffeineActive ? Color.clear : Theme.border))
+            .contentShape(PillShape())
         }
         .buttonStyle(.plain)
         .help(m.caffeineActive ? "Arrêter Caféine" : "Garder le Mac éveillé (\(m.settings.caffeineMinutes == 0 ? "sans limite" : ToolboxTime.durationLabel(m.settings.caffeineMinutes)))")
@@ -92,7 +92,7 @@ struct ToolboxColorsTab: View {
             TileRow {
                 Card(padding: 18) {
                     VStack(alignment: .leading, spacing: 14) {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous)
                             .fill(c.color)
                             .frame(height: 158)
                             .overlay(alignment: .bottomLeading) {
@@ -103,7 +103,7 @@ struct ToolboxColorsTab: View {
                                 .foregroundStyle(c.isLight ? Color.black.opacity(0.72) : Color.white.opacity(0.95))
                                 .padding(14)
                             }
-                            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.border))
+                            .overlay(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
                         HStack(spacing: 8) {
                             Button {
                                 picking = true
@@ -144,10 +144,10 @@ struct ToolboxColorsTab: View {
                     HStack(spacing: 5) {
                         ForEach([0.92, 0.84, 0.74, 0.64, 0.54, 0.44, 0.34, 0.24, 0.14], id: \.self) { l in
                             let shade = c.withLightness(l)
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: Theme.r(6))
                                 .fill(shade.color)
                                 .frame(height: 30)
-                                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.border))
+                                .overlay(RoundedRectangle(cornerRadius: Theme.r(6)).strokeBorder(Theme.border, lineWidth: Theme.line))
                                 .contentShape(Rectangle())
                                 .onTapGesture { m.setColor(shade) }
                                 .help(shade.hex)
@@ -172,10 +172,10 @@ struct ToolboxColorsTab: View {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 78), spacing: 10)], spacing: 12) {
                         ForEach(m.settings.colors, id: \.hex) { h in
                             VStack(spacing: 5) {
-                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                RoundedRectangle(cornerRadius: Theme.r(9), style: .continuous)
                                     .fill(h.color)
                                     .frame(height: 44)
-                                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                    .overlay(RoundedRectangle(cornerRadius: Theme.r(9), style: .continuous)
                                         .strokeBorder(h.hex == c.hex ? Theme.accent : Theme.border, lineWidth: h.hex == c.hex ? 2 : 1))
                                 Text(h.hex).font(.mono(10.5)).foregroundStyle(Theme.text2)
                             }
@@ -308,8 +308,8 @@ struct ToolboxSecretText: View {
             .frame(maxWidth: .infinity, minHeight: 58, alignment: .leading)
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 
     private var attributed: AttributedString {
@@ -529,7 +529,7 @@ struct ToolboxTextTab: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.bg))
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.bg))
     }
 }
 
@@ -590,8 +590,8 @@ struct ToolboxTimeTab: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 14)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+                        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
                     HStack(spacing: 8) {
                         Button { m.uuid = UUID().uuidString } label: { Label("Nouveau", systemImage: "arrow.clockwise") }
                             .buttonStyle(SoftButtonStyle(small: true))
@@ -680,11 +680,11 @@ struct ToolboxCaffeineTab: View {
                                 } label: {
                                     Text(label)
                                         .font(.ui(12.5, .semibold))
-                                        .foregroundStyle(on ? Color.white : Theme.text)
+                                        .foregroundStyle(on ? Theme.onBrand : Theme.text)
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 8)
-                                        .background(RoundedRectangle(cornerRadius: 9).fill(on ? Theme.brand : Theme.bg))
-                                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(on ? Color.clear : Theme.border))
+                                        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(on ? Theme.brand : Theme.bg))
+                                        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(on ? Color.clear : Theme.border))
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)

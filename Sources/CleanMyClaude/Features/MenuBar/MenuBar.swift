@@ -38,7 +38,7 @@ struct MenuBarPanel: View {
                     Text("Santé \(app.healthScore)").font(.ui(11, .medium)).foregroundStyle(Theme.text2)
                 }
                 .padding(.horizontal, 8).padding(.vertical, 3)
-                .background(Capsule().fill(Theme.card))
+                .background(PillShape().fill(Theme.card))
             }
 
             HStack(spacing: 0) {
@@ -73,8 +73,8 @@ struct MenuBarPanel: View {
                     }
             }
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Les plus gourmands").font(.ui(11, .semibold)).foregroundStyle(Theme.text3)
@@ -103,10 +103,10 @@ struct MenuBarPanel: View {
                         Button { t.toggle() } label: {
                             Label(t.title, systemImage: t.symbol)
                                 .font(.ui(11, .medium))
-                                .foregroundStyle(t.isOn ? Color.white : Theme.text2)
+                                .foregroundStyle(t.isOn ? Theme.onAccent : Theme.text2)
                                 .padding(.horizontal, 9).padding(.vertical, 5)
-                                .background(Capsule().fill(t.isOn ? Theme.accent : Theme.card))
-                                .overlay(Capsule().strokeBorder(t.isOn ? Color.clear : Theme.border))
+                                .background(PillShape().fill(t.isOn ? Theme.accent : Theme.card))
+                                .overlay(PillShape().strokeBorder(t.isOn ? Color.clear : Theme.border))
                         }
                         .buttonStyle(.plain)
                     }
@@ -200,8 +200,8 @@ struct MenuBarPanel: View {
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(Theme.border, lineWidth: Theme.line))
         .contentShape(Rectangle())
     }
 

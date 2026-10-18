@@ -68,8 +68,8 @@ struct ConverterDestinationPicker: View {
         .padding(.leading, 12)
         .padding(.trailing, 8)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
         .fixedSize()
     }
 }
@@ -138,11 +138,11 @@ struct ConverterFamilyCard: View {
                     Button { model.focus(op) } label: {
                         Text(op.title)
                             .font(.ui(11.5, model.operation == op ? .semibold : .regular))
-                            .foregroundStyle(model.operation == op ? Color.white : Theme.text2)
+                            .foregroundStyle(model.operation == op ? Theme.ink(on: family.tint) : Theme.text2)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
-                            .background(Capsule().fill(model.operation == op ? family.tint : Theme.track))
-                            .contentShape(Capsule())
+                            .background(PillShape().fill(model.operation == op ? family.tint : Theme.track))
+                            .contentShape(PillShape())
                     }
                     .buttonStyle(.plain)
                 }
@@ -198,7 +198,7 @@ struct ConverterFilesPanel: View {
                 .foregroundStyle(targeted ? Theme.accent : Theme.text3)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 9)
-                .background(RoundedRectangle(cornerRadius: 9).strokeBorder(targeted ? Theme.accent : Theme.border,
+                .background(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(targeted ? Theme.accent : Theme.border,
                                                                              style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
             }
         }
@@ -265,7 +265,7 @@ struct ConverterFileRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: 8).fill(hovering ? Theme.hover.opacity(0.6) : .clear))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(hovering ? Theme.hover.opacity(0.6) : .clear))
         .opacity(ignored ? 0.5 : 1)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
@@ -282,7 +282,7 @@ struct ConverterFileRow: View {
         Button(action: action) {
             Image(systemName: symbol).font(.ui(9.5, .bold)).foregroundStyle(Theme.text2)
                 .frame(width: 20, height: 20)
-                .background(RoundedRectangle(cornerRadius: 5).fill(Theme.track))
+                .background(RoundedRectangle(cornerRadius: Theme.r(5)).fill(Theme.track))
         }
         .buttonStyle(.plain)
     }
@@ -419,7 +419,7 @@ struct ConverterJobRow: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(hovering ? Theme.hover.opacity(0.45) : Theme.bg.opacity(0.5)))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(hovering ? Theme.hover.opacity(0.45) : Theme.bg.opacity(0.5)))
         .onHover { hovering = $0 }
     }
 
@@ -554,8 +554,8 @@ struct ConverterTextResult: View {
                 .padding(12)
             }
             .frame(maxHeight: 190)
-            .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(Theme.border, lineWidth: Theme.line))
             HStack(spacing: 8) {
                 Button("Copier le texte") { model.copy(text) }.buttonStyle(SoftButtonStyle(prominent: true, small: true))
                 Button("Enregistrer en .txt") { model.saveText(job) }.buttonStyle(SoftButtonStyle(small: true))
@@ -586,7 +586,7 @@ struct ConverterCodesResult: View {
                     Button("Copier") { model.copy(code) }.buttonStyle(SoftButtonStyle(small: true))
                 }
                 .padding(8)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.card))
             }
         }
         .padding(.leading, 40)
@@ -627,7 +627,7 @@ struct ConverterQRPanel: View {
             Card(padding: 18) {
                 VStack(spacing: 14) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 12).fill(Color.white)
+                        RoundedRectangle(cornerRadius: Theme.r(12)).fill(Color.white)
                         if let image = model.qrImage {
                             Image(decorative: image, scale: 1).resizable().interpolation(.none).scaledToFit().padding(6)
                         } else {

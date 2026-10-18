@@ -19,9 +19,9 @@ struct LauncherPreview: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: 236)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.card))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.r(12)))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.border, lineWidth: Theme.line))
 
             Text((path as NSString).lastPathComponent)
                 .font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
@@ -131,17 +131,17 @@ struct LauncherDemoPreview: View {
             } else if ext.isEmpty {
                 FileIcon(path: path, size: 96)
             } else {
-                RoundedRectangle(cornerRadius: 4).fill(Color.white)
+                RoundedRectangle(cornerRadius: Theme.r(4)).fill(Color.white)
                     .frame(width: 150, height: 200)
-                    .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                    .themedShadow(color: .black.opacity(0.25), radius: 6, y: 2)
                     .overlay(alignment: .topLeading) {
                         VStack(alignment: .leading, spacing: 7) {
-                            RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0xD97757)).frame(width: 60, height: 8)
+                            RoundedRectangle(cornerRadius: Theme.r(2)).fill(Color(hex: 0xD97757)).frame(width: 60, height: 8)
                             ForEach(0..<9, id: \.self) { i in
-                                RoundedRectangle(cornerRadius: 1.5).fill(Color.black.opacity(0.16))
+                                RoundedRectangle(cornerRadius: Theme.r(1.5)).fill(Color.black.opacity(0.16))
                                     .frame(width: i % 3 == 2 ? 80 : 118, height: 5)
                             }
-                            RoundedRectangle(cornerRadius: 2).fill(Color.black.opacity(0.08)).frame(width: 118, height: 34)
+                            RoundedRectangle(cornerRadius: Theme.r(2)).fill(Color.black.opacity(0.08)).frame(width: 118, height: 34)
                         }
                         .padding(14)
                     }

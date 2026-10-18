@@ -72,8 +72,8 @@ struct DropZone: View {
                 Text(subtitle).font(.ui(12)).foregroundStyle(Theme.text3)
             }
             .frame(maxWidth: .infinity, minHeight: 150)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(targeted ? Theme.accent.opacity(0.08) : Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .background(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).fill(targeted ? Theme.accent.opacity(0.08) : Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous)
                 .strokeBorder(targeted ? Theme.accent : Theme.borderStrong, style: StrokeStyle(lineWidth: 1.5, dash: [7, 5])))
             .contentShape(Rectangle())
         }
@@ -149,8 +149,8 @@ struct ShortcutRecorder: View {
                 .frame(minWidth: 120)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 8).fill(recording ? Theme.accent.opacity(0.1) : Theme.card))
-                .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(recording ? Theme.accent : Theme.border))
+                .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(recording ? Theme.accent.opacity(0.1) : Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(recording ? Theme.accent : Theme.border))
         }
         .buttonStyle(.plain)
         .onDisappear { stop() }

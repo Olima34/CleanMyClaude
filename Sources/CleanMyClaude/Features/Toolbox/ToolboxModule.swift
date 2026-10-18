@@ -172,7 +172,8 @@ final class ToolboxModel: AppModule {
     var sidebarBadge: String? {
         guard caffeineActive else { return nil }
         _ = minuteTick
-        return caffeineEnd == nil ? "☕︎ ∞" : "☕︎ " + caffeineShortRemaining(Date())
+        let cup = Theme.icons == .hidden ? "" : "☕︎ "
+        return cup + (caffeineEnd == nil ? "∞" : caffeineShortRemaining(Date()))
     }
 
     func start(app: AppModel) {

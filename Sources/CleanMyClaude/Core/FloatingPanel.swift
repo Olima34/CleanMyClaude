@@ -84,8 +84,8 @@ enum HUD {
             }
             .padding(.horizontal, 18)
             .frame(width: 320, height: 64)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Theme.cardRaised))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.borderStrong))
+            .background(RoundedRectangle(cornerRadius: Theme.r(16), style: .continuous).fill(Theme.cardRaised))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(16), style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: Theme.line))
         )
         if let f = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
             p.setFrameOrigin(NSPoint(x: f.midX - 160, y: f.minY + f.height * 0.18))

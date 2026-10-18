@@ -116,7 +116,7 @@ struct AssistantKeySetup: View {
                         if Snapshot.isActive {
                             Text("sk-ant-…").font(.mono(12.5)).foregroundStyle(Theme.text3)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(8).background(RoundedRectangle(cornerRadius: 8).fill(Theme.card))
+                                .padding(8).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.card))
                         } else {
                             SecureField("sk-ant-…", text: $key)
                                 .textFieldStyle(.roundedBorder)
@@ -237,7 +237,7 @@ struct AssistantConversation: View {
                                 Button { model.ask(s) } label: {
                                     Text(s).font(.ui(12)).foregroundStyle(Theme.text)
                                         .padding(.horizontal, 12).padding(.vertical, 7)
-                                        .background(Capsule().fill(Theme.track))
+                                        .background(PillShape().fill(Theme.track))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -272,7 +272,7 @@ struct AssistantEntryView: View {
                 Spacer(minLength: 120)
                 Text(text).font(.ui(13)).foregroundStyle(Theme.text)
                     .padding(.horizontal, 14).padding(.vertical, 10)
-                    .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.accent.opacity(0.16)))
+                    .background(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).fill(Theme.accent.opacity(0.16)))
                     .textSelection(.enabled)
             }
         case .assistant(let text):
@@ -303,8 +303,8 @@ struct AssistantEntryView: View {
                 }
             }
             .padding(12)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Theme.cardRaised.opacity(0.6)))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.cardRaised.opacity(0.6)))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.border, lineWidth: Theme.line))
             .padding(.leading, 28)
         case .lookup(let text):
             Label(text, systemImage: "eye")
@@ -343,15 +343,15 @@ struct AssistantBottomBar: View {
                         .focused($focused)
                         .onSubmit { model.sendDraft() }
                         .padding(.horizontal, 12).padding(.vertical, 9)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(focused ? Theme.accent.opacity(0.6) : Theme.border))
+                        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(focused ? Theme.accent.opacity(0.6) : Theme.border))
                 }
                 Button {
                     model.sendDraft()
                 } label: {
-                    Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(.white)
+                    Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(model.draft.isEmpty || model.isThinking ? Theme.text3 : Theme.onBrand)
                         .frame(width: 32, height: 32)
-                        .background(Circle().fill(model.draft.isEmpty || model.isThinking ? Theme.borderStrong : Theme.brand))
+                        .background(PillShape().fill(model.draft.isEmpty || model.isThinking ? Theme.track : Theme.brand))
                 }
                 .buttonStyle(.plain)
                 .disabled(model.draft.trimmingCharacters(in: .whitespaces).isEmpty || model.isThinking)

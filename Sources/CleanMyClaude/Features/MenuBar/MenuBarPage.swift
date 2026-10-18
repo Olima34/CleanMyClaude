@@ -17,9 +17,9 @@ struct MenuBarPage: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Aperçu en direct").font(.ui(12, .semibold)).foregroundStyle(Theme.text3)
                     MenuBarPanel(embedded: true)
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.borderStrong))
-                        .shadow(color: .black.opacity(0.25), radius: 18, y: 8)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: Theme.line))
+                        .themedShadow(color: .black.opacity(0.25), radius: 18, y: 8)
                 }
                 VStack(alignment: .leading, spacing: 14) {
                     Panel(title: "Dans la barre des menus", subtitle: "Ce qui s'affiche à côté de l'étincelle", symbol: "textformat") {
@@ -87,11 +87,11 @@ struct MenuBarPage: View {
                     .foregroundStyle(refresh == v ? Theme.text : Theme.text2)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 3)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(refresh == v ? Theme.selected : .clear))
+                    .background(RoundedRectangle(cornerRadius: Theme.r(5)).fill(refresh == v ? Theme.selected : .clear))
             }
         }
         .padding(2)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Theme.track))
+        .background(RoundedRectangle(cornerRadius: Theme.r(7)).fill(Theme.track))
     }
 }
 
@@ -116,7 +116,7 @@ struct MenuBarLabelPreview: View {
         .monospacedDigit()
         .foregroundStyle(Theme.text)
         .padding(.horizontal, 8).padding(.vertical, 3)
-        .background(RoundedRectangle(cornerRadius: 5).fill(Theme.track))
+        .background(RoundedRectangle(cornerRadius: Theme.r(5)).fill(Theme.track))
     }
 }
 

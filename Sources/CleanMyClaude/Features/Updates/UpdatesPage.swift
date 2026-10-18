@@ -192,7 +192,7 @@ private struct UpdatesTerminalHint: View {
                 .textSelection(.enabled)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.track))
+                .background(RoundedRectangle(cornerRadius: Theme.r(6)).fill(Theme.track))
             Button {
                 _ = CommandRunner.copy(command)
                 HUD.show("Commande copiée : colle-la dans le Terminal", symbol: "doc.on.clipboard.fill")
@@ -254,8 +254,8 @@ private struct UpdatesConsole: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.bg))
-            .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).fill(Theme.bg))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
         }
         .padding(.top, 4)
     }
@@ -388,7 +388,7 @@ private struct UpdatesAppTags: View {
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
-                .background(Capsule().fill(Theme.track))
+                .background(PillShape().fill(Theme.track))
             }
         }
     }
@@ -436,7 +436,7 @@ private struct UpdatesAppRow: View {
                 Spacer(minLength: 0)
             }
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.track.opacity(0.5)))
+            .background(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).fill(Theme.track.opacity(0.5)))
         }
     }
 }

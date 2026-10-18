@@ -102,6 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Read now: the launch event is gone once the app has finished launching.
         atLogin = LoginItem.launchedAtLogin
+        // Before the first window: a theme that is always light or dark sets the appearance of every window.
+        MainActor.assumeIsolated { ThemeStore.shared.applyAppearance() }
     }
 
     private var atLogin = false

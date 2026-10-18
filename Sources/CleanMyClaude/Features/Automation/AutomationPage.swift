@@ -234,8 +234,8 @@ private struct AutomationPreviewBox<Content: View>: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg.opacity(0.6)))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg.opacity(0.6)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
     }
 }
 
@@ -708,8 +708,8 @@ private struct AutomationRuleEditor: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg.opacity(0.6)))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg.opacity(0.6)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
         .padding(.leading, 36)
         .padding(.bottom, 6)
         .onAppear { extensions = rule.extensions.joined(separator: ", ") }

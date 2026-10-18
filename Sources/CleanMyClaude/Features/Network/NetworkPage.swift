@@ -129,7 +129,7 @@ private struct NetworkAddressesPanel: View {
                     .disabled(m.publicIPState.isRunning)
             }
             .padding(10)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.track.opacity(0.5)))
+            .background(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).fill(Theme.track.opacity(0.5)))
         }
     }
 
@@ -434,7 +434,7 @@ private struct NetworkPingCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.track.opacity(0.5)))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).fill(Theme.track.opacity(0.5)))
     }
 
     private func color(_ ms: Double) -> Color {

@@ -143,7 +143,7 @@ struct SmartScanPanel: View {
                     Button {
                         confirmClean = true
                     } label: {
-                        Label("Nettoyer \(Fmt.bytes(app.cleanup.recommendedSize))", systemImage: "sparkles")
+                        ThemedLabel(title: "Nettoyer \(Fmt.bytes(app.cleanup.recommendedSize))", symbol: "sparkles")
                     }
                     .buttonStyle(SoftButtonStyle())
                     .disabled(app.cleanup.isCleaning)
@@ -221,8 +221,8 @@ struct ScanResultTile: View {
             }
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 12).fill(hovering ? Theme.hover.opacity(0.6) : Theme.cardRaised.opacity(0.5)))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(hovering ? Theme.hover.opacity(0.6) : Theme.cardRaised.opacity(0.5)))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.border, lineWidth: Theme.line))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -311,9 +311,7 @@ struct Recommendations: View {
                 ForEach(list.prefix(5)) { a in
                     Button { if let p = a.page { app.page = p } } label: {
                         HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: a.symbol).font(.ui(12, .medium)).foregroundStyle(a.tint)
-                                .frame(width: 26, height: 26)
-                                .background(RoundedRectangle(cornerRadius: 7).fill(a.tint.opacity(0.14)))
+                            IconBadge(symbol: a.symbol, tint: a.tint, size: 26)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(a.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
                                 Text(a.text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)

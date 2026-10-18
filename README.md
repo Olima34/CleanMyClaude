@@ -223,6 +223,45 @@ open "cleanmyclaude://page/converter"           # ouvre une section
 open "cleanmyclaude://run/act_smart_scan"       # lance une commande du lanceur (les actions risquées demandent confirmation)
 ```
 
+## Cinq thèmes, et le tien
+
+Réglages (⌘,) › Apparence change toute l'app d'un clic, fenêtre, lanceur et menu d'état compris :
+
+| Thème | Le style |
+| --- | --- |
+| **Atelier** | Le thème d'origine : papier chaud, titres à empattements, bleu Claude. Suit le mode clair ou sombre de macOS. |
+| **Graphite** | Le contraire d'une app d'IA : gris neutres, une seule encre, angles droits, aucune ombre, ni icônes décoratives, ni étincelle, ni mascotte. |
+| **Phosphore** | Un vieux terminal : verre noir, lettres vertes, tout en chasse fixe, couleurs ANSI. Toujours sombre. |
+| **Sorbet** | Pastel et joueur : police arrondie, angles très ronds, couleurs acidulées, ombres douces. Toujours clair. |
+| **Minuit** | Bleu nuit profond, reflets violets et turquoise, titres fins, angles adoucis. Toujours sombre. |
+
+« Créer mon thème » part de n'importe lequel et règle tout : le mode (comme macOS, clair ou sombre), les dix-neuf couleurs de chaque variante et les dix des graphiques (au sélecteur ou en hexadécimal, avec « Harmoniser » qui déduit les nuances du fond, du texte et de l'accent), la police des titres et du texte, leur graisse et leur taille, l'arrondi des angles, l'épaisseur des bordures, les ombres, les icônes décoratives (en couleur, monochromes ou masquées), le motif de caractères et la mascotte. Un thème se copie en JSON pour le sauvegarder ou le partager, et « Coller un thème » le recrée.
+
+<table>
+  <tr>
+    <th>Graphite</th>
+    <th>Phosphore</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/theme-graphite.png" alt="Tableau de bord en thème Graphite : gris neutres, angles droits, sans icônes ni mascotte"></td>
+    <td valign="top"><img src="docs/screenshots/theme-phosphore.png" alt="Tableau de bord en thème Phosphore : fond noir, texte vert en chasse fixe"></td>
+  </tr>
+  <tr>
+    <th>Sorbet</th>
+    <th>Minuit</th>
+  </tr>
+  <tr>
+    <td valign="top"><img src="docs/screenshots/theme-sorbet.png" alt="Tableau de bord en thème Sorbet : pastels, police arrondie, angles très ronds"></td>
+    <td valign="top"><img src="docs/screenshots/theme-minuit.png" alt="Tableau de bord en thème Minuit : bleu nuit, accents violets et turquoise"></td>
+  </tr>
+  <tr>
+    <th colspan="2">Réglages › Apparence</th>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="docs/screenshots/appearance-panel.png" alt="Réglages › Apparence : les cinq thèmes de base en miniature et la création d'un thème personnel" width="560"></td>
+  </tr>
+</table>
+
 ## Pour les développeurs
 
 ```bash
@@ -231,7 +270,7 @@ swift build
 .build/debug/CleanMyClaude --dump                 # ce que trouve chaque scanner, sans rien supprimer
 .build/debug/CleanMyClaude --dump --only cleanup  # cleanup | security | apps | processes, ou le nom d'un module
 .build/debug/CleanMyClaude --dump --storage ~/Developer --duplicates ~/Downloads
-.build/debug/CleanMyClaude --snapshot out/        # rend chaque page en PNG (--page, --tab, --light, --scale 2)
+.build/debug/CleanMyClaude --snapshot out/        # rend chaque page en PNG (--page, --tab, --light, --theme graphite, --scale 2)
 .build/debug/CleanMyClaude --ask "Pourquoi mon Mac chauffe ?" --model haiku   # une question à l'assistant
 .build/debug/CleanMyClaude --translate "Merci pour ton aide" --to en --tone formal   # le traducteur, moteur Claude
 .build/debug/CleanMyClaude --dump --only launcher # construit l'index des fichiers et chronomètre quelques recherches
@@ -245,6 +284,10 @@ for p in dashboard cleanup protection performance apps storage menubar updates c
   .build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page $p
 done
 .build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page launcher --query facture
+.build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page appearance
+for t in graphite phosphore sorbet minuit; do
+  .build/debug/CleanMyClaude --snapshot /tmp/theme-$t --demo --page dashboard --theme $t && mv /tmp/theme-$t/dashboard.png docs/screenshots/theme-$t.png
+done
 rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-panel.png
 pngquant --quality 80-95 --force --ext .png docs/screenshots/*.png   # optionnel : divise le poids par quatre
 ```
@@ -261,12 +304,12 @@ Sources/CleanMyClaude/
 ├── Features/   une section par dossier : Dashboard, Cleanup, Protection, Performance, Updates, Apps, Storage,
 │               Launcher, Hotkeys, Converter, Translator, Toolbox, Clipboard, Network, Windows, Automation,
 │               Assistant, MenuBar
-└── UI/         thème et composants partagés avec ClaudeStats
+└── UI/         thèmes (catalogue, réglages, éditeur) et composants partagés avec ClaudeStats
 ```
 
 Chaque module de `Features/` se branche sur `App/ModuleRegistry.swift` (commandes du lanceur, données de démo, autotests, captures, interrupteurs du menu d'état). Les règles pour en écrire un sont dans [`CLAUDE.md`](CLAUDE.md).
 
-Le design reprend celui de [ClaudeStats](https://github.com/Olima34/ClaudeStats) : surfaces chaudes, titres en serif, accent bleu, étincelle et créature de Claude.
+Le thème Atelier reprend le design de [ClaudeStats](https://github.com/Olima34/ClaudeStats) : surfaces chaudes, titres en serif, accent bleu, étincelle et créature de Claude. Les vues lisent tout dans `Theme` (couleurs, `Theme.r(…)` pour les angles, `PillShape` pour les capsules, `Theme.line` pour les bordures, `Theme.icons` pour les icônes décoratives) : `ThemeStore` est observable, changer de thème redessine l'app sans la relancer.
 
 ## Feuille de route
 
