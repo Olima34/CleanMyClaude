@@ -31,6 +31,25 @@ enum Entry {
             }
             return
         }
+        if let text = value(after: "--translate") {
+            // The translator's Claude engine, from the command line (the on-device engine needs a window).
+            let detected = TranslatorLanguage.detect(text)
+            let target = TranslatorLanguage.effectiveTarget(value(after: "--to") ?? "en", detected: detected)
+            let tone = TranslatorTone(rawValue: value(after: "--tone") ?? "") ?? .neutral
+            let model = AssistantModelChoice(rawValue: value(after: "--model") ?? "") ?? .haiku
+            let schema: [String: Any] = ["type": "object", "properties": ["reponse": ["type": "string"]],
+                                         "required": ["reponse"], "additionalProperties": false]
+            print("\(TranslatorLanguage.named(detected)) → \(TranslatorLanguage.named(target)), \(model.familyTitle), ton \(tone.title.lowercased())")
+            do {
+                let t = Date()
+                let a = try AssistantClaudeCode.ask(system: TranslatorModel.claudeSystem(target: target, source: detected, tone: tone),
+                                                    prompt: text, schema: schema, model: model, effort: "low", timeout: 180)
+                print(String(format: "%.1f s : %@", Date().timeIntervalSince(t), a.text))
+            } catch {
+                print("✗ \(error.localizedDescription)")
+            }
+            return
+        }
         if args.contains("--dump") {
             MainActor.assumeIsolated { Diagnostics.run() }
             return

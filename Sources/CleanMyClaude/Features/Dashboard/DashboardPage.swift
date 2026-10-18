@@ -239,39 +239,42 @@ struct ToolsOverview: View {
     var body: some View {
         Panel(title: "Tout sous la main", subtitle: "Tes outils du quotidien, aussi depuis le lanceur \(app.launcher.combo?.display ?? "")",
               symbol: "square.grid.3x3", tint: Theme.palette[1]) {
-            VStack(spacing: 12) {
-                TileRow(spacing: 12) {
-                    tile(.launcher, tint: Theme.brand, value: app.launcher.combo?.display ?? "—",
-                         detail: "Apps, fichiers, calculs, conversions d'unités et toutes les actions de l'app")
-                    tile(.converter, tint: Theme.accent, value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : "Glisser-déposer",
-                         detail: "Images, vidéos, audio, PDF, documents, OCR et QR codes")
-                    tile(.updates, tint: Theme.good,
-                         value: app.updates.hasChecked ? "\(app.updates.totalAvailable)" : "—",
-                         detail: app.updates.hasChecked
-                            ? (app.updates.totalAvailable == 0 ? "Tout est à jour" : "mises à jour disponibles (Homebrew, apps, macOS)")
-                            : "Homebrew, apps et macOS : pas encore vérifié")
-                }
-                TileRow(spacing: 12) {
-                    tile(.network, tint: Theme.palette[4],
-                         value: app.network.lastSpeed.map { NetworkFormat.bits($0.download) } ?? "—",
-                         detail: app.network.lastSpeed.map { "reçus au dernier test, \(Fmt.relative($0.date))" } ?? "Débit, Wi-Fi, latence et ports ouverts")
-                    tile(.clipboard, tint: Theme.palette[2],
-                         value: app.clipboard.isActive ? Fmt.int(app.clipboard.items.count) : "En pause",
-                         detail: app.clipboard.isActive ? "éléments dans l'historique, mots de passe ignorés" : "Historique désactivé tant que tu ne l'actives pas")
-                    tile(.toolbox, tint: Theme.warn, value: app.toolbox.sidebarBadge ?? "Caféine",
-                         detail: "Couleurs, mots de passe, empreintes, JSON, Base64 et compagnie")
-                }
-                TileRow(spacing: 12) {
-                    tile(.windows, tint: Theme.palette[1],
-                         value: !app.windows.enabled ? "Inactif" : (app.windows.trusted ? "Actif" : "À autoriser"),
-                         detail: "Moitiés, tiers et quarts d'écran au clavier (⌃⌥ + flèches)")
-                    tile(.automation, tint: Theme.palette[3], value: "\(app.automation.activeCount)",
-                         detail: app.automation.activeCount == 0 ? "Aucune automatisation active pour l'instant" : "automatisations actives (quand l'app est ouverte)")
-                    tile(.assistant, tint: Theme.brand, value: app.assistant.isReady ? "Connecté" : "À connecter",
-                         detail: "Pose une question sur ton Mac : Claude propose, tu décides")
-                }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 4), spacing: 12) {
+                tile(.launcher, tint: Theme.brand, value: app.launcher.combo?.display ?? "—",
+                     detail: indexDetail)
+                tile(.hotkeys, tint: Theme.brand, value: "\(app.hotkeys.bindings.filter { $0.combo != nil }.count)",
+                     detail: app.hotkeys.bindings.isEmpty ? "Ouvre n'importe quelle app d'un raccourci" : "raccourcis pour tes apps, dossiers et sites")
+                tile(.converter, tint: Theme.accent, value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : "Glisser-déposer",
+                     detail: "Images, vidéos, audio, PDF, documents, OCR et QR codes")
+                tile(.translator, tint: Theme.palette[1], value: app.translator.engine == .apple ? "Hors ligne" : "Claude",
+                     detail: "Sur ton Mac ou avec Claude, aussi depuis le lanceur (« trad »)")
+                tile(.updates, tint: Theme.good,
+                     value: app.updates.hasChecked ? "\(app.updates.totalAvailable)" : "—",
+                     detail: app.updates.hasChecked
+                        ? (app.updates.totalAvailable == 0 ? "Tout est à jour" : "mises à jour disponibles (Homebrew, apps, macOS)")
+                        : "Homebrew, apps et macOS : pas encore vérifié")
+                tile(.network, tint: Theme.palette[4],
+                     value: app.network.lastSpeed.map { NetworkFormat.bits($0.download) } ?? "—",
+                     detail: app.network.lastSpeed.map { "reçus au dernier test, \(Fmt.relative($0.date))" } ?? "Débit, Wi-Fi, latence et ports ouverts")
+                tile(.clipboard, tint: Theme.palette[2],
+                     value: app.clipboard.isActive ? Fmt.int(app.clipboard.items.count) : "En pause",
+                     detail: app.clipboard.isActive ? "éléments dans l'historique, mots de passe ignorés" : "Historique désactivé tant que tu ne l'actives pas")
+                tile(.toolbox, tint: Theme.warn, value: app.toolbox.sidebarBadge ?? "Caféine",
+                     detail: "Couleurs, mots de passe, empreintes, JSON, Base64 et compagnie")
+                tile(.windows, tint: Theme.palette[1],
+                     value: !app.windows.enabled ? "Inactif" : (app.windows.trusted ? "Actif" : "À autoriser"),
+                     detail: "Moitiés, tiers et quarts d'écran au clavier (⌃⌥ + flèches)")
+                tile(.automation, tint: Theme.palette[3], value: "\(app.automation.activeCount)",
+                     detail: app.automation.activeCount == 0 ? "Aucune automatisation active pour l'instant" : "automatisations actives")
+                tile(.assistant, tint: Theme.brand, value: app.assistant.isReady ? "Connecté" : "À connecter",
+                     detail: "Pose une question sur ton Mac : Claude propose, tu décides")
             }
         }
+    }
+
+    private var indexDetail: String {
+        if case .ready(let n) = app.launcher.indexState { return "Apps, actions et \(Fmt.int(n)) fichiers trouvés en un éclair" }
+        return "Apps, fichiers, calculs, traductions et toutes les actions"
     }
 
     private func tile(_ page: Page, tint: Color, value: String, detail: String) -> some View {

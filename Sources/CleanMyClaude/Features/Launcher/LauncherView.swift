@@ -52,6 +52,7 @@ struct LauncherView: View {
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Theme.bg))
         .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Theme.borderStrong))
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(TranslatorHost(channel: .launcher))
         .onAppear { DispatchQueue.main.async { focused = true } }
     }
 

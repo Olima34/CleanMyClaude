@@ -370,7 +370,8 @@ final class LauncherModel: AppModule {
         if instant == nil { scheduleFileSearch(q) } else { fileWork?.cancel(); fileQuery?.stop() }
     }
 
-    private func refreshKeepingSelection() {
+    /// Re-ranks after an asynchronous answer (files, translation) without moving the selection.
+    func refreshKeepingSelection() {
         let keep = selection
         refreshKeepingFiles()
         selection = min(keep, max(0, flat.count - 1))

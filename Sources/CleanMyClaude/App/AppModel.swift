@@ -5,8 +5,8 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, cleanup, protection, performance, updates, apps, storage
-    case converter, toolbox, clipboard, network
-    case launcher, windows, automation
+    case converter, translator, toolbox, clipboard, network
+    case launcher, hotkeys, windows, automation
     case assistant, menubar
 
     var id: String { rawValue }
@@ -21,6 +21,8 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "Applications"
         case .storage: return "Espace de stockage"
         case .converter: return "Convertisseur"
+        case .translator: return "Traducteur"
+        case .hotkeys: return "Raccourcis"
         case .toolbox: return "Boîte à outils"
         case .clipboard: return "Presse-papiers"
         case .network: return "Réseau"
@@ -42,6 +44,8 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "square.grid.2x2"
         case .storage: return "chart.pie"
         case .converter: return "arrow.left.arrow.right.square"
+        case .translator: return "character.bubble"
+        case .hotkeys: return "keyboard"
         case .toolbox: return "wrench.and.screwdriver"
         case .clipboard: return "doc.on.clipboard"
         case .network: return "network"
@@ -57,8 +61,8 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard]),
         ("Entretien", [.cleanup, .protection, .performance, .updates]),
         ("Espace", [.apps, .storage]),
-        ("Outils", [.converter, .toolbox, .clipboard, .network]),
-        ("Contrôle", [.launcher, .windows, .automation]),
+        ("Outils", [.converter, .translator, .toolbox, .clipboard, .network]),
+        ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
     ]
@@ -109,6 +113,8 @@ final class AppModel {
     let windows = WindowsModel()
     let automation = AutomationModel()
     let assistant = AssistantModel()
+    let translator = TranslatorModel()
+    let hotkeys = HotkeysModel()
     var history = DemoData.isEnabled ? DemoData.history : CleanupHistory.load()
     var fullDiskAccess = Permissions.hasFullDiskAccess
     var showOnboarding = !DemoData.isEnabled && !UserDefaults.standard.bool(forKey: Preferences.onboardedKey)

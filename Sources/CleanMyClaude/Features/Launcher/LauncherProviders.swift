@@ -385,7 +385,7 @@ enum LauncherDynamic {
             ("gh ", "GitHub", "https://github.com/search?q=", "chevron.left.forwardslash.chevron.right"),
             ("wiki ", "Wikipédia", "https://fr.wikipedia.org/w/index.php?search=", "book"),
             ("maps ", "Plans", "maps://?q=", "map"),
-            ("trad ", "Google Traduction", "https://translate.google.com/?sl=auto&tl=fr&text=", "character.bubble")
+            ("gtrad ", "Google Traduction", "https://translate.google.com/?sl=auto&tl=fr&text=", "character.bubble")
         ]
         let lower = q.lowercased()
         func command(_ name: String, _ base: String, _ term: String, _ symbol: String, boost: Double) -> AppCommand {

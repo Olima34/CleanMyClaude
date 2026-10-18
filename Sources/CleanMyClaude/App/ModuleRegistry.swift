@@ -54,7 +54,8 @@ extension AppModule {
 enum ModuleRegistry {
     static func modules(_ app: AppModel) -> [(page: Page, module: any AppModule)] {
         [
-            (.launcher, app.launcher), (.converter, app.converter), (.toolbox, app.toolbox), (.clipboard, app.clipboard),
+            (.launcher, app.launcher), (.hotkeys, app.hotkeys), (.converter, app.converter), (.translator, app.translator),
+            (.toolbox, app.toolbox), (.clipboard, app.clipboard),
             (.updates, app.updates), (.network, app.network), (.windows, app.windows), (.automation, app.automation),
             (.assistant, app.assistant)
         ]

@@ -3,13 +3,14 @@ import SwiftUI
 
 /// Sections of the launcher's results, in display order.
 enum CommandSection: Int, CaseIterable, Comparable {
-    case calculator, suggestions, apps, actions, system, tools, convert, clipboard, settings, files, emoji, web, assistant
+    case calculator, translation, suggestions, apps, actions, system, tools, convert, clipboard, settings, files, emoji, web, assistant
 
     static func < (a: CommandSection, b: CommandSection) -> Bool { a.rawValue < b.rawValue }
 
     var title: String {
         switch self {
         case .calculator: return "Calcul"
+        case .translation: return "Traduction"
         case .suggestions: return "Suggestions"
         case .apps: return "Applications"
         case .actions: return "Clean My Claude"

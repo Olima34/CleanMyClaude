@@ -286,6 +286,33 @@ final class AssistantModel: AppModule {
         }
     }
 
+    /// A one-off request for another module (the translator): text in, text out, through the subscription or the key.
+    /// Nothing is added to the conversation.
+    func complete(system: String, prompt: String, model: AssistantModelChoice) async throws -> String {
+        if DemoData.isEnabled { throw AssistantClaudeCode.Failure.failed(DemoData.refusal) }
+        switch provider {
+        case .subscription:
+            let schema: [String: Any] = [
+                "type": "object",
+                "properties": ["reponse": ["type": "string", "description": "Le résultat demandé, sans commentaire."]],
+                "required": ["reponse"],
+                "additionalProperties": false
+            ]
+            let answer = try await Task.detached(priority: .userInitiated) {
+                try AssistantClaudeCode.ask(system: system, prompt: prompt, schema: schema, model: model, effort: "low", timeout: 180)
+            }.value
+            totalTokens += answer.tokens
+            return answer.text
+        case .apiKey:
+            guard let key = Keychain.get(AssistantClient.keyAccount) else { throw AssistantFailure.noKey }
+            let body = AssistantClient.body(model: model, system: system, messages: [["role": "user", "content": prompt]],
+                                            tools: [], effort: "low")
+            let reply = try await AssistantClient.send(body: body, apiKey: key, model: model)
+            if reply.stopReason == "refusal" { throw AssistantFailure.server(0, "Claude a décliné cette demande.") }
+            return reply.texts.joined(separator: "\n")
+        }
+    }
+
     /// The tool loop: send, show text, run lookups or register proposals, send the results back, until Claude is done.
     private func converse(app: AppModel) async {
         guard let key = Keychain.get(AssistantClient.keyAccount) else {
