@@ -5,6 +5,7 @@ enum AssistantModelChoice: String, CaseIterable, Identifiable {
     case opus = "claude-opus-5-5"
     case sonnet = "claude-sonnet-5-5"
     case haiku = "claude-haiku-5-5"
+    case fable = "claude-fable-5-1"
 
     var id: String { rawValue }
 
@@ -13,6 +14,26 @@ enum AssistantModelChoice: String, CaseIterable, Identifiable {
         case .opus: return "Claude Opus 5.5"
         case .sonnet: return "Claude Sonnet 5.5"
         case .haiku: return "Claude Haiku 5.5"
+        case .fable: return "Claude Fable 5.1"
+        }
+    }
+
+    /// Without the version: Claude Code picks the latest model of each family.
+    var familyTitle: String {
+        switch self {
+        case .opus: return "Opus"
+        case .sonnet: return "Sonnet"
+        case .haiku: return "Haiku"
+        case .fable: return "Fable"
+        }
+    }
+
+    var subscriptionDetail: String {
+        switch self {
+        case .opus: return "solide pour le complexe comme pour le quotidien"
+        case .sonnet: return "rapide et efficace pour les demandes simples"
+        case .haiku: return "le plus rapide, pour une réponse courte"
+        case .fable: return "le plus puissant, consomme plus vite ton quota"
         }
     }
 
@@ -21,6 +42,7 @@ enum AssistantModelChoice: String, CaseIterable, Identifiable {
         case .opus: return "Le plus capable · 4 $ / 20 $ par million de jetons"
         case .sonnet: return "Rapide et capable · 2 $ / 10 $ par million de jetons"
         case .haiku: return "Le plus économique · 0,10 $ / 0,50 $ par million de jetons"
+        case .fable: return "Le plus puissant · 10 $ / 50 $ par million de jetons"
         }
     }
 
@@ -30,6 +52,7 @@ enum AssistantModelChoice: String, CaseIterable, Identifiable {
         case .opus: return (4, 20, 0.20)
         case .sonnet: return (2, 10, 0.20)
         case .haiku: return (0.10, 0.50, 0.01)
+        case .fable: return (10, 50, 0.25)
         }
     }
 

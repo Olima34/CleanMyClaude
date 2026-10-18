@@ -36,19 +36,31 @@ enum Shell {
     }
 
     /// Runs a tool and waits for it, killing it after `timeout` seconds.
+    /// `replaceEnvironment` gives the tool exactly that environment (instead of the app's plus `env`);
+    /// `input` is written to its standard input.
     static func run(_ path: String, _ args: [String] = [], env: [String: String] = [:],
-                    timeout: TimeInterval = 20) -> Output {
+                    replaceEnvironment: [String: String]? = nil, input: String? = nil,
+                    workingDirectory: String? = nil, timeout: TimeInterval = 20) -> Output {
         if DemoData.isEnabled { return Output(status: -1, out: "", err: DemoData.refusal) }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
-        p.environment = environment.merging(env) { _, new in new }
+        p.environment = replaceEnvironment ?? environment.merging(env) { _, new in new }
+        if let workingDirectory { p.currentDirectoryURL = URL(fileURLWithPath: workingDirectory) }
         let outPipe = Pipe(), errPipe = Pipe()
         p.standardOutput = outPipe
         p.standardError = errPipe
-        p.standardInput = FileHandle.nullDevice
+        let inPipe = input.map { _ in Pipe() }
+        p.standardInput = inPipe ?? FileHandle.nullDevice
         do { try p.run() } catch {
             return Output(status: -1, out: "", err: error.localizedDescription)
+        }
+        if let inPipe, let input {
+            let data = Data(input.utf8)
+            DispatchQueue.global(qos: .utility).async {
+                try? inPipe.fileHandleForWriting.write(contentsOf: data)
+                try? inPipe.fileHandleForWriting.close()
+            }
         }
         let errBox = Box()
         let group = DispatchGroup()

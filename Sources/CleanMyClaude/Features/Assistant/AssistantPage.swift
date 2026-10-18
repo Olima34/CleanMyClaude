@@ -10,11 +10,87 @@ struct AssistantPage: View {
             PageHero(symbol: "sparkle", title: "Assistant Claude",
                      subtitle: "Pose tes questions sur ton Mac en langage naturel. Claude t'explique ce que tu vois et te propose les bonnes actions ; rien ne s'exécute sans ton clic.",
                      tint: Theme.brand, seed: 105)
-            if model.hasKey {
+            if model.isReady {
                 AssistantSettingsStrip()
                 AssistantConversation()
             } else {
-                AssistantKeySetup()
+                AssistantProviderPicker()
+                if model.provider == .subscription {
+                    AssistantConnectCard()
+                } else {
+                    AssistantKeySetup()
+                }
+            }
+        }
+        .task { if app.assistant.provider == .subscription { await app.assistant.refreshStatus() } }
+    }
+}
+
+struct AssistantProviderPicker: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        @Bindable var model = app.assistant
+        HStack(spacing: 12) {
+            Text("Connexion à Claude").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text2)
+            PillPicker(options: AssistantProvider.allCases, selection: $model.provider, label: { $0.title })
+        }
+    }
+}
+
+// MARK: - Claude subscription
+
+/// Connects through Claude Code with the Claude subscription (no API key), like the Vigie app.
+struct AssistantConnectCard: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let model = app.assistant
+        let status = model.codeStatus
+        TileRow {
+            Card(padding: 22) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Utilise ton abonnement Claude").font(.serif(22)).foregroundStyle(Theme.text)
+                    Text("Pas besoin de clé API : l'assistant passe par Claude Code, livré avec l'app Claude, et consomme ton abonnement Claude comme une conversation normale.")
+                        .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    if model.isCheckingStatus && status == nil {
+                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Je cherche Claude Code…").font(.ui(12)).foregroundStyle(Theme.text3) }
+                    } else if let status, !status.available {
+                        Label("Claude Code est introuvable sur ce Mac.", systemImage: "exclamationmark.triangle").font(.ui(12.5)).foregroundStyle(Theme.warn)
+                        Button("Télécharger l'app Claude") { Finder.open("https://claude.ai/download") }
+                            .buttonStyle(SoftButtonStyle(prominent: true))
+                    } else {
+                        Text("Clique sur « Connecter Claude » : une fenêtre Terminal s'ouvre, puis une page dans ton navigateur où tu valides la connexion avec ton compte Claude. À faire une seule fois.")
+                            .font(.ui(12)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Button("Connecter Claude") { app.assistant.connect() }
+                                .buttonStyle(SoftButtonStyle(prominent: true))
+                            Button("J'ai terminé la connexion") { Task { await app.assistant.refreshStatus() } }
+                                .buttonStyle(SoftButtonStyle())
+                            if model.isCheckingStatus { ProgressView().controlSize(.small) }
+                        }
+                        if let msg = model.connectMessage {
+                            Text(msg).font(.ui(11.5)).foregroundStyle(Theme.text2)
+                        }
+                    }
+                }
+            }
+            Card(padding: 22) {
+                VStack(alignment: .leading, spacing: 10) {
+                    promise("hand.raised", "Rien ne part sans toi", "Seuls tes messages sont envoyés. L'état du Mac n'est joint que si tu l'autorises.")
+                    promise("lock.shield", "Claude Code bridé", "Sans session gardée, sans outil, sans accès à tes fichiers : il ne fait que répondre.")
+                    promise("checkmark.shield", "Tu gardes la main", "Les actions arrivent sous forme de boutons ; les plus sensibles demandent une confirmation.")
+                }
+            }
+        }
+    }
+
+    private func promise(_ symbol: String, _ title: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: symbol).font(.ui(13, .medium)).foregroundStyle(Theme.good).frame(width: 20)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -88,15 +164,21 @@ struct AssistantSettingsStrip: View {
 
     var body: some View {
         @Bindable var model = app.assistant
+        let subscription = model.provider == .subscription
         HStack(spacing: 14) {
+            if subscription {
+                Label(model.codeStatus?.email.map { "Abonnement Claude · \($0)" } ?? "Abonnement Claude", systemImage: "person.crop.circle.badge.checkmark")
+                    .font(.ui(12)).foregroundStyle(Theme.good)
+            }
             BorderlessMenu {
                 ForEach(AssistantModelChoice.allCases) { m in
                     Button { model.modelChoice = m } label: {
-                        Text("\(m.title) — \(m.detail)")
+                        Text(subscription ? "\(m.familyTitle) — \(m.subscriptionDetail)" : "\(m.title) — \(m.detail)")
                     }
                 }
             } label: {
-                Label(model.modelChoice.title, systemImage: "cpu").font(.ui(12)).foregroundStyle(Theme.text2)
+                Label(subscription ? model.modelChoice.familyTitle : model.modelChoice.title, systemImage: "cpu")
+                    .font(.ui(12)).foregroundStyle(Theme.text2)
             }
             Toggle("Consulter l'état du Mac", isOn: $model.allowLookups)
                 .switchToggles()
@@ -105,15 +187,22 @@ struct AssistantSettingsStrip: View {
                 .help("Autorise Claude à lire la charge, l'espace disque, les apps gourmandes et les résumés d'analyse")
             Spacer()
             if model.totalTokens > 0 {
-                Text("≈ \(String(format: "%.3f", model.spentDollars).replacingOccurrences(of: ".", with: ",")) $ · \(Fmt.int(model.totalTokens)) jetons")
+                Text(subscription ? "\(Fmt.int(model.totalTokens)) jetons · inclus dans ton abonnement"
+                                  : "≈ \(String(format: "%.3f", model.spentDollars).replacingOccurrences(of: ".", with: ",")) $ · \(Fmt.int(model.totalTokens)) jetons")
                     .font(.ui(11)).foregroundStyle(Theme.text3).monospacedDigit()
-                    .help("Estimation au tarif public, pour cette session")
+                    .help(subscription ? "Décompté de ton quota d'abonnement Claude" : "Estimation au tarif public, pour cette session")
             }
             Button("Nouvelle conversation") { model.reset() }
                 .buttonStyle(SoftButtonStyle(small: true))
                 .disabled(model.entries.isEmpty)
             BorderlessMenu(indicator: false) {
-                Button("Supprimer ma clé API", role: .destructive) { model.deleteKey() }
+                Button(subscription ? "Utiliser plutôt une clé API" : "Utiliser plutôt mon abonnement Claude") {
+                    model.provider = subscription ? .apiKey : .subscription
+                    if model.provider == .subscription { Task { await model.refreshStatus() } }
+                }
+                if model.hasKey {
+                    Button("Supprimer ma clé API", role: .destructive) { model.deleteKey() }
+                }
             } label: {
                 Image(systemName: "ellipsis.circle").font(.ui(13)).foregroundStyle(Theme.text2)
             }
@@ -241,7 +330,7 @@ struct AssistantBottomBar: View {
 
     var body: some View {
         @Bindable var model = app.assistant
-        if model.hasKey {
+        if model.isReady {
             ActionBar {
                 if Snapshot.isActive {
                     Text("Écris à Claude…").font(.ui(13)).foregroundStyle(Theme.text3)

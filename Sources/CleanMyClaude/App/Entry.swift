@@ -9,6 +9,28 @@ enum Entry {
         if args.contains("--selftest") {
             exit(SelfTest.run() ? 0 : 1)
         }
+        if let question = value(after: "--ask") {
+            // Asks Claude through Claude Code (the user's subscription), exactly like the Assistant page.
+            MainActor.assumeIsolated {
+                let app = AppModel(liveMonitor: false)
+                let ids = AssistantModel.catalog(app: app).map(\.id)
+                let model = AssistantModelChoice(rawValue: value(after: "--model") ?? "") ?? .haiku
+                let status = AssistantClaudeCode.status()
+                print("Claude Code : \(status.binary ?? "introuvable") · connecté : \(status.loggedIn ? "oui (\(status.method ?? "?"))" : "non")")
+                do {
+                    let t = Date()
+                    let a = try AssistantClaudeCode.ask(system: AssistantModel.systemPrompt(app: app, lookups: false, structured: true),
+                                                        prompt: "QUESTION :\n" + question,
+                                                        schema: AssistantClaudeCode.schema(commandIDs: ids), model: model)
+                    print(String(format: "Réponse de %@ en %.1f s, %d jetons :", a.model ?? "?", Date().timeIntervalSince(t), a.tokens))
+                    print(a.text)
+                    for act in a.actions { print("→ action proposée : \(act.id) — \(act.reason)") }
+                } catch {
+                    print("✗ \(error.localizedDescription)")
+                }
+            }
+            return
+        }
         if args.contains("--dump") {
             MainActor.assumeIsolated { Diagnostics.run() }
             return
