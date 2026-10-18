@@ -314,7 +314,7 @@ struct ConverterRenameOptions: View {
                                 }
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 4)
-                                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.accent.opacity(0.08)))
+                                .background(RoundedRectangle(cornerRadius: Theme.r(6)).fill(Theme.accent.opacity(0.08)))
                             }
                             .buttonStyle(.plain)
                         }

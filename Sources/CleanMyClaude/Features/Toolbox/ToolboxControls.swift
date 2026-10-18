@@ -40,8 +40,8 @@ struct ToolboxField: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 
@@ -84,9 +84,9 @@ struct ToolboxEditor: View {
             }
         }
         .frame(height: height, alignment: .top)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(tint?.opacity(0.5) ?? Theme.border))
-        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.bg))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(tint?.opacity(0.5) ?? Theme.border))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.r(9)))
     }
 }
 
@@ -148,7 +148,7 @@ struct ToolboxValueRow: View {
         }
         .padding(.vertical, 5)
         .padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(highlight.map { $0.opacity(0.1) } ?? Color.clear))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(highlight.map { $0.opacity(0.1) } ?? Color.clear))
     }
 }
 
@@ -164,12 +164,12 @@ struct ToolboxSlider: View {
             let frac = span > 0 ? Double(value - range.lowerBound) / span : 0
             let x = 8 + (g.size.width - 16) * frac
             ZStack(alignment: .leading) {
-                Capsule().fill(Theme.track).frame(height: 5)
-                Capsule().fill(tint).frame(width: max(5, x), height: 5)
+                PillShape().fill(Theme.track).frame(height: 5)
+                PillShape().fill(tint).frame(width: max(5, x), height: 5)
                 Circle()
                     .fill(Color.white)
                     .frame(width: 16, height: 16)
-                    .shadow(color: .black.opacity(0.25), radius: 1.5, y: 1)
+                    .themedShadow(color: .black.opacity(0.25), radius: 1.5, y: 1)
                     .overlay(Circle().strokeBorder(Theme.borderStrong, lineWidth: 0.5))
                     .offset(x: x - 8)
             }
@@ -209,8 +209,8 @@ struct ToolboxStepper: View {
             .disabled(value >= range.upperBound)
         }
         .foregroundStyle(Theme.text)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 
@@ -225,12 +225,12 @@ struct ToolboxChip: View {
         Button(action: action) {
             Text(title)
                 .font(mono ? .mono(11.5, selected ? .semibold : .regular) : .ui(11.5, selected ? .semibold : .medium))
-                .foregroundStyle(selected ? Color.white : Theme.text2)
+                .foregroundStyle(selected ? Theme.onAccent : Theme.text2)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
-                .background(Capsule().fill(selected ? Theme.accent : Theme.bg))
-                .overlay(Capsule().strokeBorder(selected ? Color.clear : Theme.border))
-                .contentShape(Capsule())
+                .background(PillShape().fill(selected ? Theme.accent : Theme.bg))
+                .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border))
+                .contentShape(PillShape())
         }
         .buttonStyle(.plain)
     }

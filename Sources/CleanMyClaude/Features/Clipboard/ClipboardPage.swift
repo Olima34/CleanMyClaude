@@ -72,9 +72,9 @@ struct ClipboardStatePill: View {
             .foregroundStyle(Theme.text)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(Capsule().fill(Theme.card))
-            .overlay(Capsule().strokeBorder(Theme.border))
-            .contentShape(Capsule())
+            .background(PillShape().fill(Theme.card))
+            .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
+            .contentShape(PillShape())
         }
         .buttonStyle(.plain)
     }
@@ -152,16 +152,16 @@ struct ClipboardIllustration: View {
     private func card(symbol: String, lines: [CGFloat], tint: Color) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: symbol).font(.ui(15, .semibold)).foregroundStyle(tint)
-                .frame(width: 30, height: 30).background(RoundedRectangle(cornerRadius: 8).fill(tint.opacity(0.15)))
+                .frame(width: 30, height: 30).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(tint.opacity(0.15)))
             ForEach(Array(lines.enumerated()), id: \.offset) { _, w in
-                Capsule().fill(Theme.borderStrong).frame(width: 120 * w, height: 6)
+                PillShape().fill(Theme.borderStrong).frame(width: 120 * w, height: 6)
             }
         }
         .padding(14)
         .frame(width: 150, height: 104, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.cardRaised))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.border))
-        .shadow(color: .black.opacity(0.18), radius: 8, y: 4)
+        .background(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).fill(Theme.cardRaised))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
+        .themedShadow(color: .black.opacity(0.18), radius: 8, y: 4)
     }
 }
 
@@ -328,8 +328,8 @@ struct ClipboardSearchField: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 
@@ -379,7 +379,7 @@ struct ClipboardRow: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 9).fill(selected ? Theme.selected : (hovering ? Theme.hover.opacity(0.6) : .clear)))
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(selected ? Theme.selected : (hovering ? Theme.hover.opacity(0.6) : .clear)))
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .onTapGesture(perform: onCopy)
@@ -388,13 +388,13 @@ struct ClipboardRow: View {
 
     @ViewBuilder
     private var leading: some View {
-        let tile = RoundedRectangle(cornerRadius: 8, style: .continuous)
+        let tile = RoundedRectangle(cornerRadius: Theme.r(8), style: .continuous)
         switch item.kind {
         case .image:
             if let info = item.image, let cg = ClipboardThumbs.image(info) {
                 Image(decorative: cg, scale: 2).resizable().interpolation(.high).aspectRatio(contentMode: .fill)
                     .frame(width: 52, height: 40).clipShape(tile)
-                    .overlay(tile.strokeBorder(Theme.border))
+                    .overlay(tile.strokeBorder(Theme.border, lineWidth: Theme.line))
             } else {
                 icon("photo")
             }
@@ -402,7 +402,7 @@ struct ClipboardRow: View {
             FileIcon(path: item.files?.first ?? "/", size: 34).frame(width: 52, height: 40)
         case .text:
             if item.textKind == .color, let c = ClipboardText.color(item.text ?? "") {
-                tile.fill(c).frame(width: 52, height: 40).overlay(tile.strokeBorder(Theme.border))
+                tile.fill(c).frame(width: 52, height: 40).overlay(tile.strokeBorder(Theme.border, lineWidth: Theme.line))
             } else {
                 icon(item.textKind == .link ? "link" : (item.textKind == .code ? "chevron.left.forwardslash.chevron.right" : "text.alignleft"))
             }
@@ -414,7 +414,7 @@ struct ClipboardRow: View {
             .font(.ui(15, .medium))
             .foregroundStyle(Theme.palette[4])
             .frame(width: 52, height: 40)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.palette[4].opacity(0.12)))
+            .background(RoundedRectangle(cornerRadius: Theme.r(8), style: .continuous).fill(Theme.palette[4].opacity(0.12)))
     }
 
     private var preview: String {
@@ -528,8 +528,8 @@ struct ClipboardSideColumn: View {
                         .padding(.leading, 9)
                         .padding(.trailing, 4)
                         .padding(.vertical, 4)
-                        .background(Capsule().fill(Theme.bg))
-                        .overlay(Capsule().strokeBorder(Theme.border))
+                        .background(PillShape().fill(Theme.bg))
+                        .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
                         .help(a.bundleID)
                     }
                 }
@@ -552,8 +552,8 @@ struct ClipboardSideColumn: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 
     private func choice(_ title: String, _ values: [Int], _ current: Int, _ label: @escaping (Int) -> String,
@@ -578,12 +578,12 @@ struct ClipboardChip: View {
         Button(action: action) {
             Text(title)
                 .font(.ui(11.5, selected ? .semibold : .medium))
-                .foregroundStyle(selected ? Color.white : Theme.text2)
+                .foregroundStyle(selected ? Theme.ink(on: Theme.palette[4]) : Theme.text2)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
-                .background(Capsule().fill(selected ? Theme.palette[4] : Theme.bg))
-                .overlay(Capsule().strokeBorder(selected ? Color.clear : Theme.border))
-                .contentShape(Capsule())
+                .background(PillShape().fill(selected ? Theme.palette[4] : Theme.bg))
+                .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border))
+                .contentShape(PillShape())
         }
         .buttonStyle(.plain)
     }

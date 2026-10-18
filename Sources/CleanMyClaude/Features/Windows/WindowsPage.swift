@@ -119,14 +119,14 @@ struct WindowsMiniScreen: View {
                 displays(h)
             } else {
                 ZStack(alignment: .topLeading) {
-                    RoundedRectangle(cornerRadius: 3.5).fill(Theme.track)
-                    RoundedRectangle(cornerRadius: 3.5).strokeBorder(Theme.borderStrong, lineWidth: 1)
+                    RoundedRectangle(cornerRadius: Theme.r(3.5)).fill(Theme.track)
+                    RoundedRectangle(cornerRadius: Theme.r(3.5)).strokeBorder(Theme.borderStrong, lineWidth: Theme.line)
                     if let r = WindowsGeometry.preview(action) {
                         let inset: CGFloat = 2.5
                         let w = width - inset * 2, hh = h - inset * 2
-                        RoundedRectangle(cornerRadius: 2)
+                        RoundedRectangle(cornerRadius: Theme.r(2))
                             .fill(action == .restore ? Color.clear : WindowsPage.tint)
-                            .overlay(RoundedRectangle(cornerRadius: 2)
+                            .overlay(RoundedRectangle(cornerRadius: Theme.r(2))
                                 .strokeBorder(WindowsPage.tint, style: StrokeStyle(lineWidth: 1, dash: action == .restore ? [2, 1.5] : [])))
                             .frame(width: max(2, r.width * w - 1), height: max(2, r.height * hh - 1))
                             .offset(x: inset + r.minX * w + 0.5, y: inset + r.minY * hh + 0.5)
@@ -154,9 +154,9 @@ struct WindowsMiniScreen: View {
     }
 
     private func screen(filled: Bool, side: CGFloat) -> some View {
-        RoundedRectangle(cornerRadius: 2.5)
+        RoundedRectangle(cornerRadius: Theme.r(2.5))
             .fill(filled ? WindowsPage.tint : Theme.track)
-            .overlay(RoundedRectangle(cornerRadius: 2.5).strokeBorder(filled ? WindowsPage.tint : Theme.borderStrong, lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(2.5)).strokeBorder(filled ? WindowsPage.tint : Theme.borderStrong, lineWidth: 1))
             .frame(width: side, height: side * 0.7)
     }
 }

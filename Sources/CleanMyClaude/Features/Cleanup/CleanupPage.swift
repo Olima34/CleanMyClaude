@@ -294,7 +294,7 @@ struct CleanupItemRow: View {
         }
         .padding(.vertical, 5)
         .padding(.horizontal, 8)
-        .background(RoundedRectangle(cornerRadius: 7).fill(hovering ? Theme.hover.opacity(0.5) : .clear))
+        .background(RoundedRectangle(cornerRadius: Theme.r(7)).fill(hovering ? Theme.hover.opacity(0.5) : .clear))
         .onHover { hovering = $0 }
         .help(FS.pretty(item.path))
     }
@@ -325,7 +325,7 @@ struct CleanupActionBar: View {
                 confirm = true
             } label: {
                 HStack(spacing: 6) {
-                    if model.isCleaning { ProgressView().controlSize(.small).scaleEffect(0.7).tint(.white) }
+                    if model.isCleaning { ProgressView().controlSize(.small).scaleEffect(0.7).tint(Theme.onAccent) }
                     Text(model.isCleaning ? "Nettoyage…" : "Nettoyer")
                 }
             }

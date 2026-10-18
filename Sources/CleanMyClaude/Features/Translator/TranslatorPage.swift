@@ -31,7 +31,7 @@ struct TranslatorPage: View {
                     Image(systemName: "arrow.left.arrow.right").font(.ui(13, .semibold)).foregroundStyle(Theme.text2)
                         .frame(width: 34, height: 34)
                         .background(Circle().fill(Theme.card))
-                        .overlay(Circle().strokeBorder(Theme.border))
+                        .overlay(Circle().strokeBorder(Theme.border, lineWidth: Theme.line))
                 }
                 .buttonStyle(.plain)
                 .help("Inverser les langues")
@@ -214,7 +214,7 @@ struct TranslatorPage: View {
                             Text(e.result).font(.ui(12, .medium)).foregroundStyle(Theme.text).lineLimit(1)
                         }
                         .padding(8)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(Theme.cardRaised.opacity(0.5)))
+                        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.cardRaised.opacity(0.5)))
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
@@ -288,8 +288,8 @@ struct TranslatorEditor: View {
                 }
             }
         }
-        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg.opacity(0.6)))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg.opacity(0.6)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 

@@ -12,8 +12,36 @@ struct Card<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) { content }
             .padding(padding)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Theme.border, lineWidth: 1))
+            .background(
+                RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).fill(Theme.card)
+                    .shadow(color: .black.opacity(Theme.current.spec.elevation == .raised ? 0.07 : 0), radius: 10, y: 3)
+            )
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
+    }
+}
+
+/// A capsule that follows the theme's corners: a capsule in the round themes, a plain rectangle in the square ones.
+struct PillShape: InsettableShape {
+    var scale: CGFloat = Theme.current.radiusScale
+    var inset: CGFloat = 0
+
+    func path(in rect: CGRect) -> Path {
+        let r = rect.insetBy(dx: inset, dy: inset)
+        if scale >= 1 { return Capsule().path(in: r) }
+        return RoundedRectangle(cornerRadius: min(r.width, r.height) / 2 * scale, style: .continuous).path(in: r)
+    }
+
+    func inset(by amount: CGFloat) -> PillShape {
+        var s = self
+        s.inset += amount
+        return s
+    }
+}
+
+extension View {
+    /// A drop shadow, left out by the flat themes.
+    func themedShadow(color: Color = .black.opacity(0.25), radius: CGFloat, y: CGFloat = 0) -> some View {
+        shadow(color: Theme.current.spec.elevation == .flat ? .clear : color, radius: radius, y: y)
     }
 }
 
@@ -30,10 +58,10 @@ struct Panel<Content: View, Trailing: View>: View {
         Card {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if let symbol {
+                    if let symbol, Theme.icons != .hidden {
                         Image(systemName: symbol)
                             .font(.ui(12, .medium))
-                            .foregroundStyle(tint)
+                            .foregroundStyle(Theme.icons == .tinted ? tint : Theme.text3)
                     }
                     VStack(alignment: .leading, spacing: 3) {
                         Text(title)
@@ -123,11 +151,21 @@ struct IconBadge: View {
     var size: CGFloat = 22
 
     var body: some View {
-        Image(systemName: symbol)
-            .font(.ui(size * 0.5, .semibold))
-            .foregroundStyle(tint)
-            .frame(width: size, height: size)
-            .background(Circle().fill(tint.opacity(0.14)))
+        switch Theme.icons {
+        case .tinted:
+            Image(systemName: symbol)
+                .font(.ui(size * 0.5, .semibold))
+                .foregroundStyle(tint)
+                .frame(width: size, height: size)
+                .background(PillShape().fill(tint.opacity(0.14)))
+        case .mono:
+            Image(systemName: symbol)
+                .font(.ui(size * 0.5, .medium))
+                .foregroundStyle(Theme.text2)
+                .frame(width: size, height: size)
+        case .hidden:
+            EmptyView()
+        }
     }
 }
 
@@ -149,12 +187,23 @@ struct PageHero<Trailing: View>: View {
                 .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
                 .offset(y: -12)
             HStack(alignment: .center, spacing: 18) {
-                Image(systemName: symbol)
-                    .font(.ui(24, .medium))
-                    .foregroundStyle(tint)
-                    .frame(width: 58, height: 58)
-                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.opacity(0.14)))
-                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(tint.opacity(0.22)))
+                switch Theme.icons {
+                case .tinted:
+                    Image(systemName: symbol)
+                        .font(.ui(24, .medium))
+                        .foregroundStyle(tint)
+                        .frame(width: 58, height: 58)
+                        .background(RoundedRectangle(cornerRadius: Theme.r(16), style: .continuous).fill(tint.opacity(0.14)))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.r(16), style: .continuous).strokeBorder(tint.opacity(0.22)))
+                case .mono:
+                    Image(systemName: symbol)
+                        .font(.ui(22, .regular))
+                        .foregroundStyle(Theme.text)
+                        .frame(width: 58, height: 58)
+                        .overlay(RoundedRectangle(cornerRadius: Theme.r(16), style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: max(1, Theme.line)))
+                case .hidden:
+                    EmptyView()
+                }
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
                         .font(.serif(30))
@@ -206,13 +255,13 @@ struct Tag: View {
 
     var body: some View {
         HStack(spacing: 4) {
-            if let symbol { Image(systemName: symbol).font(.ui(9.5, .semibold)) }
+            if let symbol, Theme.icons != .hidden { Image(systemName: symbol).font(.ui(9.5, .semibold)) }
             Text(text).font(.ui(11, .medium)).lineLimit(1)
         }
         .foregroundStyle(tint)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
-        .background(Capsule().fill(filled ? tint.opacity(0.14) : Theme.track))
+        .background(PillShape().fill(filled && Theme.icons == .tinted ? tint.opacity(0.14) : Theme.track))
     }
 }
 
@@ -252,6 +301,16 @@ enum Status: Int, Comparable {
     }
 }
 
+/// A label whose decorative symbol goes away in the themes without icons.
+struct ThemedLabel: View {
+    var title: String
+    var symbol: String
+
+    var body: some View {
+        if Theme.icons == .hidden { Text(title) } else { Label(title, systemImage: symbol) }
+    }
+}
+
 struct StatusBadge: View {
     var status: Status
     var text: String? = nil
@@ -271,8 +330,8 @@ struct UsageBar: View {
     var body: some View {
         GeometryReader { g in
             ZStack(alignment: .leading) {
-                Capsule().fill(Theme.track)
-                Capsule().fill(tint)
+                PillShape().fill(Theme.track)
+                PillShape().fill(tint)
                     .frame(width: max(fraction > 0 ? 4 : 0, g.size.width * min(1, max(0, fraction))))
             }
         }
@@ -291,15 +350,15 @@ struct SegmentedBar: View {
             HStack(spacing: 2) {
                 ForEach(Array(segments.enumerated()), id: \.offset) { _, s in
                     if s.value > 0 && total > 0 {
-                        RoundedRectangle(cornerRadius: 3)
+                        RoundedRectangle(cornerRadius: Theme.r(3))
                             .fill(s.color)
                             .frame(width: max(2, (g.size.width - CGFloat(segments.count) * 2) * CGFloat(s.value / total)))
                     }
                 }
                 Spacer(minLength: 0)
             }
-            .background(RoundedRectangle(cornerRadius: 4).fill(Theme.track))
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .background(RoundedRectangle(cornerRadius: Theme.r(4)).fill(Theme.track))
+            .clipShape(RoundedRectangle(cornerRadius: Theme.r(4)))
         }
         .frame(height: height)
     }
@@ -312,7 +371,7 @@ struct LegendDot: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 8, height: 8)
+            PillShape().fill(color).frame(width: 8, height: 8)
             Text(label).font(.ui(11.5)).foregroundStyle(Theme.text2)
             Text(value).font(.ui(11.5, .medium)).foregroundStyle(Theme.text).monospacedDigit()
         }
@@ -391,7 +450,7 @@ struct HoverRow<Content: View>: View {
         content
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Theme.selected : (hovering ? Theme.hover.opacity(0.6) : .clear)))
+            .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(selected ? Theme.selected : (hovering ? Theme.hover.opacity(0.6) : .clear)))
             .contentShape(Rectangle())
             .onHover { hovering = $0 }
     }
@@ -406,12 +465,15 @@ struct Callout: View {
     var tint: Color = Theme.accent
 
     var body: some View {
+        let tinted = Theme.icons == .tinted
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol)
-                .font(.ui(13, .medium))
-                .foregroundStyle(tint)
-                .frame(width: 28, height: 28)
-                .background(RoundedRectangle(cornerRadius: 8).fill(tint.opacity(0.14)))
+            if Theme.icons != .hidden {
+                Image(systemName: symbol)
+                    .font(.ui(13, .medium))
+                    .foregroundStyle(tinted ? tint : Theme.text2)
+                    .frame(width: 28, height: 28)
+                    .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(tinted ? tint.opacity(0.14) : .clear))
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.ui(12.5, .semibold))
@@ -424,8 +486,9 @@ struct Callout: View {
             Spacer(minLength: 0)
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(tint.opacity(0.07)))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.opacity(0.18)))
+        .background(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).fill(tinted ? tint.opacity(0.07) : Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous)
+            .strokeBorder(tinted ? tint.opacity(0.18) : Theme.border, lineWidth: tinted ? 1 : max(1, Theme.line)))
     }
 }
 
@@ -457,15 +520,15 @@ struct PillPicker<T: Hashable & Identifiable>: View {
                     .foregroundStyle(on ? Theme.text : Theme.text2)
                     .padding(.horizontal, 11)
                     .padding(.vertical, 6)
-                    .background(RoundedRectangle(cornerRadius: 7).fill(on ? Theme.selected : .clear))
+                    .background(RoundedRectangle(cornerRadius: Theme.r(7)).fill(on ? Theme.selected : .clear))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(3)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Theme.border))
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 
@@ -561,14 +624,14 @@ struct CheckBox: View {
     var body: some View {
         Button(action: action) {
             ZStack {
-                RoundedRectangle(cornerRadius: 4.5)
+                RoundedRectangle(cornerRadius: Theme.r(4.5))
                     .fill(state == .off ? Color.clear : Theme.accent)
-                RoundedRectangle(cornerRadius: 4.5)
+                RoundedRectangle(cornerRadius: Theme.r(4.5))
                     .strokeBorder(state == .off ? Theme.borderStrong : Theme.accent, lineWidth: 1.2)
                 if state == .on {
-                    Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                    Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(Theme.onAccent)
                 } else if state == .mixed {
-                    Image(systemName: "minus").font(.system(size: 9, weight: .heavy)).foregroundStyle(.white)
+                    Image(systemName: "minus").font(.system(size: 9, weight: .heavy)).foregroundStyle(Theme.onAccent)
                 }
             }
             .frame(width: 16, height: 16)
@@ -592,11 +655,11 @@ struct SoftButtonStyle: ButtonStyle {
         let filled = prominent || destructive
         configuration.label
             .font(.ui(small ? 11.5 : 12, .medium))
-            .foregroundStyle(filled ? Color.white : Theme.text)
+            .foregroundStyle(destructive ? Theme.onBad : (prominent ? Theme.onAccent : Theme.text))
             .padding(.horizontal, small ? 9 : 12)
             .padding(.vertical, small ? 5 : 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(fill))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(filled ? Color.clear : Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(fill))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(filled ? Color.clear : Theme.border, lineWidth: Theme.line))
             .opacity(configuration.isPressed ? 0.75 : 1)
             .contentShape(Rectangle())
     }
@@ -614,18 +677,18 @@ struct ScanButton: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 if running {
-                    ProgressView().controlSize(.small).scaleEffect(0.75).tint(.white)
-                } else {
+                    ProgressView().controlSize(.small).scaleEffect(0.75).tint(Theme.onAccent)
+                } else if Theme.icons != .hidden {
                     Image(systemName: symbol).font(.ui(13, .semibold))
                 }
                 Text(running ? runningTitle : title).font(.ui(13, .semibold))
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(Theme.onAccent)
             .padding(.horizontal, 18)
             .padding(.vertical, 10)
-            .background(Capsule().fill(Theme.accent))
-            .shadow(color: Theme.accent.opacity(0.35), radius: 10, y: 3)
-            .contentShape(Capsule())
+            .background(PillShape().fill(Theme.accent))
+            .themedShadow(color: Theme.accent.opacity(0.35), radius: 10, y: 3)
+            .contentShape(PillShape())
         }
         .buttonStyle(.plain)
         .disabled(running)
@@ -667,7 +730,7 @@ struct DrawnAppIcon: View {
             tile.fill(LinearGradient(colors: [Color(hex: icon.top), Color(hex: icon.bottom)], startPoint: .top, endPoint: .bottom))
             tile.strokeBorder(.white.opacity(0.14), lineWidth: max(0.5, s * 0.012))
             if icon.spark {
-                ClaudeSpark(size: s * 0.64, color: .white)
+                ClaudeSpark(size: s * 0.64, color: .white, ornament: false)
             } else {
                 Image(systemName: icon.symbol)
                     .font(.system(size: s * 0.46, weight: .semibold))
@@ -782,11 +845,11 @@ struct DrawnSwitchStyle: ToggleStyle {
         HStack(spacing: 10) {
             configuration.label
             Spacer(minLength: 8)
-            Capsule()
+            PillShape()
                 .fill(configuration.isOn ? Theme.accent : Theme.borderStrong)
                 .frame(width: 30, height: 17)
                 .overlay(alignment: configuration.isOn ? .trailing : .leading) {
-                    Circle().fill(.white).padding(2)
+                    PillShape().fill(configuration.isOn ? Theme.onAccent : .white).padding(2).frame(width: 17, height: 17)
                 }
                 .onTapGesture { configuration.isOn.toggle() }
         }

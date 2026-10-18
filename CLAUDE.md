@@ -1,6 +1,6 @@
 # Clean My Claude : règles du projet
 
-App macOS native (SwiftUI, SwiftPM, Swift 5, macOS 14 minimum, aucune dépendance). Interface en français, ton chaleureux et tutoyant, design repris de ClaudeStats (`UI/Theme.swift`, `UI/Components/`).
+App macOS native (SwiftUI, SwiftPM, Swift 5, macOS 14 minimum, aucune dépendance). Interface en français, ton chaleureux et tutoyant. Cinq thèmes de base et des thèmes personnels (`UI/ThemeCatalog.swift`, `UI/ThemeStore.swift`, Réglages › Apparence) ; Atelier reprend le design de ClaudeStats (`UI/Theme.swift`, `UI/Components/`).
 
 ## Construire et vérifier
 
@@ -8,7 +8,7 @@ App macOS native (SwiftUI, SwiftPM, Swift 5, macOS 14 minimum, aucune dépendanc
 swift build                                         # sans erreur ni avertissement
 .build/debug/CleanMyClaude --selftest              # garde-fous + autotests de chaque module
 .build/debug/CleanMyClaude --selftest --demo       # le mode démo ne touche à rien
-.build/debug/CleanMyClaude --snapshot out/ --demo --page <page> [--tab <onglet>] [--scale 2]
+.build/debug/CleanMyClaude --snapshot out/ --demo --page <page> [--tab <onglet>] [--theme graphite] [--scale 2]
 .build/debug/CleanMyClaude --dump --only <page>    # ce que le module voit, en texte
 ```
 
@@ -32,4 +32,5 @@ Relis toujours la capture PNG de ta page. `./scripts/build_app.sh` installe l'ap
 8. **Pas de ressources SwiftPM** (le script de build ne copie pas `Bundle.module`) : tout est dans le code.
 9. **Rendu des captures** : les contrôles AppKit (`Menu`, `TextField`, `Toggle`, `Picker`) sortent en rectangles jaunes dans `ImageRenderer` et les `ScrollView` vides. Utilise `BorderlessMenu`, `ScrollArea`, `.switchToggles()` (`UI/Components/Components.swift`) ou teste `Snapshot.isActive`.
 10. **Autotests** : implémente `selfTest()` (fonctions pures : conversions, calculs, règles…) et `dump()`.
-11. Ajoute de vraies fonctionnalités, pas des maquettes : chaque bouton fait ce qu'il dit, et l'utilisateur garde toujours la main (aperçu avant action, Corbeille plutôt que suppression, annulation des longues tâches).
+11. **Thèmes** : aucune couleur, police ni forme en dur. Couleurs `Theme.*` (`Theme.onAccent` sur l'accent, `Theme.onBrand` sur `Theme.brand`, `Theme.ink(on:)` sur une couleur de graphique), polices `.serif` / `.ui` / `.mono`, angles `Theme.r(8)`, capsules `PillShape()`, bordures `lineWidth: Theme.line`, ombres `.themedShadow`. Les icônes décoratives passent par `IconBadge`, `Panel(symbol:)` ou `Theme.icons` (le thème Graphite les masque) ; l'étincelle, la mascotte et le motif se masquent seuls. Vérifie ta page avec `--theme graphite` et `--theme sorbet`.
+12. Ajoute de vraies fonctionnalités, pas des maquettes : chaque bouton fait ce qu'il dit, et l'utilisateur garde toujours la main (aperçu avant action, Corbeille plutôt que suppression, annulation des longues tâches).

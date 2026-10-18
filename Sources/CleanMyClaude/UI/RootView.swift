@@ -167,8 +167,8 @@ struct Sidebar: View {
                     }
                     .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Theme.warn.opacity(0.1)))
-                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.warn.opacity(0.25)))
+                    .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.warn.opacity(0.1)))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.warn.opacity(0.25)))
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -225,10 +225,12 @@ struct SidebarItem: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.ui(13))
-                    .foregroundStyle(selected ? Theme.text : Theme.text2)
-                    .frame(width: 18)
+                if Theme.icons != .hidden {
+                    Image(systemName: symbol)
+                        .font(.ui(13))
+                        .foregroundStyle(selected ? Theme.text : Theme.text2)
+                        .frame(width: 18)
+                }
                 Text(title)
                     .font(.ui(13.5))
                     .foregroundStyle(Theme.text)
@@ -241,12 +243,12 @@ struct SidebarItem: View {
                         .monospacedDigit()
                         .padding(.horizontal, 6)
                         .padding(.vertical, 1.5)
-                        .background(Capsule().fill(Theme.track))
+                        .background(PillShape().fill(Theme.track))
                 }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Theme.selected : (hovering ? Theme.hover : .clear)))
+            .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(selected ? Theme.selected : (hovering ? Theme.hover : .clear)))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -277,8 +279,8 @@ struct OnboardingView: View {
                 promise("lock", "Rien ne sort sans ton clic", "Tes données restent sur ton Mac. Les rares connexions (test de débit, recherche de mises à jour, Assistant Claude) partent seulement quand tu cliques. Le code est ouvert, sur GitHub.")
             }
             .padding(18)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.border))
+            .background(RoundedRectangle(cornerRadius: Theme.r(14)).fill(Theme.card))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(14)).strokeBorder(Theme.border, lineWidth: Theme.line))
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
