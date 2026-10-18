@@ -1,0 +1,547 @@
+import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
+import AVFoundation
+
+@Observable
+@MainActor
+final class ConverterModel: AppModule {
+    /// Files handed over by the Finder service ("Convertir avec Clean My Claude"), a Dock drop or the launcher.
+    var pendingFiles: [URL] = []
+    var files: [ConverterFile] = []
+    var operation: ConverterOperation?
+    var options = ConverterOptions()
+    /// nil: outputs go next to the originals.
+    var outputFolder: URL?
+    var jobs: [ConverterJob] = []
+    var message: String?
+    var qrText = ""
+    var ffmpegPath: String?
+    var ffmpegEncoders: Set<String> = []
+    @ObservationIgnored private var toolsChecked = false
+    @ObservationIgnored private var qrCache: (text: String, image: CGImage?) = ("", nil)
+    @ObservationIgnored private var batchStart: Date?
+
+    func receive(_ urls: [URL]) {
+        pendingFiles = urls
+        add(urls)
+    }
+
+    // MARK: - Files
+
+    func add(_ urls: [URL]) {
+        guard !urls.isEmpty else { return }
+        guard !DemoData.isEnabled else {
+            message = DemoData.refusal
+            return
+        }
+        checkTools()
+        var known = Set(files.map { $0.url.standardizedFileURL.path })
+        var fresh: [ConverterFile] = []
+        for url in urls.map(\.standardizedFileURL) where url.isFileURL && known.insert(url.path).inserted {
+            guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            fresh.append(ConverterFile(url: url, kind: ConverterKind.detect(name: url.lastPathComponent, isDirectory: FS.isDirectory(url.path))))
+        }
+        guard !fresh.isEmpty else { return }
+        files += fresh
+        message = nil
+        if let op = operation, op != .qrGenerate, targets(for: op).count >= op.minimumCount {
+            // The operation chosen beforehand (launcher, gallery) still applies.
+        } else {
+            operation = ConverterOperation.suggested(for: kinds)
+        }
+        inspect(fresh)
+    }
+
+    /// Size, dimensions or duration, and dates, read in the background.
+    private func inspect(_ entries: [ConverterFile]) {
+        let items = entries.map { (id: $0.id, url: $0.url, kind: $0.kind) }
+        Task { [weak self] in
+            for item in items {
+                let info = await ConverterInspector.inspect(item.url, kind: item.kind)
+                guard let self, let i = self.files.firstIndex(where: { $0.id == item.id }) else { continue }
+                self.files[i].size = info.size
+                self.files[i].detail = info.detail
+                self.files[i].date = info.date
+                self.files[i].pages = info.pages
+            }
+        }
+    }
+
+    func remove(_ file: ConverterFile) {
+        files.removeAll { $0.id == file.id }
+    }
+
+    func clearFiles() {
+        files.removeAll()
+        pendingFiles.removeAll()
+        message = nil
+    }
+
+    /// Moves a file up (-1) or down (+1) in the list (merge order).
+    func move(_ file: ConverterFile, by offset: Int) {
+        guard let i = files.firstIndex(where: { $0.id == file.id }) else { return }
+        let j = i + offset
+        guard files.indices.contains(j) else { return }
+        files.swapAt(i, j)
+    }
+
+    var kinds: [ConverterKind] { files.map(\.kind) }
+    var totalSize: Int64 { files.reduce(0) { $0 + $1.size } }
+    var availableOperations: [ConverterOperation] { ConverterOperation.available(for: kinds) }
+
+    func targets(for op: ConverterOperation) -> [ConverterFile] {
+        files.filter { op.accepts.contains($0.kind) }
+    }
+
+    var renamePreview: [ConverterRenamePreview] {
+        ConverterRename.preview(targets(for: .rename), rule: options.rename)
+    }
+
+    /// Selects an operation (launcher, gallery, chips).
+    func focus(_ op: ConverterOperation) {
+        operation = op
+        message = nil
+        if op != .qrGenerate { checkTools() }
+    }
+
+    var canStart: Bool {
+        guard let op = operation, op != .qrGenerate else { return false }
+        let count = targets(for: op).count
+        guard count >= op.minimumCount else { return false }
+        switch op {
+        case .rename: return renamePreview.contains { !$0.unchanged }
+        case .pdfSplit, .pdfRotate, .pdfToImages:
+            return targets(for: op).allSatisfy { file in
+                guard let pages = file.pages else { return false }
+                return ConverterPDFEngine.parsePages(options.pdfPages, count: pages)?.isEmpty == false
+            }
+        default: return true
+        }
+    }
+
+    // MARK: - Tools
+
+    /// Looks for ffmpeg once (and its encoders in the background).
+    func checkTools() {
+        guard !toolsChecked, !DemoData.isEnabled else { return }
+        toolsChecked = true
+        guard let path = Shell.which("ffmpeg") else { return }
+        ffmpegPath = path
+        Task { [weak self] in
+            let encoders = await Task.detached { ConverterMediaEngine.ffmpegEncoders(path) }.value
+            self?.ffmpegEncoders = encoders
+        }
+    }
+
+    var imageFormats: [ConverterImageFormat] { ConverterImageEngine.formats(webp: ffmpegEncoders.contains("libwebp")) }
+    var audioFormats: [ConverterAudioFormat] { ConverterAudioFormat.available(ffmpeg: ffmpegPath != nil) }
+    var containers: [ConverterVideoContainer] {
+        ConverterVideoContainer.allCases.filter { !$0.viaFFmpeg || ffmpegPath != nil }
+    }
+
+    // MARK: - Output folder
+
+    var destinationLabel: String {
+        guard let outputFolder else { return "À côté des originaux" }
+        return "Dans « \(outputFolder.lastPathComponent) »"
+    }
+
+    func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choisir"
+        panel.message = "Où ranger les fichiers convertis ?"
+        if panel.runModal() == .OK, let url = panel.url { outputFolder = url }
+    }
+
+    // MARK: - Queue
+
+    var isBusy: Bool { jobs.contains { $0.isActive } }
+    var activeJobs: [ConverterJob] { jobs.filter(\.isActive) }
+    var finishedJobs: [ConverterJob] { jobs.filter(\.isFinished) }
+
+    /// Overall progress of what is queued (finished jobs count as 1).
+    var overallProgress: Double {
+        let batch = jobs.filter { $0.isActive || ($0.finished ?? .distantPast) >= (batchStart ?? .distantFuture) }
+        guard !batch.isEmpty else { return 0 }
+        let sum = batch.reduce(0.0) { acc, job in
+            switch job.state {
+            case .waiting: return acc
+            case .running: return acc + (job.progress ?? 0.5)
+            default: return acc + 1
+            }
+        }
+        return sum / Double(batch.count)
+    }
+
+    func startConversion() {
+        guard let op = operation, op != .qrGenerate else { return }
+        guard !DemoData.isEnabled else {
+            message = DemoData.refusal
+            return
+        }
+        let targets = targets(for: op)
+        guard targets.count >= op.minimumCount else { return }
+        let options = options
+        let summary = Self.summary(op, options)
+        var new: [ConverterJob] = []
+        if op == .rename {
+            let preview = renamePreview.filter { !$0.unchanged }
+            guard !preview.isEmpty else {
+                message = "Les noms ne changent pas : rien à renommer."
+                return
+            }
+            new.append(ConverterJob(operation: op, inputs: preview.map(\.url), kinds: preview.map { _ in .other },
+                                    names: preview.map(\.newName), options: options, folder: nil,
+                                    title: "Renommage de \(Fmt.plural(preview.count, "fichier", "fichiers"))", subtitle: summary,
+                                    inputSize: 0))
+        } else if op.isBatch {
+            new.append(ConverterJob(operation: op, inputs: targets.map(\.url), kinds: targets.map(\.kind), options: options,
+                                    folder: outputFolder, title: Self.batchTitle(op, count: targets.count), subtitle: summary,
+                                    inputSize: targets.reduce(0) { $0 + $1.size }))
+        } else {
+            for f in targets {
+                new.append(ConverterJob(operation: op, inputs: [f.url], kinds: [f.kind], options: options, folder: outputFolder,
+                                        title: f.name, subtitle: summary, inputSize: f.size))
+            }
+        }
+        if !isBusy { batchStart = Date() }
+        jobs += new
+        message = nil
+        pump()
+    }
+
+    /// Starts the next waiting job (one at a time: predictable and gentle with the battery).
+    private func pump() {
+        guard !jobs.contains(where: { $0.state == .running }) else { return }
+        guard let job = jobs.first(where: { $0.state == .waiting }) else {
+            batchFinished()
+            return
+        }
+        job.state = .running
+        job.started = Date()
+        job.progress = 0
+        let spec = ConverterEngine.Spec(operation: job.operation, inputs: job.inputs, kinds: job.kinds, names: job.names,
+                                        options: job.options, folder: job.folder, ffmpeg: ffmpegPath)
+        let control = job.control!
+        Task { [weak self] in
+            let result: Result<ConverterOutput, Error> = await Task.detached(priority: .userInitiated) {
+                do { return .success(try await ConverterEngine.run(spec, control: control)) } catch { return .failure(error) }
+            }.value
+            self?.finish(job, result)
+        }
+    }
+
+    private func finish(_ job: ConverterJob, _ result: Result<ConverterOutput, Error>) {
+        job.finished = Date()
+        switch result {
+        case .success(let output):
+            job.output = output
+            job.progress = 1
+            job.state = .done
+            for pair in output.renamed {
+                if let i = files.firstIndex(where: { $0.url == pair.from }) { files[i].url = pair.to }
+            }
+        case .failure(let error):
+            if case ConverterError.cancelled = error {
+                job.state = .cancelled
+            } else {
+                job.state = .failed(error.localizedDescription)
+            }
+        }
+        pump()
+    }
+
+    /// A notification when a long batch ends while the app is in the background.
+    private func batchFinished() {
+        guard let start = batchStart else { return }
+        batchStart = nil
+        let batch = jobs.filter { ($0.finished ?? .distantPast) >= start }
+        guard Date().timeIntervalSince(start) > 15, !NSApp.isActive, !batch.isEmpty else { return }
+        let done = batch.filter { $0.state == .done }.count
+        let failed = batch.filter { if case .failed = $0.state { return true } else { return false } }.count
+        var body = Fmt.plural(done, "conversion réussie", "conversions réussies")
+        if failed > 0 { body += ", \(Fmt.plural(failed, "échec", "échecs"))" }
+        Notifier.post(id: "converter.done", title: "Conversions terminées", body: body + ".", throttle: 0)
+    }
+
+    func cancel(_ job: ConverterJob) {
+        switch job.state {
+        case .waiting:
+            job.state = .cancelled
+            job.finished = Date()
+        case .running:
+            job.control.cancel()
+        default:
+            break
+        }
+    }
+
+    func cancelAll() {
+        for job in jobs where job.isActive { cancel(job) }
+    }
+
+    func clearFinished() {
+        jobs.removeAll { $0.isFinished }
+    }
+
+    func dismiss(_ job: ConverterJob) {
+        guard job.isFinished else { return }
+        jobs.removeAll { $0.id == job.id }
+    }
+
+    func retry(_ job: ConverterJob) {
+        let copy = ConverterJob(operation: job.operation, inputs: job.inputs, kinds: job.kinds, names: job.names, options: job.options,
+                                folder: job.folder, title: job.title, subtitle: job.subtitle, inputSize: job.inputSize)
+        jobs.removeAll { $0.id == job.id }
+        if !isBusy { batchStart = Date() }
+        jobs.append(copy)
+        pump()
+    }
+
+    /// Puts the old names back after a batch rename.
+    func undoRename(_ job: ConverterJob) {
+        guard job.operation == .rename, !job.undone, !DemoData.isEnabled else { return }
+        let items = job.output.renamed.map { (url: $0.to, newName: $0.from.lastPathComponent) }
+        let control = ConverterControl { _ in }
+        do {
+            let pairs = try ConverterRename.apply(items, control: control)
+            for pair in pairs {
+                if let i = files.firstIndex(where: { $0.url == pair.from }) { files[i].url = pair.to }
+            }
+            job.undone = true
+            message = "Les anciens noms sont revenus."
+        } catch {
+            message = "Annulation incomplète : \(error.localizedDescription)"
+        }
+    }
+
+    // MARK: - Results
+
+    func reveal(_ urls: [URL]) {
+        guard !DemoData.isEnabled, !urls.isEmpty else { return }
+        NSWorkspace.shared.activateFileViewerSelecting(urls)
+    }
+
+    func open(_ url: URL) {
+        guard !DemoData.isEnabled else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    func copy(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        HUD.show("Texte copié", symbol: "doc.on.clipboard.fill")
+    }
+
+    /// The OCR text as a .txt file next to the image (or in the chosen folder).
+    func saveText(_ job: ConverterJob) {
+        guard let text = job.output.text, let input = job.inputs.first, !DemoData.isEnabled else { return }
+        let out = FileOps.outputURL(for: input, extension: "txt", suffix: "texte", folder: job.folder)
+        do {
+            let url = try FileOps.write(Data(text.utf8), to: out)
+            job.output.files.append(url)
+            HUD.show("Enregistré : \(url.lastPathComponent)")
+        } catch {
+            HUD.show(error.localizedDescription, symbol: "xmark.octagon.fill")
+        }
+    }
+
+    // MARK: - QR codes
+
+    var qrImage: CGImage? {
+        let text = qrText
+        if qrCache.text == text { return qrCache.image }
+        let image = text.utf8.count <= ConverterVision.qrCapacity ? ConverterVision.qrImage(text) : nil
+        qrCache = (text, image)
+        return image
+    }
+
+    func copyQR(_ text: String? = nil) {
+        guard let image = text.map({ ConverterVision.qrImage($0) }) ?? qrImage, let png = ConverterImageEngine.pngData(image) else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setData(png, forType: .png)
+        HUD.show("QR code copié", symbol: "qrcode")
+    }
+
+    func saveQR() {
+        guard !DemoData.isEnabled, let image = qrImage, let png = ConverterImageEngine.pngData(image) else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = "QR code.png"
+        panel.directoryURL = outputFolder ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let saved = try FileOps.write(png, to: url)
+            HUD.show("Enregistré : \(saved.lastPathComponent)")
+            NSWorkspace.shared.activateFileViewerSelecting([saved])
+        } catch {
+            HUD.show(error.localizedDescription, symbol: "xmark.octagon.fill")
+        }
+    }
+
+    // MARK: - Texts
+
+    static func batchTitle(_ op: ConverterOperation, count: Int) -> String {
+        switch op {
+        case .imagesToPDF: return "\(Fmt.plural(count, "image", "images")) → PDF"
+        case .pdfMerge: return "Fusion de \(count) PDF"
+        case .archiveZip: return "Archive de \(Fmt.plural(count, "élément", "éléments"))"
+        default: return op.title
+        }
+    }
+
+    /// What the job will do, in a few words: "→ JPEG · qualité 82 %".
+    static func summary(_ op: ConverterOperation, _ o: ConverterOptions) -> String {
+        let quality = "qualité \(Int((o.imageQuality * 100).rounded())) %"
+        switch op {
+        case .imageConvert:
+            let f = o.imageFormat
+            return "→ \(f?.name ?? "même format")" + (f?.lossy ?? true ? " · \(quality)" : "") + (o.stripOnConvert ? " · sans GPS" : "")
+        case .imageResize:
+            return "→ \(Fmt.int(o.maxSide)) px max · \(o.resizeFormat?.name ?? "même format")"
+        case .imageCompress:
+            return "→ \(quality) · \(o.compressFormat?.name ?? "même format")" + (o.compressMaxSide > 0 ? " · \(Fmt.int(o.compressMaxSide)) px" : "")
+        case .imageStrip:
+            return o.stripMode == .gps ? "→ sans localisation" : "→ sans métadonnées"
+        case .imagesToPDF:
+            return "→ PDF · \(o.pageSize.title.lowercased())"
+        case .videoCompress:
+            return "→ \(o.videoPreset.title) · \(o.compressContainer.name)"
+        case .videoContainer:
+            return "→ \(o.container.name)"
+        case .videoAudio:
+            return "→ AAC (.m4a)"
+        case .videoGIF:
+            return "→ GIF \(o.gifWidth) px · \(o.gifFPS) i/s" + (o.gifSeconds > 0 ? " · \(o.gifSeconds) s max" : "")
+        case .audioConvert:
+            return "→ \(o.audioFormat.name)" + (o.audioFormat.lossy ? " · \(o.audioBitrate) kb/s" : "")
+        case .pdfMerge:
+            return "→ un seul PDF, dans l'ordre de la liste"
+        case .pdfSplit:
+            let pages = o.pdfPages.trimmingCharacters(in: .whitespaces)
+            return "→ pages \(pages.isEmpty ? "toutes" : pages) · \(o.splitMode.title.lowercased())"
+        case .pdfRotate:
+            return "→ \(o.rotation == 90 ? "90° à droite" : (o.rotation == 180 ? "180°" : "90° à gauche"))"
+                + (o.pdfPages.trimmingCharacters(in: .whitespaces).isEmpty ? "" : " · pages \(o.pdfPages)")
+        case .pdfCompress:
+            return "→ \(o.pdfCompression.title.lowercased())"
+        case .pdfToImages:
+            return "→ \(o.rasterFormat.name) · \(o.rasterDPI) ppp"
+        case .documentConvert:
+            return "→ \(o.docFormat.name)"
+        case .archiveZip:
+            return "→ ZIP · \(o.zipMode.title.lowercased())"
+        case .archiveExtract:
+            return "→ nouveau dossier"
+        case .rename:
+            return "Motif « \(o.rename.pattern) »"
+        case .ocr:
+            return "→ texte (français, anglais)"
+        case .qrRead:
+            return "→ contenu des codes"
+        case .qrGenerate:
+            return "→ PNG"
+        }
+    }
+
+    // MARK: - AppModule
+
+    var sidebarBadge: String? {
+        let active = jobs.filter(\.isActive).count
+        return active > 0 ? "\(active)" : nil
+    }
+
+    func commands(app: AppModel) -> [AppCommand] {
+        ConverterOperation.allCases.map { op in
+            AppCommand(id: op.commandID, title: op.commandTitle, subtitle: op.explanation, keywords: op.keywords + ["convertir", "convertisseur"],
+                       icon: .symbol(op.symbol, op.family.tint), group: .convert, assistantSafe: true, hint: "Ouvrir") { ctx in
+                ctx.app.converter.focus(op)
+                ctx.app.page = .converter
+                NotificationCenter.default.post(name: .openMainWindow, object: nil)
+                return .done
+            }
+        }
+    }
+
+    /// "qr bonjour" → the QR code of "bonjour" (⌘ copies the image straight away).
+    func results(for query: String, app: AppModel) -> [AppCommand] {
+        let q = query.trimmingCharacters(in: .whitespaces)
+        guard q.count > 3, q.lowercased().hasPrefix("qr ") else { return [] }
+        let text = String(q.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty, text.utf8.count <= ConverterVision.qrCapacity else { return [] }
+        let shown = text.count > 40 ? String(text.prefix(40)) + "…" : text
+        return [AppCommand(id: "conv_qr_result", title: "QR code : « \(shown) »", subtitle: "Ouvre le QR code · ⌘ pour copier l'image",
+                           icon: .symbol("qrcode", ConverterFamily.vision.tint), group: .convert, hint: "Créer", boost: 1500) { ctx in
+            if ctx.alternate {
+                ctx.app.converter.copyQR(text)
+                return .done
+            }
+            ctx.app.converter.qrText = text
+            ctx.app.converter.focus(.qrGenerate)
+            ctx.app.page = .converter
+            NotificationCenter.default.post(name: .openMainWindow, object: nil)
+            return .done
+        }]
+    }
+
+    func dump() -> [String] {
+        checkTools()
+        var lines: [String] = []
+        lines.append("Fichiers dans la liste : \(files.count) · tâches : \(jobs.count)")
+        lines.append("Formats d'image écrivables : " + ConverterImageEngine.formats(webp: false).map(\.name).joined(separator: ", "))
+        let presets = Set(AVAssetExportSession.allExportPresets())
+        lines.append("Préréglages vidéo : " + ConverterVideoPreset.allCases.map { "\($0.short) \(presets.contains($0.rawValue) ? "✓" : "✗")" }.joined(separator: ", "))
+        lines.append("ffmpeg : \(ffmpegPath ?? "absent (MP3, MKV, WebM et WebP indisponibles)")")
+        if let path = ffmpegPath {
+            let enc = ConverterMediaEngine.ffmpegEncoders(path)
+            lines.append("Encodeurs ffmpeg utiles : " + ["libx264", "libmp3lame", "libwebp", "libvpx-vp9", "libopus"].map { "\($0) \(enc.contains($0) ? "✓" : "✗")" }.joined(separator: ", "))
+        }
+        for tool in [ConverterDocumentEngine.textutil, ConverterMediaEngine.afconvert, "/usr/bin/ditto", "/usr/bin/zip", "/usr/bin/tar"] {
+            lines.append("\(tool) : \(Shell.exists(tool) ? "présent" : "ABSENT")")
+        }
+        lines.append("Filtre Quartz « Reduce File Size » : \(FileManager.default.fileExists(atPath: ConverterPDFEngine.reduceFilter) ? "présent" : "absent")")
+        lines.append("Opérations : \(ConverterOperation.allCases.count) · commandes du lanceur : \(ConverterOperation.allCases.map(\.commandID).joined(separator: " "))")
+        for f in files.prefix(20) {
+            lines.append("  \(f.kind.title)\t\(Fmt.bytes(f.size))\t\(f.name)\(f.detail.map { " · \($0)" } ?? "")")
+        }
+        return lines
+    }
+}
+
+/// Reads what the file list shows, off the main actor.
+enum ConverterInspector {
+    struct Info: Sendable {
+        var size: Int64
+        var detail: String?
+        var date: Date?
+        var pages: Int?
+    }
+
+    static func inspect(_ url: URL, kind: ConverterKind) async -> Info {
+        let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey])
+        var info = Info(size: ConverterOutputs.size(url), detail: nil, date: values?.creationDate ?? values?.contentModificationDate)
+        switch kind {
+        case .image:
+            let d = ConverterImageEngine.describe(url)
+            info.detail = d.detail
+            if let date = d.date { info.date = date }
+        case .video, .audio:
+            info.detail = await ConverterMediaEngine.describe(url, kind: kind)
+        case .pdf:
+            info.pages = ConverterPDFEngine.pageCount(url)
+            info.detail = info.pages.map { Fmt.plural($0, "page", "pages") }
+        case .folder:
+            let n = (try? FileManager.default.contentsOfDirectory(atPath: url.path).filter { !$0.hasPrefix(".") }.count) ?? 0
+            info.detail = Fmt.plural(n, "élément", "éléments")
+        default:
+            break
+        }
+        return info
+    }
+}
