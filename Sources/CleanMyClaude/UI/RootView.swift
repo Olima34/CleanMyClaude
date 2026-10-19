@@ -106,6 +106,8 @@ struct BottomBar: View {
             CleanupActionBar()
         case .protection where app.protection.tab == .privacy && !app.protection.traces.isEmpty:
             PrivacyActionBar()
+        case .protection where app.protection.tab == .threats && !app.protection.selectedThreats.isEmpty:
+            ThreatActionBar()
         case .storage where (app.storage.tab == .bigFiles && !app.storage.bigSelection.isEmpty)
             || (app.storage.tab == .duplicates && !app.storage.dupSelection.isEmpty):
             StorageActionBar()
@@ -201,7 +203,6 @@ struct Sidebar: View {
     private func badge(for p: Page) -> String? {
         switch p {
         case .cleanup: return app.cleanup.hasResults && app.cleanup.recommendedSize > 0 ? Fmt.bytes(app.cleanup.recommendedSize) : nil
-        case .protection: return app.protection.issues.isEmpty ? nil : "\(app.protection.issues.count)"
         case .apps: return app.apps.unused.isEmpty ? nil : "\(app.apps.unused.count)"
         default: return ModuleRegistry.module(for: p, app: app)?.sidebarBadge
         }

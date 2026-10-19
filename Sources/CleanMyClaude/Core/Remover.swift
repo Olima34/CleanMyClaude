@@ -150,6 +150,75 @@ enum Remover {
         }
     }
 
+    // MARK: Threats
+
+    /// Whether a threat found by the Protection scan may go to the Trash. Wider than `isSafe` (a piece of malware also
+    /// lives in /Library, /Users/Shared or /tmp) but never macOS, this app, its data, another user's folder, a folder
+    /// such as ~/Documents or /Library/LaunchAgents itself, or a protected ~/Library folder.
+    static func isQuarantinable(_ raw: String, isDirectory: Bool? = nil) -> Bool {
+        let path = (raw as NSString).standardizingPath
+        guard path.hasPrefix("/"), !path.contains("/../") else { return false }
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count >= 2 else { return false }
+        let dir = isDirectory ?? (FS.isDirectory(path) && !FS.isSymlink(path))
+        let own = [Bundle.main.bundlePath, DataStore.folder, ActionLog.folder].map { ($0 as NSString).standardizingPath }
+        if own.contains(where: { path == $0 || path.hasPrefix($0 + "/") || $0.hasPrefix(path + "/") }) { return false }
+        if Preferences.exclusions.map({ ($0 as NSString).standardizingPath })
+            .contains(where: { path == $0 || path.hasPrefix($0 + "/") || $0.hasPrefix(path + "/") }) { return false }
+        let home = FS.home
+        if path.hasPrefix(home + "/") {
+            let rel = path.dropFirst(home.count + 1).split(separator: "/").map(String.init)
+            if rel[0] == "Library" {
+                if rel.count < 2 || (rel.count == 2 && dir) { return false }
+                return !protectedLibrary.contains(rel[1])
+            }
+            // ~/.client is fine, ~/Documents is not; ~/Documents/x.app is.
+            return rel.count >= 2 || rel[0].hasPrefix(".") || !dir
+        }
+        switch parts[0] {
+        case "Applications":
+            return parts.count >= 2 && (!dir || path.hasSuffix(".app") || parts.count >= 3)
+        case "Library":
+            let denied: Set<String> = ["Apple", "Keychains", "Preferences", "Updates", "Receipts", "Frameworks", "Extensions",
+                                       "SystemExtensions", "Filesystems", "Managed Preferences", "Caches", "Logs", "Fonts"]
+            if denied.contains(parts[1]) { return false }
+            return parts.count >= 3 || !dir
+        case "Users":
+            return parts.count >= 3 && parts[1] == "Shared"
+        case "private":
+            return parts.count >= 3 && (parts[1] == "tmp" || (parts.count >= 4 && parts[1] == "var" && parts[2] == "tmp"))
+        case "usr":
+            return parts.count >= 4 && parts[1] == "local"
+        case "opt":
+            return parts.count >= 4 && !dir
+        default:
+            return false
+        }
+    }
+
+    /// Moves a threat to the Trash (never deletes it: the user can look at it, or put it back). Items owned by the
+    /// administrator go through the Finder, which asks for the password. Must not run on the main thread.
+    static func quarantine(_ raw: String, reason: String) -> RemovalReport {
+        if DemoData.isEnabled { return RemovalReport(failures: [(raw, DemoData.refusal)]) }
+        let path = (raw as NSString).standardizingPath
+        guard FS.exists(path) || FS.isSymlink(path) else { return RemovalReport() }
+        guard isQuarantinable(path) else {
+            ActionLog.write("REFUSÉ (menace) \(path)")
+            return RemovalReport(failures: [(path, "Emplacement protégé")])
+        }
+        let size = FileSizer.size(of: path)
+        do {
+            try FS.fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+        } catch {
+            guard recycle(path) else {
+                ActionLog.write("ÉCHEC (menace \(reason)) \(path) : \(error.localizedDescription)")
+                return RemovalReport(failures: [(path, error.localizedDescription)])
+            }
+        }
+        ActionLog.write("CORBEILLE (menace \(reason)) \(Fmt.bytes(size)) \(path)")
+        return RemovalReport(removed: 1, freed: size)
+    }
+
     /// Asks Finder to move an item to the Trash (handles files owned by root with an admin prompt).
     /// Must not be called from the main thread.
     static func recycle(_ path: String) -> Bool {

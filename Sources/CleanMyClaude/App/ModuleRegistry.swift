@@ -66,6 +66,7 @@ enum ModuleRegistry {
         list.append((.windows, app.windows))
         list.append((.automation, app.automation))
         list.append((.assistant, app.assistant))
+        list.append((.protection, app.protection))
         return list
     }
 

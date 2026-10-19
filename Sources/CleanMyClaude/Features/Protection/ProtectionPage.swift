@@ -7,22 +7,18 @@ struct ProtectionPage: View {
         @Bindable var model = app.protection
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "lock.shield", title: "Protection et confidentialité",
-                     subtitle: "Les défenses de macOS, ce qui se lance tout seul, qui a accès à quoi, et les traces que tu laisses derrière toi.",
+                     subtitle: "Les défenses de macOS, les logiciels malveillants, ce qui se lance tout seul, qui t'observe, et les traces que tu laisses.",
                      tint: Theme.good, seed: 33) {
                 HStack(spacing: 16) {
                     if model.hasAudit {
-                        Gauge(value: model.securityRatio, text: "\(model.passedCount)/\(model.scoredCount)", caption: "protections",
-                              tint: model.securityRatio >= 0.85 ? Theme.good : (model.securityRatio >= 0.6 ? Theme.warn : Theme.bad),
+                        Gauge(value: model.securityRatio, text: "\(model.securityScore)", caption: "note \(model.grade)",
+                              tint: model.securityScore >= 85 ? Theme.good : (model.securityScore >= 65 ? Theme.warn : Theme.bad),
                               size: 74, lineWidth: 6)
+                            .help("Indice de sécurité sur 100 : chaque point pèse selon sa gravité (\(model.passedCount) sur \(model.scoredCount) en ordre).")
                     }
                     ScanButton(title: model.hasAudit ? "Refaire le bilan" : "Lancer le bilan", symbol: "checkmark.shield",
-                               running: model.isAuditing || app.startup.isScanning) {
-                        let protection = app.protection, startup = app.startup
-                        Task {
-                            async let a: Void = protection.audit()
-                            async let b: Void = startup.scan()
-                            _ = await (a, b)
-                        }
+                               running: model.isAuditing || app.startup.isScanning || model.isCheckingAccess) {
+                        ProtectionActions.fullReview(app)
                     }
                 }
             }
@@ -30,43 +26,75 @@ struct ProtectionPage: View {
             PillPicker(options: ProtectionTab.allCases, selection: $model.tab, label: { $0.title }, badge: { tab in
                 switch tab {
                 case .security: return model.issues.isEmpty ? nil : "\(model.issues.count)"
+                case .threats: return model.visibleThreats.isEmpty ? nil : "\(model.visibleThreats.count)"
                 case .persistence: return app.startup.flagged.isEmpty ? nil : "\(app.startup.flagged.count)"
-                case .permissions: return model.grants.map { "\($0.count)" }
+                case .permissions:
+                    let n = model.keyboardTaps.filter { $0.risk == .bad }.count + model.extensions.filter(\.forced).count
+                    return n == 0 ? nil : "\(n)"
                 case .privacy: return model.traces.isEmpty ? nil : "\(model.traces.count)"
+                case .realtime: return model.realtime.anyOn ? "actif" : nil
                 }
             })
 
-            if model.isAuditing && !model.hasAudit {
-                ScanProgressCard(title: "J'inspecte les défenses de ton Mac…", label: "FileVault, coupe-feu, Gatekeeper, signatures…", progress: nil)
-            } else if !model.hasAudit && model.tab != .persistence {
-                ProtectionIntro()
-            } else {
-                switch model.tab {
-                case .security: SecurityTab()
-                case .persistence: PersistenceTab()
-                case .permissions: PermissionsTab()
-                case .privacy: PrivacyTab()
+            switch model.tab {
+            case .security:
+                if model.isAuditing && !model.hasAudit {
+                    ScanProgressCard(title: "J'inspecte les défenses de ton Mac…", label: "FileVault, coupe-feu, partages, réseau, secrets…", progress: nil)
+                } else if !model.hasAudit {
+                    ProtectionIntro()
+                } else {
+                    SecurityTab()
                 }
+            case .threats: ThreatsTab()
+            case .persistence: PersistenceTab()
+            case .permissions: AccessTab()
+            case .privacy:
+                if model.hasAudit { PrivacyTab() } else { ProtectionIntro() }
+            case .realtime: RealtimeTab()
             }
         }
     }
 }
 
+@MainActor
+enum ProtectionActions {
+    /// The whole review: macOS' defenses, what starts on its own, who can watch, the traces.
+    static func fullReview(_ app: AppModel) {
+        let protection = app.protection, startup = app.startup
+        Task {
+            async let a: Void = protection.audit()
+            async let b: Void = startup.scan()
+            async let c: Void = protection.checkAccess()
+            _ = await (a, b, c)
+        }
+    }
+}
+
 struct ProtectionIntro: View {
+    @Environment(AppModel.self) private var app
+
     var body: some View {
         Card(padding: 24) {
             HStack(alignment: .top, spacing: 24) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Un bilan en dix secondes").font(.serif(24)).foregroundStyle(Theme.text)
-                    Text("Je lis l'état des protections de macOS, je vérifie la signature de tout ce qui démarre seul, je liste les apps qui ont accès à ta caméra, ton micro ou ton écran, et je repère les traces de ton activité.")
+                    Text("Un bilan complet en quelques secondes").font(.serif(24)).foregroundStyle(Theme.text)
+                    Text("Je passe en revue une quarantaine de points inspirés des référentiels de sécurité pour macOS (CIS Benchmark, NIST mSCP) : chiffrement, coupe-feu, partages, réseau intercepté, mots de passe laissés en clair… Chaque point dit le risque, et je corrige pour toi ce qui peut l'être en un clic.")
                         .font(.ui(13)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    Text("Tout se passe en lecture seule : rien n'est modifié sans ton accord.")
+                    Text("Tout se passe sur ton Mac, en lecture seule : rien n'est modifié sans ton accord.")
                         .font(.ui(12)).foregroundStyle(Theme.text3)
+                    HStack(spacing: 10) {
+                        Button("Lancer le bilan") { ProtectionActions.fullReview(app) }
+                            .buttonStyle(SoftButtonStyle(prominent: true))
+                        Button("Rechercher les menaces") {
+                            app.protection.tab = .threats
+                            Task { await app.protection.scan(deep: false) }
+                        }
+                        .buttonStyle(SoftButtonStyle())
+                    }
+                    .padding(.top, 4)
                 }
                 Spacer()
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 64))
-                    .foregroundStyle(Theme.good.opacity(0.85))
+                IconBadge(symbol: "lock.shield.fill", tint: Theme.good, size: 96)
                     .padding(.trailing, 16)
             }
         }
@@ -79,27 +107,46 @@ struct SecurityTab: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        let model = app.protection
+        @Bindable var model = app.protection
         VStack(alignment: .leading, spacing: 14) {
             if !model.issues.isEmpty {
-                Callout(symbol: "exclamationmark.shield", title: "\(Fmt.plural(model.issues.count, "point mérite", "points méritent")) ton attention",
-                        text: "Chaque carte explique le risque et ouvre le bon réglage. Les corrections se font dans Réglages Système : macOS garde la main sur sa sécurité.",
-                        tint: Theme.warn)
-            } else if model.hasAudit {
-                Callout(symbol: "checkmark.shield", title: "Toutes les protections essentielles sont actives",
-                        text: "Ton Mac applique les bonnes pratiques de sécurité d'Apple. Bravo.", tint: Theme.good)
+                Callout(symbol: "exclamationmark.shield",
+                        title: "\(Fmt.plural(model.issues.count, "point mérite", "points méritent")) ton attention",
+                        text: "Les plus graves d'abord. Quand je peux corriger moi-même, le bouton « Corriger » le fait après ton accord ; sinon, j'ouvre le bon réglage : macOS garde la main sur sa sécurité.",
+                        tint: model.issues.contains { $0.status == .bad } ? Theme.bad : Theme.warn)
+            } else {
+                Callout(symbol: "checkmark.shield", title: "Toutes les protections de ce niveau sont actives",
+                        text: model.hardened ? "Ton Mac respecte même les recommandations renforcées. Chapeau." : "Ton Mac applique les bonnes pratiques de sécurité. Passe au niveau renforcé pour aller plus loin.",
+                        tint: Theme.good)
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                ForEach(model.allChecks) { c in
-                    SecurityCheckCard(check: c)
-                }
-                if model.isCheckingUpdates {
-                    Card {
-                        HStack(spacing: 10) {
-                            ProgressView().controlSize(.small)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Mises à jour en attente").font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                                Text("Je demande aux serveurs d'Apple…").font(.ui(11.5)).foregroundStyle(Theme.text3)
+            if let m = model.fixMessage {
+                Callout(symbol: m.ok ? "checkmark.circle" : "exclamationmark.triangle", title: m.ok ? "Corrigé" : "Pas tout à fait",
+                        text: m.text, tint: m.ok ? Theme.good : Theme.warn)
+            }
+            HStack(alignment: .center, spacing: 12) {
+                Text("Niveau d'exigence").font(.ui(12.5, .medium)).foregroundStyle(Theme.text2)
+                PillPicker(options: ProtectionLevelChoice.allCases, selection: Binding(
+                    get: { model.hardened ? .hardened : .essential },
+                    set: { model.hardened = $0 == .hardened }), label: { $0.title })
+                Text(model.hardened ? "Toutes les recommandations, pour un Mac qui voyage ou des données sensibles."
+                                    : "Ce que tout Mac devrait avoir. Les points renforcés restent affichés, sans compter dans la note.")
+                    .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                Spacer()
+            }
+            ForEach(SecurityCategory.allCases) { category in
+                let list = model.allChecks.filter { $0.category == category }
+                if !list.isEmpty {
+                    let counted = list.filter { $0.scored && $0.status != .unknown && ($0.level == .essential || model.hardened) }
+                    Panel(title: category.title, subtitle: "\(counted.filter(\.passed).count) sur \(counted.count) en ordre",
+                          symbol: category.symbol, tint: counted.allSatisfy(\.passed) ? Theme.good : Theme.warn) {
+                        VStack(spacing: 2) {
+                            ForEach(list) { c in SecurityCheckRow(check: c) }
+                            if category == .updates && model.isCheckingUpdates {
+                                HStack(spacing: 10) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Je demande aux serveurs d'Apple s'il y a des mises à jour…").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                                }
+                                .padding(.horizontal, 10).padding(.vertical, 6)
                             }
                         }
                     }
@@ -109,30 +156,62 @@ struct SecurityTab: View {
     }
 }
 
-struct SecurityCheckCard: View {
+enum ProtectionLevelChoice: String, CaseIterable, Identifiable {
+    case essential, hardened
+    var id: String { rawValue }
+    var title: String { self == .essential ? "Essentiel" : "Renforcé" }
+}
+
+struct SecurityCheckRow: View {
+    @Environment(AppModel.self) private var app
     var check: SecurityCheck
+    @State private var confirm = false
 
     var body: some View {
-        Card(padding: 16) {
+        let model = app.protection
+        let counted = check.level == .essential || model.hardened
+        let issue = check.status == .warn || check.status == .bad
+        HoverRow {
             HStack(alignment: .top, spacing: 12) {
-                IconBadge(symbol: check.symbol, tint: check.status.color, size: 32)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(check.title).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                        Spacer(minLength: 6)
-                        StatusBadge(status: check.status, text: check.status == .ok ? "Actif" : nil)
+                IconBadge(symbol: check.symbol, tint: counted ? check.status.color : Theme.text3, size: 28)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(check.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                        if check.weight == 3 { Tag(text: "Critique", tint: Theme.text3) }
+                        if check.level == .hardened { Tag(text: "Renforcé", symbol: "shield.lefthalf.filled", tint: Theme.accent) }
                     }
-                    Text(check.detail).font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    if let advice = check.advice {
-                        Text(advice).font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                    Text(check.detail).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    if let advice = check.advice, issue {
+                        Text(advice).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                     }
-                    if let url = check.settingsURL, check.status == .warn || check.status == .bad {
-                        Button("Ouvrir le réglage") { Finder.open(url) }
-                            .buttonStyle(SoftButtonStyle(small: true))
-                            .padding(.top, 2)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 6) {
+                    StatusBadge(status: counted || !issue ? check.status : .info,
+                                text: check.status == .ok ? "En ordre" : (!counted && issue ? "Conseillé" : nil))
+                    if issue {
+                        HStack(spacing: 6) {
+                            if let url = check.settingsURL {
+                                Button("Réglage") { Finder.open(url) }.buttonStyle(SoftButtonStyle(small: true))
+                            }
+                            if let fix = check.fix {
+                                if model.fixing.contains(check.id) {
+                                    ProgressView().controlSize(.small)
+                                } else {
+                                    Button("Corriger") { confirm = true }
+                                        .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                                        .help(fix.title)
+                                }
+                            }
+                        }
                     }
                 }
             }
+        }
+        .opacity(counted || !issue ? 1 : 0.8)
+        .confirmAction(check.fix?.title ?? "", message: check.fix?.explanation ?? "", button: check.fix?.title ?? "Corriger",
+                       isPresented: $confirm, destructive: false) {
+            Task { await model.apply(check) }
         }
     }
 }
@@ -144,42 +223,87 @@ struct PersistenceTab: View {
 
     var body: some View {
         let startup = app.startup
+        let anchors = app.protection.anchors
         VStack(alignment: .leading, spacing: 14) {
             Callout(symbol: "eye.trianglebadge.exclamationmark", title: "Là où se cachent les indésirables",
-                    text: "Presque tous les logiciels malveillants sur Mac s'installent comme « agent » ou « service » pour redémarrer avec le Mac. Je vérifie qui a signé chaque programme et je signale ce qui est inhabituel : non signé, introuvable, script, emplacement suspect.",
+                    text: "Presque tous les logiciels malveillants sur Mac s'installent pour redémarrer avec lui. Je vérifie qui a signé chaque programme et je signale ce qui trahit un intrus : se faire passer pour Apple, télécharger puis exécuter du code, se cacher dans un dossier partagé, ne pas être signé.",
                     tint: Theme.accent)
             if startup.isScanning && startup.items.isEmpty {
-                ScanProgressCard(title: "Je vérifie les signatures…", label: "LaunchAgents et LaunchDaemons", progress: nil)
-            } else if startup.items.isEmpty {
+                ScanProgressCard(title: "Je vérifie les signatures…", label: "Agents, services, ouverture à la connexion, cron…", progress: nil)
+            } else if startup.items.isEmpty && anchors.isEmpty {
                 Card {
-                    EmptyHint(text: startup.lastScan == nil ? "Lance le bilan pour lister les éléments persistants." : "Aucun agent ni service tiers. Rien ne se lance en douce.",
+                    EmptyHint(text: startup.lastScan == nil ? "Lance le bilan pour lister ce qui démarre tout seul." : "Aucun agent ni service tiers. Rien ne se lance en douce.",
                               symbol: "checkmark.seal")
                 }
             } else {
                 TileRow {
-                    StatTile(symbol: "list.bullet", value: "\(startup.items.count)", label: "Éléments", detail: "Agents et services installés")
+                    StatTile(symbol: "list.bullet", value: "\(startup.items.count + anchors.count)", label: "Points de démarrage",
+                             detail: "Agents, services, ouverture à la connexion…")
                     StatTile(symbol: "checkmark.seal", value: "\(startup.items.filter { $0.signature.isTrusted }.count)", label: "Signés et vérifiés",
                              detail: "Apple, App Store ou développeur identifié", tint: Theme.good)
-                    StatTile(symbol: "exclamationmark.triangle", value: "\(startup.flagged.count)", label: "À examiner",
-                             detail: "Non signés, orphelins ou scripts", tint: startup.flagged.isEmpty ? Theme.good : Theme.warn)
+                    StatTile(symbol: "exclamationmark.triangle", value: "\(startup.flagged.count + anchors.filter { $0.risk >= .warn }.count)", label: "À examiner",
+                             detail: "Usurpation, téléchargement, non signé…", tint: startup.flagged.isEmpty ? Theme.good : Theme.warn)
                 }
                 if let msg = startup.message {
                     Callout(symbol: startup.messageOK ? "checkmark.circle" : "exclamationmark.triangle", title: startup.messageOK ? "Fait" : "Pas tout à fait",
-                          text: msg, tint: startup.messageOK ? Theme.good : Theme.warn)
+                            text: msg, tint: startup.messageOK ? Theme.good : Theme.warn)
                 }
                 if !startup.flagged.isEmpty {
-                    Panel(title: "Points d'attention", subtitle: "Pas forcément dangereux : souvent un reste d'app désinstallée ou un petit outil maison. Mais à regarder de près.",
+                    Panel(title: "Points d'attention", subtitle: "Souvent un reste d'app désinstallée ou un petit outil maison, parfois un intrus : regarde de près ce qui est en rouge.",
                           symbol: "exclamationmark.triangle", tint: Theme.warn) {
                         LaunchItemList(items: startup.flagged)
                     }
                 }
                 ForEach(LaunchDomain.allCases, id: \.self) { d in
-                    let items = startup.items.filter { $0.domain == d && $0.flags.isEmpty }
+                    let items = startup.items.filter { $0.domain == d && !$0.isFlagged }
                     if !items.isEmpty {
                         Panel(title: d.title, subtitle: d.folder.replacingOccurrences(of: FS.home, with: "~"), symbol: "folder") {
                             LaunchItemList(items: items)
                         }
                     }
+                }
+                ForEach(ProtectionAnchor.Kind.allCases, id: \.self) { kind in
+                    let list = anchors.filter { $0.kind == kind }
+                    if !list.isEmpty {
+                        Panel(title: kind.title, symbol: kind.symbol, tint: list.contains { $0.risk >= .warn } ? Theme.warn : Theme.accent) {
+                            VStack(spacing: 2) {
+                                ForEach(list) { a in AnchorRow(anchor: a) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct AnchorRow: View {
+    @Environment(AppModel.self) private var app
+    var anchor: ProtectionAnchor
+
+    var body: some View {
+        HoverRow {
+            HStack(alignment: .top, spacing: 12) {
+                if let p = anchor.path, p.hasSuffix(".app") || p.hasSuffix(".app/") {
+                    FileIcon(path: p, size: 24)
+                } else {
+                    IconBadge(symbol: anchor.kind.symbol, tint: anchor.risk.color, size: 24)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(anchor.name).font(.ui(12.5, .medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                    Text(anchor.detail).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(2).truncationMode(.middle)
+                }
+                Spacer(minLength: 8)
+                if anchor.risk >= .warn { StatusBadge(status: anchor.risk) }
+                BorderlessMenu(indicator: false) {
+                    if let p = anchor.path, FS.exists(p) { Button("Afficher dans le Finder") { Finder.reveal(p) } }
+                    if anchor.kind == .loginItem { Button("Ouvrir Ouverture et extensions") { Finder.open(SettingsPane.loginItems) } }
+                    if anchor.kind == .systemExtension { Button("Ouvrir les extensions") { Finder.open(SettingsPane.loginItems) } }
+                    Button("Demander à Claude ce que c'est") {
+                        app.assistant.explain(anchor.name, details: ["Type : \(anchor.kind.title)", anchor.detail])
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.ui(14)).foregroundStyle(Theme.text2)
                 }
             }
         }
@@ -211,8 +335,7 @@ struct LaunchItemRow: View {
                     if let a = item.appPath {
                         FileIcon(path: a, size: 28)
                     } else {
-                        Image(systemName: item.domain == .globalDaemon ? "gearshape.2" : "person.crop.circle.badge.clock")
-                            .font(.ui(15)).foregroundStyle(Theme.text2).frame(width: 28, height: 28)
+                        IconBadge(symbol: item.domain == .globalDaemon ? "gearshape.2" : "person.crop.circle.badge.clock", tint: Theme.text2, size: 28)
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
@@ -221,9 +344,11 @@ struct LaunchItemRow: View {
                         if item.running { Tag(text: "En cours", symbol: "circle.fill", tint: Theme.good, filled: true) }
                         if item.disabled { Tag(text: "Désactivé", tint: Theme.text3) }
                     }
-                    HStack(spacing: 6) {
-                        Tag(text: item.signature.label, symbol: item.signature.isTrusted ? "checkmark.seal" : "seal",
-                            tint: item.signature.isTrusted ? Theme.good : Theme.warn, filled: true)
+                    FlowLayout(spacing: 6, lineSpacing: 4) {
+                        if !item.flags.contains(where: { $0.rawValue == item.signature.label }) {
+                            Tag(text: item.signature.label, symbol: item.signature.isTrusted ? "checkmark.seal" : "seal",
+                                tint: item.signature.isTrusted ? Theme.good : Theme.warn, filled: true)
+                        }
                         ForEach(item.flags, id: \.self) { f in
                             Tag(text: f.rawValue, symbol: f.severity.symbol, tint: f.severity.color, filled: true)
                         }
@@ -271,53 +396,6 @@ struct LaunchItemRow: View {
     }
 }
 
-// MARK: - Permissions
-
-struct PermissionsTab: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let model = app.protection
-        VStack(alignment: .leading, spacing: 14) {
-            if let grants = model.grants {
-                Callout(symbol: "hand.raised", title: "Qui a accès à quoi",
-                        text: "La liste des autorisations que tu as accordées. Je ne peux pas les retirer moi-même (macOS l'interdit, et c'est tant mieux) : chaque bloc ouvre le bon panneau des Réglages.")
-                let services = TCCService.all.filter { s in grants.contains { $0.service == s } }
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], alignment: .leading, spacing: 14) {
-                    ForEach(services, id: \.key) { s in
-                        let list = grants.filter { $0.service == s }
-                        Panel(title: s.title, subtitle: Fmt.plural(list.count, "app autorisée", "apps autorisées"), symbol: s.symbol,
-                              tint: s.sensitive ? Theme.warn : Theme.accent) {
-                            Button("Gérer") { Finder.open(SettingsPane.privacy(s.anchor)) }
-                                .buttonStyle(SoftButtonStyle(small: true))
-                        } content: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(list.prefix(8)) { g in
-                                    HStack(spacing: 9) {
-                                        if let p = g.path { FileIcon(path: p, size: 20) } else {
-                                            Image(systemName: "app.dashed").frame(width: 20, height: 20).foregroundStyle(Theme.text3)
-                                        }
-                                        Text(g.name).font(.ui(12)).foregroundStyle(Theme.text).lineLimit(1)
-                                        Spacer()
-                                        if let d = g.lastModified {
-                                            Text(Fmt.relative(d)).font(.ui(10.5)).foregroundStyle(Theme.text3)
-                                        }
-                                    }
-                                }
-                                if list.count > 8 {
-                                    Text("et \(list.count - 8) autres").font(.ui(11)).foregroundStyle(Theme.text3)
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                FullDiskAccessCard(reason: "macOS cache la liste des autorisations aux apps qui n'ont pas l'accès complet au disque.")
-            }
-        }
-    }
-}
-
 struct FullDiskAccessCard: View {
     @Environment(AppModel.self) private var app
     var reason: String
@@ -325,8 +403,7 @@ struct FullDiskAccessCard: View {
     var body: some View {
         Card(padding: 22) {
             HStack(alignment: .top, spacing: 18) {
-                Image(systemName: "externaldrive.badge.checkmark")
-                    .font(.system(size: 34)).foregroundStyle(Theme.accent)
+                IconBadge(symbol: "externaldrive.badge.checkmark", tint: Theme.accent, size: 40)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Accès complet au disque requis").font(.serif(20)).foregroundStyle(Theme.text)
                     Text(reason + " Ouvre Réglages › Confidentialité et sécurité › Accès complet au disque, active Clean My Claude, puis relance l'analyse.")
@@ -380,13 +457,13 @@ struct TraceRow: View {
         HoverRow {
             HStack(spacing: 12) {
                 CheckBox(state: model.traceSelection.contains(trace.id) ? .on : .off, disabled: blocked) { model.toggle(trace) }
-                Image(systemName: trace.symbol).font(.ui(13)).foregroundStyle(Theme.accent).frame(width: 20)
+                IconBadge(symbol: trace.symbol, tint: Theme.accent, size: 22)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(trace.title).font(.ui(12.5, .medium)).foregroundStyle(Theme.text)
                     if let reason = trace.blockedReason {
-                        Label(reason, systemImage: "lock").font(.ui(11)).foregroundStyle(Theme.warn)
+                        ThemedLabel(title: reason, symbol: "lock").font(.ui(11)).foregroundStyle(Theme.warn)
                     } else if trace.needsFullDiskAccess {
-                        Label("Accès complet au disque requis", systemImage: "lock").font(.ui(11)).foregroundStyle(Theme.warn)
+                        ThemedLabel(title: "Accès complet au disque requis", symbol: "lock").font(.ui(11)).foregroundStyle(Theme.warn)
                     } else {
                         Text(trace.detail).font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                     }

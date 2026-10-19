@@ -161,10 +161,16 @@ final class AppModel {
         async let a: Void = cleanup.scan()
         async let b: Void = protection.audit()
         async let c: Void = apps.scan()
-        async let d: Void = startup.scan()
+        // The malware scan reads the startup items: they come first.
+        async let d: Void = startupThenThreats()
         _ = await (a, b, c, d)
         smartScanDate = Date()
         smartScanRunning = false
+    }
+
+    private func startupThenThreats() async {
+        await startup.scan()
+        await protection.scan(deep: false)
     }
 
     func finishOnboarding() {

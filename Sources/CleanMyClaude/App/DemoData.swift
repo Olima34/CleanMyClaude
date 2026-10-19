@@ -4,7 +4,7 @@ import Foundation
 /// Every scanner returns these instead of reading the disk, `Shell` runs nothing and `Remover` refuses everything.
 /// Deterministic: dates are relative to the launch and the live curves come from a fixed seed.
 enum DemoData {
-    static let isEnabled = CommandLine.arguments.contains("--demo")
+    static let isEnabled = Entry.arguments.contains("--demo")
 
     // MARK: - The fictional Mac
 
@@ -342,33 +342,80 @@ enum DemoData {
     // MARK: - Protection
 
     static func securityChecks() -> [SecurityCheck] {
-        [
-            SecurityCheck(id: "filevault", title: "Chiffrement FileVault", symbol: "lock.doc", status: .ok,
-                          detail: "Ton disque est chiffré : sans ton mot de passe, ses données sont illisibles.",
-                          settingsURL: SettingsPane.fileVault),
-            SecurityCheck(id: "firewall", title: "Coupe-feu", symbol: "flame", status: .warn, detail: "Le coupe-feu est désactivé.",
-                          advice: "Sur un Wi-Fi public, il empêche les autres appareils de se connecter à tes services. Active-le dans Réglages › Réseau › Coupe-feu.",
-                          settingsURL: SettingsPane.firewall),
-            SecurityCheck(id: "gatekeeper", title: "Gatekeeper", symbol: "checkmark.shield", status: .ok,
-                          detail: "Seules les apps signées et vérifiées par Apple s'ouvrent sans avertissement.",
-                          settingsURL: SettingsPane.security),
-            SecurityCheck(id: "sip", title: "Protection de l'intégrité du système", symbol: "cpu", status: .ok,
-                          detail: "Les fichiers de macOS ne peuvent pas être modifiés, même par un administrateur."),
-            SecurityCheck(id: "xprotect", title: "Antimalware intégré (XProtect)", symbol: "ant", status: .ok,
-                          detail: "Actif. Définitions version 5328, installées \(Fmt.relative(ago(4)))."),
-            SecurityCheck(id: "updates", title: "Mises à jour automatiques", symbol: "arrow.triangle.2.circlepath", status: .ok,
-                          detail: "Correctifs de sécurité automatiques ; les mises à jour de macOS attendent ton feu vert.",
-                          settingsURL: SettingsPane.updates),
-            SecurityCheck(id: "screenlock", title: "Mot de passe au réveil", symbol: "lock.display", status: .ok,
-                          detail: "Le mot de passe est demandé immédiatement après la veille.", settingsURL: SettingsPane.lockScreen),
-            SecurityCheck(id: "autologin", title: "Ouverture de session automatique", symbol: "person.badge.key", status: .ok,
-                          detail: "Désactivée : il faut un mot de passe au démarrage.", settingsURL: SettingsPane.users),
-            SecurityCheck(id: "guest", title: "Compte invité", symbol: "person.crop.circle.badge.questionmark", status: .ok,
-                          detail: "Désactivé.", settingsURL: SettingsPane.users),
-            SecurityCheck(id: "sharing", title: "Accès à distance", symbol: "network", status: .info,
-                          detail: "Actifs : Partage de fichiers.",
-                          advice: "Désactive dans Réglages › Général › Partage ce dont tu ne te sers pas.", settingsURL: SettingsPane.sharing)
+        func c(_ id: String, _ title: String, _ symbol: String, _ status: Status, _ detail: String, advice: String? = nil,
+               url: String? = nil, scored: Bool = true, fix: SecurityFix? = nil) -> SecurityCheck {
+            SecurityCheck(id: id, title: title, symbol: symbol, status: status, detail: detail, advice: advice, settingsURL: url, scored: scored, fix: fix)
+        }
+        func admin(_ title: String, _ what: String) -> SecurityFix {
+            SecurityFix(title: title, explanation: what, action: .admin("/usr/bin/true"))
+        }
+        let list = [
+            c("filevault", "Chiffrement FileVault", "lock.doc", .ok, "Ton disque est chiffré : sans ton mot de passe, ses données sont illisibles.", url: SettingsPane.fileVault),
+            c("sip", "Protection de l'intégrité du système", "cpu", .ok, "Les fichiers de macOS ne peuvent pas être modifiés, même par un administrateur."),
+            c("gatekeeper", "Gatekeeper", "checkmark.shield", .ok, "Seules les apps signées et vérifiées par Apple s'ouvrent sans avertissement.", url: SettingsPane.security),
+            c("ssv", "Volume système scellé", "seal", .ok, "macOS vérifie à chaque démarrage que son volume système n'a pas été modifié d'un seul octet."),
+            c("firewall", "Coupe-feu", "flame", .warn, "Le coupe-feu est désactivé.",
+              advice: "Sur un Wi-Fi public, il empêche les autres appareils de se connecter à tes services.", url: SettingsPane.firewall,
+              fix: admin("Activer le coupe-feu", "Le coupe-feu de macOS sera activé. macOS te demande ton mot de passe d'administrateur.")),
+            c("stealth", "Mode furtif", "eye.slash", .warn, "Ton Mac se signale à qui le sonde sur le réseau.",
+              advice: "Le mode furtif le rend invisible aux balayages sur un Wi-Fi public. Il demande le coupe-feu.", url: SettingsPane.firewall,
+              fix: admin("Activer le mode furtif", "Le coupe-feu passe en mode furtif. macOS te demande ton mot de passe d'administrateur.")),
+            c("xprotect", "Antimalware intégré (XProtect)", "ant", .ok, "Actif. Définitions version 5367, installées \(Fmt.relative(ago(4)))."),
+            c("backup", "Sauvegarde Time Machine", "clock.arrow.circlepath", .ok, "Ton Mac est sauvegardé par Time Machine.", url: SettingsPane.timeMachine),
+            c("lockdown", "Mode Isolement", "lock.trianglebadge.exclamationmark", .info,
+              "Désactivé. Il protège les personnes visées par des attaques ciblées (journalistes, militants…).", scored: false),
+            c("updates", "Réponses de sécurité automatiques", "arrow.triangle.2.circlepath", .ok,
+              "Les correctifs de sécurité et les signatures antimalware s'installent tout seuls.", url: SettingsPane.updates),
+            c("autoinstall", "Mises à jour de macOS automatiques", "square.and.arrow.down.on.square", .info,
+              "Les mises à jour de macOS sont téléchargées et attendent ton feu vert.", url: SettingsPane.updates),
+            c("screenlock", "Mot de passe au réveil", "lock.display", .ok, "Le mot de passe est demandé immédiatement après la veille.", url: SettingsPane.lockScreen),
+            c("idle", "Verrouillage après inactivité", "timer", .warn,
+              "L'écran ne s'éteint jamais tout seul (au moins sur secteur) : ton Mac reste ouvert si tu t'absentes.",
+              advice: "Règle l'économiseur d'écran ou l'extinction de l'écran sur 20 minutes au plus dans Écran verrouillé.", url: SettingsPane.lockScreen),
+            c("autologin", "Ouverture de session automatique", "person.badge.key", .ok, "Désactivée : il faut un mot de passe au démarrage.", url: SettingsPane.users),
+            c("guest", "Compte invité", "person.crop.circle.badge.questionmark", .ok, "Désactivé.", url: SettingsPane.users),
+            c("root", "Compte root", "person.badge.shield.checkmark", .ok, "Désactivé, comme il se doit."),
+            c("hints", "Indices de mot de passe", "questionmark.key.filled", .ok, "L'écran de connexion ne donne aucun indice."),
+            c("admin", "Compte du quotidien", "person.fill.checkmark", .warn,
+              "Tu travailles avec un compte administrateur : un logiciel malveillant qui obtient ton mot de passe a les pleins pouvoirs.",
+              advice: "Pour une protection renforcée, crée un compte administrateur séparé et passe le tien en compte standard.", url: SettingsPane.users),
+            c("ssh", "Connexion à distance (SSH)", "terminal", .ok, "Désactivé."),
+            c("screensharing", "Partage d'écran", "rectangle.on.rectangle", .ok, "Désactivé."),
+            c("ard", "Gestion à distance", "desktopcomputer.and.arrow.down", .ok, "Désactivé."),
+            c("remoteevents", "Événements Apple à distance", "applescript", .ok, "Désactivé."),
+            c("filesharing", "Partage de fichiers", "folder.badge.person.crop", .info, "Des dossiers de ton Mac sont partagés sur le réseau.",
+              advice: "Désactive « Partage de fichiers » si tu ne t'en sers pas.", url: SettingsPane.sharing),
+            c("printers", "Partage d'imprimantes", "printer", .ok, "Désactivé."),
+            c("internetsharing", "Partage de connexion", "wifi.router", .ok, "Désactivé."),
+            c("bluetooth", "Partage Bluetooth", "dot.radiowaves.left.and.right", .ok, "Désactivé."),
+            c("airplay", "Récepteur AirPlay", "airplayvideo", .warn, "Ton Mac accepte les diffusions AirPlay et écoute sur le réseau (ports 5000 et 7000).",
+              advice: "Désactive « Récepteur AirPlay » dans AirDrop et Handoff si tu ne diffuses jamais vers ce Mac.", url: SettingsPane.airDrop),
+            c("airdrop", "AirDrop", "airplayaudio", .ok, "Visible de tes contacts seulement.", url: SettingsPane.airDrop),
+            c("media", "Partage de médias", "music.note.house", .ok, "Désactivé."),
+            c("proxy", "Proxy réseau", "arrow.triangle.branch", .ok, "Aucun proxy : ton trafic web va directement aux sites."),
+            c("dns", "Serveurs DNS", "point.3.connected.trianglepath.dotted", .ok, "Ton Mac demande les adresses des sites à : 192.168.1.254 (local)."),
+            c("certificates", "Certificats racine ajoutés", "checkmark.seal.text.page", .ok, "Aucun certificat ajouté n'est autorisé à signer des sites web."),
+            c("hosts", "Fichier hosts", "doc.text.magnifyingglass", .ok, "D'origine : aucun site n'est détourné."),
+            c("profiles", "Profils de configuration", "person.text.rectangle", .warn, "Installé : Chrome Search Settings.",
+              advice: "Si tu ne reconnais pas ce profil, supprime-le dans Réglages › Général › Gestion des appareils : les logiciels publicitaires s'en servent pour imposer leur moteur de recherche.",
+              url: SettingsPane.profiles),
+            c("policies", "Navigateurs détournés", "globe.badge.chevron.backward", .bad,
+              "Réglé de force : Chrome (ExtensionInstallForcelist, DefaultSearchProviderSearchURL).",
+              advice: "Hors entreprise, c'est la marque d'un logiciel publicitaire (Adload, Pirrit…). Supprime son profil dans Réglages › Général › Gestion des appareils, puis lance l'analyse des menaces.",
+              url: SettingsPane.profiles),
+            c("sshkeys", "Clés SSH", "key.horizontal", .warn,
+              "Sans phrase de passe : id_ed25519. Un voleur de données qui copie le fichier peut s'en servir tel quel.",
+              advice: "Ajoute une phrase de passe avec « ssh-keygen -p -f ~/.ssh/id_ed25519 », puis « ssh-add --apple-use-keychain » pour ne pas la retaper."),
+            c("credentials", "Identifiants en clair", "doc.badge.ellipsis", .ok, "Aucun mot de passe ni jeton écrit en clair dans les fichiers des outils courants."),
+            c("history", "Secrets dans l'historique du Terminal", "terminal", .ok, "Aucune clé d'API ni mot de passe repéré dans tes historiques."),
+            c("extensions", "Extensions des fichiers", "doc.questionmark", .ok,
+              "Le Finder montre toutes les extensions : « facture.pdf.app » ne passe pas pour un PDF."),
+            c("safaridownloads", "Ouverture des fichiers téléchargés", "arrow.down.app", .warn,
+              "Safari ouvre tout seul les fichiers « fiables » téléchargés (PDF, images, archives décompressées).",
+              advice: "Décoche « Ouvrir les fichiers fiables après téléchargement » dans Safari › Réglages › Général."),
+            c("fraud", "Alerte sites frauduleux (Safari)", "exclamationmark.shield", .ok, "Safari t'avertit avant d'ouvrir un site d'hameçonnage connu.")
         ]
+        return SecurityCategory.allCases.flatMap { cat in list.filter { $0.category == cat } }
     }
 
     static func pendingUpdates() -> SecurityCheck {
@@ -459,7 +506,14 @@ enum DemoData {
                   keepAlive: true, running: true),
             agent("net.cadence.studio.driver", .globalDaemon, app: "Cadence Studio", signature: .developerID("Cadence Audio GmbH")),
             agent("com.fresque3d.licensed", .globalDaemon, app: nil, exe: "/Library/Application Support/Fresque3D/licensed",
-                  signature: .unsigned, running: true, flags: [.unsigned])
+                  signature: .unsigned, running: true, flags: [.unsigned]),
+            // The adware of the Protection demo: hidden in Application Support, and a fake Apple updater.
+            agent("com.SearchDaemon", .userAgent, app: nil,
+                  exe: lib + "/Application Support/.a7f3c2e1/Services/com.SearchDaemon.service.app/Contents/MacOS/com.SearchDaemon.service",
+                  signature: .adhoc, keepAlive: true, running: true, flags: [.unusualLocation, .adhoc, .recent]),
+            agent("com.apple.updates.helper", .userAgent, app: nil, exe: "/Users/Shared/.cache/updater",
+                  args: ["/Users/Shared/.cache/updater", "--daemon"], signature: .unsigned, running: true,
+                  flags: [.impersonatesApple, .unusualLocation, .unsigned, .recent])
         ]
     }
 

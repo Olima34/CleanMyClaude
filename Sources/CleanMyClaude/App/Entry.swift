@@ -111,6 +111,10 @@ enum Entry {
             while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
             return
         }
+        if let i = args.firstIndex(of: "--xprotect") {
+            ProtectionCLI.run(Array(args[(i + 1)...]))
+            return
+        }
         if args.contains("--dump") {
             MainActor.assumeIsolated { Diagnostics.run() }
             return

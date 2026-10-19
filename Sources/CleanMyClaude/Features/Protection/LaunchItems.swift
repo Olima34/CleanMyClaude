@@ -49,17 +49,22 @@ enum SignatureKind: Hashable {
 }
 
 enum LaunchFlag: String, Hashable {
+    case knownMalware = "Logiciel malveillant connu"
+    case impersonatesApple = "Se fait passer pour Apple"
+    case downloader = "Télécharge et exécute du code"
     case orphan = "Programme introuvable"
     case unsigned = "Non signé"
     case invalidSignature = "Signature invalide"
     case unusualLocation = "Emplacement inhabituel"
     case script = "Lance un script"
     case adhoc = "Signature locale"
+    case recent = "Ajouté récemment"
 
     var severity: Status {
         switch self {
-        case .invalidSignature, .unusualLocation: return .bad
+        case .knownMalware, .impersonatesApple, .downloader, .invalidSignature, .unusualLocation: return .bad
         case .unsigned, .orphan, .script, .adhoc: return .warn
+        case .recent: return .info
         }
     }
 }
@@ -81,8 +86,11 @@ struct LaunchItem: Identifiable, Hashable {
     var flags: [LaunchFlag]
 
     var risk: Status {
-        flags.map(\.severity).max() ?? (signature == .apple ? .ok : .info)
+        flags.map(\.severity).filter { $0 != .info }.max() ?? (signature == .apple ? .ok : .info)
     }
+
+    /// Worth a look: a flag above "information".
+    var isFlagged: Bool { flags.contains { $0.severity >= .warn } }
 
     var commandLine: String {
         arguments.isEmpty ? (program ?? "—") : arguments.joined(separator: " ")
@@ -157,6 +165,22 @@ enum LaunchItemScanner {
             }
             if let r = program.range(of: ".app/") { appPath = String(program[..<r.lowerBound]) + ".app" }
         }
+        // A third-party item named like Apple's own (com.apple.questd, com.apple.iCloud.sync.daemon…): Apple's agents
+        // are signed by Apple, and the real ones live in /System.
+        if label.lowercased().hasPrefix("com.apple.") || (path as NSString).lastPathComponent.lowercased().hasPrefix("com.apple."),
+           let program, program.hasPrefix("/"), signature != .apple || flags.contains(.script) {
+            flags.append(.impersonatesApple)
+        }
+        if ProtectionHeuristics.isDownloader(args.joined(separator: " ")) ||
+            (flags.contains(.script) && ProtectionHeuristics.scriptDownloads(arguments: args)) {
+            flags.append(.downloader)
+        }
+        if ProtectionKnownMalware.match(path) != nil || program.flatMap(ProtectionKnownMalware.match) != nil {
+            flags.insert(.knownMalware, at: 0)
+        }
+        if let added = FS.modified(path), Date().timeIntervalSince(added) < 7 * 86400, signature != .apple {
+            flags.append(.recent)
+        }
         let vendor: String = {
             if case .developerID(let n) = signature { return n }
             if signature == .apple { return "Apple" }
@@ -194,12 +218,27 @@ enum LaunchItemScanner {
 
     // MARK: Actions
 
+    /// A label or plist path safe to hand to a root shell: letters, digits, dots, dashes and underscores only
+    /// (the label comes from a file anyone with the right access may have written).
+    static func isPlainLabel(_ label: String) -> Bool {
+        !label.isEmpty && label.count <= 200 && label.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || ".-_".contains($0)) }
+    }
+
+    static func adminCommand(label: String, plist: String, disable: Bool) -> String? {
+        guard isPlainLabel(label), plist.hasPrefix(LaunchDomain.globalDaemon.folder + "/"),
+              isPlainLabel((plist as NSString).lastPathComponent), !plist.contains("/../") else { return nil }
+        let target = "'system/\(label)'"
+        return disable
+            ? "/bin/launchctl disable \(target); /bin/launchctl bootout \(target) 2>/dev/null; true"
+            : "/bin/launchctl enable \(target); /bin/launchctl bootstrap system '\(plist)' 2>/dev/null; true"
+    }
+
     static func setDisabled(_ item: LaunchItem, _ disable: Bool) -> String? {
         let uid = getuid()
         if item.domain == .globalDaemon {
-            let cmd = disable
-                ? "launchctl disable system/\(item.label); launchctl bootout system/\(item.label) 2>/dev/null; true"
-                : "launchctl enable system/\(item.label); launchctl bootstrap system '\(item.plistPath)' 2>/dev/null; true"
+            guard let cmd = adminCommand(label: item.label, plist: item.plistPath, disable: disable) else {
+                return "son nom contient des caractères inhabituels : je ne le confie pas à une commande administrateur."
+            }
             let r = Shell.runAsAdmin(cmd)
             return r.ok ? nil : r.err
         }
@@ -280,7 +319,7 @@ final class StartupModel {
     }
 
     var thirdParty: [LaunchItem] { items.filter { $0.signature != .apple } }
-    var flagged: [LaunchItem] { items.filter { !$0.flags.isEmpty } }
+    var flagged: [LaunchItem] { items.filter(\.isFlagged) }
     var activeCount: Int { thirdParty.filter { !$0.disabled }.count }
 
     func setDisabled(_ item: LaunchItem, _ disable: Bool) async {
