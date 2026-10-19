@@ -98,6 +98,12 @@ jobs:
           security import "$WORK/identity.p12" -k "$KEYCHAIN" -P "$PASS" -f pkcs12 -x -T /usr/bin/codesign >/dev/null
           rm -f "$WORK/identity.p12"
           security set-key-partition-list -S apple-tool:,apple: -s -k "$PASS" "$KEYCHAIN" >/dev/null
+          # On the runner, codesign only finds an identity in a keychain of the search list, even with --keychain:
+          # this one goes first (deleting it at the end takes it out again).
+          KEYCHAINS=()
+          while IFS= read -r line; do KEYCHAINS+=("$line"); done < <(security list-keychains -d user | sed -e 's/^[[:space:]]*"//' -e 's/"[[:space:]]*$//')
+          security list-keychains -d user -s "$KEYCHAIN" ${KEYCHAINS[@]+"${KEYCHAINS[@]}"}
+          security find-identity -p codesigning "$KEYCHAIN"
           # The hardened runtime and the entitlements given by build_app.sh are kept.
           ditto -x -k "$ZIP" "$WORK/app"
           APP="$WORK/app/Clean My Claude.app"
