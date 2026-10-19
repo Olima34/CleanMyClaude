@@ -46,6 +46,9 @@ jobs:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    # The secret CMC_UPDATE_KEY, the Ed25519 key that signs the archive, lives in this environment: only main and the
+    # vX.Y.Z tags reach it, and only this job, which compiles and runs nothing from the repository before signing.
+    environment: release
     permissions:
       contents: write
     # One publication at a time, in order; of several pushes waiting, only the latest is published (it holds the others).
@@ -73,6 +76,39 @@ jobs:
         with:
           name: CleanMyClaude
           path: build
+      # Written here and not in a script: changing what sees the key takes a token allowed to change the workflows.
+      # The same step is in release.yml.
+      - name: Sign the archive
+        if: steps.published.outputs.skip != 'true'
+        env:
+          CMC_UPDATE_KEY: ${{ secrets.CMC_UPDATE_KEY }}
+        run: |
+          set -euo pipefail
+          ZIP=build/CleanMyClaude.zip
+          # The public key the app already checks against, if any (base64 of the raw 32 bytes).
+          EXPECTED="$(sed -nE 's/^ *static let publicKey: String\? = "([A-Za-z0-9+\/=]{44})".*/\1/p' Sources/CleanMyClaude/Features/Updates/UpdatesSelf.swift)"
+          if [[ -z "$CMC_UPDATE_KEY" ]]; then
+            if [[ -n "$EXPECTED" ]]; then
+              echo "::error::Secret CMC_UPDATE_KEY absent : les copies installées refuseraient une version sans signature."
+              exit 1
+            fi
+            echo "::warning::Secret CMC_UPDATE_KEY absent : version publiée sans signature."
+            exit 0
+          fi
+          KEY="$RUNNER_TEMP/update_key.pem"
+          trap 'rm -f "$KEY"' EXIT
+          (umask 077 && printf '%s\n' "$CMC_UPDATE_KEY" > "$KEY")
+          openssl pkeyutl -sign -inkey "$KEY" -rawin -in "$ZIP" -out "$RUNNER_TEMP/zip.sig"
+          openssl pkey -in "$KEY" -pubout -out "$RUNNER_TEMP/update_key.pub"
+          rm -f "$KEY"
+          PUBLIC="$(openssl pkey -pubin -in "$RUNNER_TEMP/update_key.pub" -outform DER | tail -c 32 | openssl base64 -A)"
+          if [[ -n "$EXPECTED" && "$PUBLIC" != "$EXPECTED" ]]; then
+            echo "::error::CMC_UPDATE_KEY ne correspond pas à la clé publique de l'app ($EXPECTED) : rien n'est publié."
+            exit 1
+          fi
+          openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/update_key.pub" -rawin -in "$ZIP" -sigfile "$RUNNER_TEMP/zip.sig"
+          { openssl base64 -A -in "$RUNNER_TEMP/zip.sig" && echo; } > "$ZIP.sig"
+          echo "Signée par la clé $PUBLIC"
       - name: Publish the release
         if: steps.published.outputs.skip != 'true'
         env:

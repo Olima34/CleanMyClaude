@@ -6,8 +6,11 @@ set -euo pipefail
 REPO="Olima34/CleanMyClaude"
 APP="Clean My Claude.app"
 BUNDLE_ID="io.github.olima34.cleanmyclaude"
-URL="${CMC_ZIP_URL:-https://github.com/$REPO/releases/latest/download/CleanMyClaude.zip}"
-# Tests: CMC_INSTALL_DIR installs elsewhere, without closing or opening the installed app.
+# The Ed25519 public key of the published versions, the one the app checks its updates against
+# (UpdatesSelfSignature.publicKey): base64 of its raw 32 bytes. Empty: signatures are not checked yet.
+PUBLIC_KEY=""
+# Tests: CMC_INSTALL_DIR installs elsewhere, without closing or opening the installed app; CMC_ZIP_URL (and
+# CMC_SIG_URL, by default the same address followed by .sig) installs another archive.
 TEST_DIR="${CMC_INSTALL_DIR:-}"
 
 if [[ "$(uname)" != "Darwin" ]]; then
@@ -31,11 +34,52 @@ else
   DEST="$HOME/Applications"
 fi
 
+# The latest version, looked up once: the archive and its signature come from the same one.
+TAG="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null || true)"
+TAG="${TAG##*/}"
+if [[ "$TAG" =~ ^v[0-9]+(\.[0-9]+)+$ ]]; then
+  BASE="https://github.com/$REPO/releases/download/$TAG"
+else
+  BASE="https://github.com/$REPO/releases/latest/download"
+fi
+URL="${CMC_ZIP_URL:-$BASE/CleanMyClaude.zip}"
+SIG_URL="${CMC_SIG_URL:-$URL.sig}"
+
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
 echo "→ Téléchargement de Clean My Claude…"
 curl -fL --progress-bar "$URL" -o "$TMP/CleanMyClaude.zip"
+
+# The signature: made by the key of the published versions, which never leaves GitHub's secrets. macOS's own
+# openssl (LibreSSL) does not know Ed25519: OpenSSL 3 does it, when this Mac has it (Homebrew).
+if [[ -n "$PUBLIC_KEY" ]]; then
+  if ! curl -fsL "$SIG_URL" -o "$TMP/CleanMyClaude.zip.sig"; then
+    echo "Cette version n'est pas accompagnée de sa signature (CleanMyClaude.zip.sig) : je ne l'installe pas." >&2
+    exit 1
+  fi
+  printf -- '-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA%s\n-----END PUBLIC KEY-----\n' "$PUBLIC_KEY" > "$TMP/key.pem"
+  OPENSSL=""
+  for candidate in "$(command -v openssl || true)" /opt/homebrew/opt/openssl@3/bin/openssl /usr/local/opt/openssl@3/bin/openssl \
+                   /opt/homebrew/bin/openssl /usr/local/bin/openssl; do
+    if [[ -n "$candidate" && -x "$candidate" ]] && "$candidate" pkey -pubin -in "$TMP/key.pem" -noout >/dev/null 2>&1; then
+      OPENSSL="$candidate"
+      break
+    fi
+  done
+  if [[ -n "$OPENSSL" ]]; then
+    if ! "$OPENSSL" base64 -d -A -in "$TMP/CleanMyClaude.zip.sig" -out "$TMP/signature" 2>/dev/null \
+       || ! "$OPENSSL" pkeyutl -verify -pubin -inkey "$TMP/key.pem" -rawin -in "$TMP/CleanMyClaude.zip" \
+                       -sigfile "$TMP/signature" >/dev/null 2>&1; then
+      echo "La signature de l'archive ne correspond pas à la clé de Clean My Claude : je ne l'installe pas." >&2
+      exit 1
+    fi
+    echo "→ Signature vérifiée."
+  else
+    echo "→ Signature non vérifiée : il faudrait OpenSSL 3 (brew install openssl). L'app vérifiera elle-même ses prochaines mises à jour."
+  fi
+fi
+
 ditto -x -k "$TMP/CleanMyClaude.zip" "$TMP"
 if [[ ! -d "$TMP/$APP" ]]; then
   echo "L'archive téléchargée ne contient pas l'app : réessaie dans un instant." >&2
