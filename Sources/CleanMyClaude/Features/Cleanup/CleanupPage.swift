@@ -9,13 +9,13 @@ struct CleanupPage: View {
             PageHero(symbol: "sparkles", title: "Nettoyage du système",
                      subtitle: "Caches, journaux, restes de développement, fichiers oubliés : je trouve ce qui encombre ton Mac, tu choisis ce qui part.",
                      seed: 21) {
-                ScanButton(title: model.hasResults ? "Relancer l'analyse" : "Analyser", running: model.isScanning) {
+                ScanButton(title: model.hasResults ? "Relancer l'analyse" : "Analyser", running: model.isScanning, activity: .sweeping) {
                     Task { await model.scan() }
                 }
             }
 
             if model.isScanning {
-                ScanProgressCard(title: "J'inspecte les recoins de ton Mac…", label: model.progressLabel, progress: model.progress)
+                ScanProgressCard(title: "J'inspecte les recoins de ton Mac…", label: model.progressLabel, progress: model.progress, activity: .sweeping)
             } else if !model.hasResults {
                 CleanupIntro()
             } else {
@@ -111,15 +111,17 @@ struct CleanupIntro: View {
 
 // MARK: - Progress
 
+/// The waiting card of a page: the mascot at work, what is being looked at, how far along.
 struct ScanProgressCard: View {
     var title: String
     var label: String
     var progress: Double?
+    var activity: MascotActivity = .inspecting
 
     var body: some View {
         Card(padding: 22) {
             HStack(spacing: 18) {
-                ClaudeSpark(size: 38, spin: true)
+                BusyMascot(activity, pixel: 4)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(title).font(.serif(20)).foregroundStyle(Theme.text)
                     Text(label.isEmpty ? " " : label)
@@ -131,11 +133,21 @@ struct ScanProgressCard: View {
                         UsageBar(fraction: progress, tint: Theme.accent, height: 6)
                             .animation(.easeOut(duration: 0.25), value: progress)
                     } else {
-                        ProgressView().progressViewStyle(.linear).tint(Theme.accent)
+                        ScanIndeterminateBar()
                     }
                 }
-                PixelMascot(pixel: 5, bob: true, broom: true)
             }
+        }
+    }
+}
+
+/// A bar for a task that gives no progress (a still, partly filled bar in snapshots, where AppKit controls do not render).
+struct ScanIndeterminateBar: View {
+    var body: some View {
+        if Snapshot.isActive {
+            UsageBar(fraction: 0.35, tint: Theme.accent, height: 6)
+        } else {
+            ProgressView().progressViewStyle(.linear).tint(Theme.accent)
         }
     }
 }
@@ -327,7 +339,7 @@ struct CleanupActionBar: View {
                 confirm = true
             } label: {
                 HStack(spacing: 6) {
-                    if model.isCleaning { ProgressView().controlSize(.small).scaleEffect(0.7).tint(Theme.onAccent) }
+                    if model.isCleaning { BusyMascot(.sweeping, pixel: 1, ink: Theme.onAccent) }
                     Text(model.isCleaning ? "Nettoyage…" : "Nettoyer")
                 }
             }

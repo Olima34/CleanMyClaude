@@ -253,7 +253,8 @@ enum Diagnostics {
 
 /// `CleanMyClaude --snapshot <dir> [--page cleanup] [--light] [--theme graphite] [--scale 2] [--demo]` renders pages to PNG,
 /// with real scan data or, with `--demo`, the fictional Mac of `DemoData`.
-/// `--page appearance` renders the theme settings (`--tab edit` shows the editor, on a copy of the theme).
+/// `--page appearance` renders the theme settings (`--tab edit` shows the editor, on a copy of the theme),
+/// `--page mascotte` every scene of the busy mascot, and `--tab attente` a page while its work is in progress.
 @MainActor
 enum Snapshot {
     /// True while rendering: AppKit controls (menus, fields, switches) come out as yellow boxes in `ImageRenderer`
@@ -285,7 +286,11 @@ enum Snapshot {
 
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var shots: [(String, AnyView)] = []
-        let everything = only == nil && pageName != "appearance"
+        let everything = only == nil && pageName != "appearance" && pageName != "mascotte"
+        if pageName == "mascotte" {
+            // Every scene of the busy mascot, frame by frame.
+            shots.append(("mascotte-panel", AnyView(MascotGallery())))
+        }
         if pageName == "appearance" {
             if Entry.value(after: "--tab") == "edit" { themes.duplicate(themes.active) }
             shots.append(("appearance-panel", AnyView(AppearanceSettings())))
@@ -340,6 +345,7 @@ enum Snapshot {
             model.performance.tab = PerformanceTab(rawValue: tab) ?? model.performance.tab
             model.storage.tab = StorageTab(rawValue: tab) ?? model.storage.tab
             model.apps.filter = AppFilter(rawValue: tab) ?? model.apps.filter
+            if tab == "attente" { showWork(model, page: only) }
             ModuleRegistry.applySnapshotTab(tab, only: only, app: model)
         }
         for (name, view) in shots {
@@ -347,7 +353,7 @@ enum Snapshot {
             let content = view
                 .environment(model)
                 .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "clipboard-window-panel": ClipboardWindow.width,
-                               "appearance-panel": AppearanceSettings.width,
+                               "appearance-panel": AppearanceSettings.width, "mascotte-panel": MascotGallery.width,
                                "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180][name]
                        ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
@@ -365,6 +371,36 @@ enum Snapshot {
                 try? png.write(to: url)
                 print("écrit \(url.path) \(cg.width)x\(cg.height)")
             }
+        }
+    }
+
+    /// `--tab attente`: the pages that are not modules, in the middle of their work (the modules do it in `applySnapshotTab`).
+    private static func showWork(_ model: AppModel, page: Page?) {
+        let home = DemoData.isEnabled ? DemoData.home : FS.home
+        switch page {
+        case .cleanup:
+            model.cleanup.isScanning = true
+            model.cleanup.progress = 0.42
+            model.cleanup.progressLabel = home + "/Library/Caches/com.exemple.atelier"
+        case .storage:
+            model.storage.tab = .explorer
+            model.storage.root = nil
+            model.storage.current = nil
+            model.storage.isScanning = true
+            model.storage.scannedCount = 48_210
+            model.storage.scanningPath = home + "/Developer/atelier/node_modules"
+        case .apps:
+            model.apps.apps = []
+            model.apps.isScanning = true
+            model.apps.progress = 0.6
+        case .dashboard:
+            model.smartScanRunning = true
+            model.cleanup.isScanning = true
+            model.protection.isScanning = true
+            model.apps.isScanning = true
+            model.startup.isScanning = true
+        default:
+            break
         }
     }
 
@@ -439,7 +475,7 @@ enum SelfTest {
         }
         // Module checks (calculator, conversions, command ids…).
         let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() }
-        for f in moduleFailures + ThemeChecks.run() + Shell.selfTest() + LoginItem.selfTest() + thirdPartyTools() {
+        for f in moduleFailures + ThemeChecks.run() + MascotActivity.selfTest() + Shell.selfTest() + LoginItem.selfTest() + thirdPartyTools() {
             print("✗ \(f)")
             ok = false
         }

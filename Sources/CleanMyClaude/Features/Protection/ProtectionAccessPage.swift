@@ -15,7 +15,7 @@ struct AccessTab: View {
                     Task { await model.checkAccess() }
                 } label: {
                     HStack(spacing: 6) {
-                        if model.isCheckingAccess { ProgressView().controlSize(.small).scaleEffect(0.7) }
+                        if model.isCheckingAccess { BusyMascot(.checking, pixel: 1) }
                         Text(model.accessChecked == nil ? "Vérifier" : "Revérifier")
                     }
                 }

@@ -130,7 +130,7 @@ struct TranslatorPanelView: View {
         let m = app.translator
         HStack(spacing: 8) {
             if m.isTranslating {
-                ProgressView().controlSize(.small)
+                BusyMascot(.reading, pixel: 1.5)
             }
             if let error = m.error {
                 Label(error, systemImage: "exclamationmark.triangle.fill").font(.ui(11.5)).foregroundStyle(Theme.warn).lineLimit(2)

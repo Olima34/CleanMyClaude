@@ -22,7 +22,7 @@ struct PermissionsSettings: View {
                         if center.waitingForSettings {
                             Button("Passer") { center.skip() }
                         }
-                        ProgressView().controlSize(.small)
+                        BusyMascot(.checking, pixel: 1)
                     } else {
                         Button("Tout autoriser") {
                             Task {
@@ -117,7 +117,7 @@ private struct PermissionSettingsRow: View {
     @ViewBuilder
     private var trailing: some View {
         if isCurrent {
-            ProgressView().controlSize(.small)
+            BusyMascot(.checking, pixel: 1)
         } else if state == .granted {
             Label("Accordée", systemImage: "checkmark.circle.fill").labelStyle(.titleAndIcon).font(.caption).foregroundStyle(Theme.good)
         } else if state == .denied {

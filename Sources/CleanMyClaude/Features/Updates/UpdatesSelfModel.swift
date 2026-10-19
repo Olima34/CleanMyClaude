@@ -537,6 +537,7 @@ extension UpdatesSelfModel {
         switch tab {
         case "maj-telechargement": step = .downloading(received: 4_820_000, expected: release?.size ?? 11_480_000)
         case "maj-verification": step = .verifying
+        case "maj-installation": step = .installing
         case "maj-motdepasse": step = .password(nil)
         case "maj-motdepasse-refuse": step = .password("Mot de passe refusé : c'est celui choisi avec setup_signing.sh, pas celui de ta session.")
         case "maj-signature":

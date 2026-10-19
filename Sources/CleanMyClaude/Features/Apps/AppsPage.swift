@@ -9,12 +9,14 @@ struct AppsPage: View {
             PageHero(symbol: "square.grid.2x2", title: "Gestion des applications",
                      subtitle: "Ce que tu as installé, ce que tu n'ouvres plus, et une désinstallation propre qui n'oublie rien derrière elle.",
                      tint: Theme.palette[4], seed: 57) {
-                ScanButton(title: model.lastScan == nil ? "Analyser" : "Actualiser", symbol: "arrow.clockwise", running: model.isScanning) {
+                ScanButton(title: model.lastScan == nil ? "Analyser" : "Actualiser", symbol: "arrow.clockwise", running: model.isScanning,
+                           activity: .checking) {
                     Task { await model.scan() }
                 }
             }
             if model.isScanning && model.apps.isEmpty {
-                ScanProgressCard(title: "Je fais l'inventaire de tes apps…", label: "Tailles, versions, dernière ouverture", progress: model.progress)
+                ScanProgressCard(title: "Je fais l'inventaire de tes apps…", label: "Tailles, versions, dernière ouverture", progress: model.progress,
+                                 activity: .checking)
             } else if model.apps.isEmpty {
                 Card { EmptyHint(text: "Lance l'analyse pour voir tes applications.", symbol: "square.grid.2x2") }
             } else {
@@ -208,7 +210,10 @@ struct UninstallSheet: View {
                         }
                         .padding(.vertical, 5).padding(.horizontal, 8)
                         if model.isFindingLeftovers {
-                            HStack { ProgressView().controlSize(.small); Text("Je cherche ses fichiers dans ta bibliothèque…").font(.ui(11.5)).foregroundStyle(Theme.text3) }
+                            HStack(spacing: 10) {
+                                BusyMascot(.searching, pixel: 1.5)
+                                Text("Je cherche ses fichiers dans ta bibliothèque…").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                            }
                                 .padding(8)
                         }
                         ForEach(model.leftovers) { item in
@@ -243,7 +248,7 @@ struct UninstallSheet: View {
                     Task { await model.uninstall() }
                 } label: {
                     HStack(spacing: 6) {
-                        if model.isRemoving { ProgressView().controlSize(.small).scaleEffect(0.7).tint(Theme.onBad) }
+                        if model.isRemoving { BusyMascot(.sweeping, pixel: 1, ink: Theme.onBad) }
                         Text("Désinstaller")
                     }
                 }
@@ -268,7 +273,7 @@ struct OrphansView: View {
                     text: "Quand on jette une app dans la Corbeille, ses réglages et caches restent dans ta bibliothèque. Je liste ceux dont l'app n'existe plus sur ce Mac et qui n'ont pas bougé depuis deux semaines. Vérifie avant de cocher : rien n'est sélectionné d'office et tout part à la Corbeille.")
             if !model.orphansScanned {
                 HStack {
-                    ScanButton(title: "Chercher les restes", symbol: "puzzlepiece", running: model.isScanningOrphans) {
+                    ScanButton(title: "Chercher les restes", symbol: "puzzlepiece", running: model.isScanningOrphans, activity: .searching) {
                         Task { await model.scanOrphans(fullDiskAccess: app.fullDiskAccess) }
                     }
                     Spacer()

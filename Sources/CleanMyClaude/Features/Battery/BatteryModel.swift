@@ -211,6 +211,11 @@ final class BatteryModel: AppModule {
         settings = s
     }
 
+    func applySnapshotTab(_ tab: String) {
+        // The page while macOS' charge limit is being read.
+        if tab == "attente" { limit = nil }
+    }
+
     // MARK: Checks
 
     func selfTest() -> [String] { BatteryChecks.run() }

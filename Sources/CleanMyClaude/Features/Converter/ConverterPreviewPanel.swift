@@ -60,7 +60,7 @@ struct ConverterPreviewPanel: View {
             placeholder(symbol: "eye.slash", text: "Choisis une opération : son rendu apparaît ici avant que tu lances quoi que ce soit.")
         case .working:
             VStack(spacing: 10) {
-                ProgressView().controlSize(.regular)
+                BusyMascot(.converting, pixel: 5)
                 Text("Je prépare le rendu exact…").font(.ui(12)).foregroundStyle(Theme.text3)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

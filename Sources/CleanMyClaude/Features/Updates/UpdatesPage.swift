@@ -11,7 +11,7 @@ struct UpdatesPage: View {
                      subtitle: "Homebrew, tes apps et macOS au même endroit, chaque source à part. Rien ne s'installe sans ton clic.",
                      tint: Theme.good, seed: 52) {
                 ScanButton(title: m.hasChecked ? "Tout revérifier" : "Tout vérifier", symbol: "arrow.triangle.2.circlepath",
-                           running: m.isCheckingAnything, runningTitle: "Vérification…") {
+                           running: m.isCheckingAnything, runningTitle: "Vérification…", activity: .downloading) {
                     Task { await m.checkAll() }
                 }
             }
@@ -166,7 +166,7 @@ private struct UpdatesBrewRow: View {
                         .font(.ui(11)).foregroundStyle(Theme.text3)
                 } else if busy {
                     HStack(spacing: 6) {
-                        UpdatesSpinner()
+                        UpdatesSpinner(activity: .unpacking)
                         Text("En cours…").font(.ui(11.5)).foregroundStyle(Theme.text2)
                     }
                 } else {
@@ -222,7 +222,7 @@ private struct UpdatesConsole: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 switch job.outcome {
-                case .running: UpdatesSpinner()
+                case .running: UpdatesSpinner(activity: .unpacking)
                 case .succeeded: Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.good)
                 case .failed: Image(systemName: "xmark.octagon.fill").foregroundStyle(Theme.bad)
                 case .cancelled: Image(systemName: "stop.circle.fill").foregroundStyle(Theme.text3)
@@ -461,7 +461,11 @@ private struct UpdatesMacOSPanel: View {
             }
         } content: {
             if m.macOSState.isChecking {
-                EmptyHint(text: "macOS interroge les serveurs d'Apple (jusqu'à une minute)…", symbol: "hourglass")
+                HStack(spacing: 14) {
+                    BusyMascot(.downloading, pixel: 2.5)
+                    Text("macOS interroge les serveurs d'Apple (jusqu'à une minute)…").font(.ui(12)).foregroundStyle(Theme.text3)
+                }
+                .padding(.vertical, 4)
             } else if let check {
                 HStack(alignment: .top, spacing: 12) {
                     IconBadge(symbol: check.status.symbol, tint: check.status.color, size: 30)
@@ -500,7 +504,7 @@ struct UpdatesBottomBar: View {
         let m = app.updates
         if let job = m.brewJob, job.isRunning {
             ActionBar {
-                UpdatesSpinner()
+                BusyMascot(.unpacking, pixel: 2)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(job.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
                     Text(job.lines.last ?? "Démarrage…").font(.mono(10.5)).foregroundStyle(Theme.text3).lineLimit(1)
@@ -545,7 +549,7 @@ struct UpdatesCheckButton: View {
     var body: some View {
         if state.isChecking {
             HStack(spacing: 6) {
-                UpdatesSpinner()
+                UpdatesSpinner(activity: .searching)
                 Text("Vérification…").font(.ui(11.5)).foregroundStyle(Theme.text2)
             }
         } else {
@@ -555,15 +559,11 @@ struct UpdatesCheckButton: View {
     }
 }
 
-/// A small spinner (a still arc in snapshots, where AppKit controls do not render).
+/// The mascot at work, small, in a row of the page or of the update panel.
 struct UpdatesSpinner: View {
+    var activity: MascotActivity = .downloading
+
     var body: some View {
-        if Snapshot.isActive {
-            Circle().trim(from: 0, to: 0.7)
-                .stroke(Theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .frame(width: 13, height: 13)
-        } else {
-            ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 16, height: 16)
-        }
+        BusyMascot(activity, pixel: 1)
     }
 }

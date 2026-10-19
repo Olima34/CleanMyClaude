@@ -105,6 +105,13 @@ final class AssistantModel: AppModule {
         ]
     }
 
+    func applySnapshotTab(_ tab: String) {
+        guard tab == "attente" else { return }
+        // A question asked, Claude thinking it over.
+        entries = [AssistantEntry(kind: .user("Pourquoi mon ventilateur souffle-t-il autant ?"))]
+        isThinking = true
+    }
+
     func results(for query: String, app: AppModel) -> [AppCommand] {
         let q = query.trimmingCharacters(in: .whitespaces)
         guard q.hasPrefix("?"), q.count > 2 else { return [] }

@@ -190,7 +190,7 @@ private struct BatteryLimitPanel: View {
                         .font(.ui(11.5)).foregroundStyle(Theme.text3)
                 } else {
                     HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
+                        BusyMascot(.charging, pixel: 1.5)
                         Text("Lecture du réglage de macOS…").font(.ui(12)).foregroundStyle(Theme.text3)
                     }
                 }
@@ -216,7 +216,7 @@ private struct BatteryChip: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                if busy { ProgressView().controlSize(.mini) }
+                if busy { BusyMascot(.charging, pixel: 1, ink: on ? Theme.onBrand : nil) }
                 Text(label).font(.ui(12.5, .semibold)).monospacedDigit()
             }
             .foregroundStyle(on ? Theme.onBrand : Theme.text)

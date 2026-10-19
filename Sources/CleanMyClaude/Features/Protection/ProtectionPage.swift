@@ -17,7 +17,7 @@ struct ProtectionPage: View {
                             .help("Indice de sécurité sur 100 : chaque point pèse selon sa gravité (\(model.passedCount) sur \(model.scoredCount) en ordre).")
                     }
                     ScanButton(title: model.hasAudit ? "Refaire le bilan" : "Lancer le bilan", symbol: "checkmark.shield",
-                               running: model.isAuditing || app.startup.isScanning || model.isCheckingAccess) {
+                               running: model.isAuditing || app.startup.isScanning || model.isCheckingAccess, activity: .checking) {
                         ProtectionActions.fullReview(app)
                     }
                 }
@@ -39,7 +39,8 @@ struct ProtectionPage: View {
             switch model.tab {
             case .security:
                 if model.isAuditing && !model.hasAudit {
-                    ScanProgressCard(title: "J'inspecte les défenses de ton Mac…", label: "FileVault, coupe-feu, partages, réseau, secrets…", progress: nil)
+                    ScanProgressCard(title: "J'inspecte les défenses de ton Mac…", label: "FileVault, coupe-feu, partages, réseau, secrets…", progress: nil,
+                                     activity: .checking)
                 } else if !model.hasAudit {
                     ProtectionIntro()
                 } else {
@@ -143,7 +144,7 @@ struct SecurityTab: View {
                             ForEach(list) { c in SecurityCheckRow(check: c) }
                             if category == .updates && model.isCheckingUpdates {
                                 HStack(spacing: 10) {
-                                    ProgressView().controlSize(.small)
+                                    BusyMascot(.downloading, pixel: 1.5)
                                     Text("Je demande aux serveurs d'Apple s'il y a des mises à jour…").font(.ui(11.5)).foregroundStyle(Theme.text3)
                                 }
                                 .padding(.horizontal, 10).padding(.vertical, 6)
@@ -196,7 +197,7 @@ struct SecurityCheckRow: View {
                             }
                             if let fix = check.fix {
                                 if model.fixing.contains(check.id) {
-                                    ProgressView().controlSize(.small)
+                                    BusyMascot(.typing, pixel: 1)
                                 } else {
                                     Button("Corriger") { confirm = true }
                                         .buttonStyle(SoftButtonStyle(prominent: true, small: true))
@@ -229,7 +230,8 @@ struct PersistenceTab: View {
                     text: "Presque tous les logiciels malveillants sur Mac s'installent pour redémarrer avec lui. Je vérifie qui a signé chaque programme et je signale ce qui trahit un intrus : se faire passer pour Apple, télécharger puis exécuter du code, se cacher dans un dossier partagé, ne pas être signé.",
                     tint: Theme.accent)
             if startup.isScanning && startup.items.isEmpty {
-                ScanProgressCard(title: "Je vérifie les signatures…", label: "Agents, services, ouverture à la connexion, cron…", progress: nil)
+                ScanProgressCard(title: "Je vérifie les signatures…", label: "Agents, services, ouverture à la connexion, cron…", progress: nil,
+                                 activity: .inspecting)
             } else if startup.items.isEmpty && anchors.isEmpty {
                 Card {
                     EmptyHint(text: startup.lastScan == nil ? "Lance le bilan pour lister ce qui démarre tout seul." : "Aucun agent ni service tiers. Rien ne se lance en douce.",
@@ -358,7 +360,7 @@ struct LaunchItemRow: View {
                 }
                 Spacer(minLength: 8)
                 if startup.busy.contains(item.id) {
-                    ProgressView().controlSize(.small)
+                    BusyMascot(.typing, pixel: 1)
                 } else {
                     BorderlessMenu(indicator: false) {
                         Button(item.disabled ? "Réactiver" : "Désactiver") {
@@ -499,7 +501,7 @@ struct PrivacyActionBar: View {
                 confirm = true
             } label: {
                 HStack(spacing: 6) {
-                    if model.isCleaningTraces { ProgressView().controlSize(.small).scaleEffect(0.7).tint(Theme.onAccent) }
+                    if model.isCleaningTraces { BusyMascot(.sweeping, pixel: 1, ink: Theme.onAccent) }
                     Text("Effacer les traces")
                 }
             }

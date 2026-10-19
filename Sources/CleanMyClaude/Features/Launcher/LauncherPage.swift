@@ -135,7 +135,11 @@ struct LauncherPage: View {
     private var indexBadge: some View {
         switch app.launcher.indexState {
         case .ready(let count): StatusBadge(status: .ok, text: Fmt.plural(count, "fichier", "fichiers"))
-        case .building: StatusBadge(status: .info, text: "Indexation…")
+        case .building:
+            HStack(spacing: 6) {
+                BusyMascot(.sorting, pixel: 1)
+                StatusBadge(status: .info, text: "Indexation…")
+            }
         case .off: StatusBadge(status: .warn, text: app.launcher.includeFiles ? "Spotlight" : "Désactivée")
         }
     }

@@ -437,11 +437,8 @@ struct ConverterJobRow: View {
             case .waiting:
                 Image(systemName: "clock").foregroundStyle(Theme.text3)
             case .running:
-                if let p = job.progress {
-                    ProgressRing(progress: p, tint: job.operation.family.tint, lineWidth: 3).frame(width: 18, height: 18)
-                } else {
-                    ConverterSpinner()
-                }
+                // The bar below tells how far along it is; the mascot shows that it works.
+                ConverterSpinner()
             case .done:
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.good)
             case .failed:

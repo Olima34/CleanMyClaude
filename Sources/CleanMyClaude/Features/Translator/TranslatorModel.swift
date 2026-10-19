@@ -113,6 +113,10 @@ final class TranslatorModel: AppModule {
 
     func applySnapshotTab(_ tab: String) {
         if let e = TranslatorEngine(rawValue: tab) { engine = e }
+        if tab == "attente" {
+            resultText = ""
+            isTranslating = true
+        }
     }
 
     func commands(app: AppModel) -> [AppCommand] {

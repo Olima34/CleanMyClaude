@@ -9,7 +9,14 @@ extension ConverterModel {
 
     /// `--snapshot --demo --page converter --tab <scene>`: images (default), video, pdf, documents, rename, ocr, qr, empty.
     func applySnapshotTab(_ tab: String) {
-        guard DemoData.isEnabled, let scene = ConverterDemo.Scene(rawValue: tab) else { return }
+        guard DemoData.isEnabled else { return }
+        if tab == "attente" {
+            // A video being compressed, the preview of the next operation being rendered.
+            ConverterDemo.fill(self, scene: .video)
+            previewer.state = .working
+            return
+        }
+        guard let scene = ConverterDemo.Scene(rawValue: tab) else { return }
         ConverterDemo.fill(self, scene: scene)
         previewer.loadDemo(self)
     }

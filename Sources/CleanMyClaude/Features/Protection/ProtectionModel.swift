@@ -420,6 +420,12 @@ final class ProtectionModel: AppModule {
 
     func applySnapshotTab(_ tab: String) {
         if tab == "hardened" { hardened = true }
+        if tab == "attente" {
+            // The security review on its way, as before the first one finishes.
+            self.tab = .security
+            checks = []
+            isAuditing = true
+        }
         if tab == "scanning" {
             self.tab = .threats
             isScanning = true

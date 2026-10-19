@@ -19,7 +19,7 @@ struct StoragePage: View {
                     } label: {
                         Label(model.rootTitle, systemImage: "folder").font(.ui(12)).foregroundStyle(Theme.text2)
                     }
-                    ScanButton(title: model.root == nil ? "Analyser" : "Relancer", running: model.isScanning) {
+                    ScanButton(title: model.root == nil ? "Analyser" : "Relancer", running: model.isScanning, activity: .sorting) {
                         Task { await model.scan() }
                     }
                 }
@@ -91,7 +91,7 @@ struct ExplorerTab: View {
             if model.isScanning && model.root == nil {
                 Card(padding: 22) {
                     HStack(spacing: 18) {
-                        ClaudeSpark(size: 38, spin: true)
+                        BusyMascot(.sorting, pixel: 4)
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Je cartographie \(model.rootTitle.lowercased())…").font(.serif(20)).foregroundStyle(Theme.text)
                             Text("\(Fmt.int(model.scannedCount)) fichiers mesurés").font(.ui(12)).foregroundStyle(Theme.text2).monospacedDigit()
@@ -170,7 +170,7 @@ struct ExplorerTab: View {
             Spacer()
             Text("\(Fmt.bytes(node.size)) · \(Fmt.plural(node.files, "fichier", "fichiers"))")
                 .font(.ui(12)).foregroundStyle(Theme.text2).monospacedDigit()
-            if model.isScanning { ProgressView().controlSize(.small) }
+            if model.isScanning { BusyMascot(.sorting, pixel: 1) }
         }
     }
 
@@ -353,7 +353,7 @@ struct BigFilesTab: View {
                 Card {
                     VStack(spacing: 12) {
                         EmptyHint(text: "Les gros fichiers sont repérés pendant l'analyse du stockage.", symbol: "doc.badge.ellipsis")
-                        ScanButton(title: "Analyser mon dossier personnel", running: model.isScanning) { Task { await model.scan(FS.home) } }
+                        ScanButton(title: "Analyser mon dossier personnel", running: model.isScanning, activity: .sorting) { Task { await model.scan(FS.home) } }
                     }
                     .frame(maxWidth: .infinity)
                 }
@@ -433,7 +433,8 @@ struct DuplicatesTab: View {
                     if model.isFindingDups {
                         Button("Annuler") { model.cancelDuplicates() }.buttonStyle(SoftButtonStyle(small: true))
                     }
-                    ScanButton(title: model.dupsScanned ? "Relancer" : "Chercher les doublons", symbol: "doc.on.doc", running: model.isFindingDups) {
+                    ScanButton(title: model.dupsScanned ? "Relancer" : "Chercher les doublons", symbol: "doc.on.doc", running: model.isFindingDups,
+                               activity: .sorting) {
                         Task { await model.findDuplicates() }
                     }
                 }
@@ -454,7 +455,10 @@ struct DuplicatesTab: View {
                     }
                 }
                 if model.isFindingDups {
-                    Text(model.dupProgress).font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    HStack(spacing: 12) {
+                        BusyMascot(.sorting, pixel: 2)
+                        Text(model.dupProgress).font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    }
                 }
             }
             if model.dupsScanned && !model.isFindingDups {
@@ -541,9 +545,14 @@ struct StorageActionBar: View {
             }
             Button("Tout décocher") { if isDup { model.dupSelection = [] } else { model.bigSelection = [] } }
                 .buttonStyle(SoftButtonStyle())
-            Button("Mettre à la Corbeille") { confirm = true }
-                .buttonStyle(SoftButtonStyle(prominent: true))
-                .disabled(count == 0 || model.isRemoving || (isDup && model.dupSelectionUnsafe))
+            Button { confirm = true } label: {
+                HStack(spacing: 6) {
+                    if model.isRemoving { BusyMascot(.sweeping, pixel: 1, ink: Theme.onAccent) }
+                    Text("Mettre à la Corbeille")
+                }
+            }
+            .buttonStyle(SoftButtonStyle(prominent: true))
+            .disabled(count == 0 || model.isRemoving || (isDup && model.dupSelectionUnsafe))
         }
         .confirmAction("Mettre \(Fmt.plural(count, "fichier", "fichiers")) à la Corbeille ?",
                        message: "\(Fmt.bytes(size)). Tu pourras les récupérer tant que la Corbeille n'est pas vidée.",

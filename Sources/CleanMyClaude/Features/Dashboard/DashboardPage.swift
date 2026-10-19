@@ -58,7 +58,11 @@ struct DashboardPage: View {
                 }
                 Spacer()
                 HealthRing()
-                PixelMascot(pixel: 7, broom: true)
+                if app.smartScanRunning {
+                    BusyMascot(.inspecting, pixel: 5)
+                } else {
+                    PixelMascot(pixel: 7, broom: true)
+                }
             }
             .padding(.top, 14)
         }
@@ -149,7 +153,7 @@ struct SmartScanPanel: View {
                     .disabled(app.cleanup.isCleaning)
                 }
                 ScanButton(title: app.smartScanDate == nil ? "Lancer l'analyse" : "Relancer", symbol: "wand.and.stars",
-                           running: app.smartScanRunning, runningTitle: "J'analyse…") {
+                           running: app.smartScanRunning, runningTitle: "J'analyse…", activity: .inspecting) {
                     Task { await app.smartScan() }
                 }
             }
@@ -157,22 +161,22 @@ struct SmartScanPanel: View {
                 Divider().padding(.vertical, 4)
                 TileRow(spacing: 12) {
                     ScanResultTile(symbol: "sparkles", title: "Fichiers inutiles", tint: Theme.accent,
-                                   running: app.cleanup.isScanning,
+                                   running: app.cleanup.isScanning, activity: .sweeping,
                                    value: app.cleanup.hasResults ? Fmt.bytes(app.cleanup.recommendedSize) : "—",
                                    detail: app.cleanup.hasResults ? "à nettoyer sans risque · \(Fmt.bytes(app.cleanup.totalSize)) trouvés en tout" : "Pas encore analysé",
                                    page: .cleanup)
                     ScanResultTile(symbol: "lock.shield", title: "Sécurité", tint: app.protection.malware.isEmpty ? Theme.good : Theme.bad,
-                                   running: app.protection.isAuditing || app.protection.isScanning,
+                                   running: app.protection.isAuditing || app.protection.isScanning, activity: .inspecting,
                                    value: app.protection.hasAudit ? "\(app.protection.securityScore)/100" : "—",
                                    detail: securityDetail,
                                    page: .protection, tab: { app.protection.tab = app.protection.malware.isEmpty ? .security : .threats })
                     ScanResultTile(symbol: "square.grid.2x2", title: "Applications", tint: Theme.palette[4],
-                                   running: app.apps.isScanning,
+                                   running: app.apps.isScanning, activity: .checking,
                                    value: app.apps.lastScan != nil ? "\(app.apps.unused.count)" : "—",
                                    detail: app.apps.lastScan != nil ? "inutilisées depuis 3 mois · \(app.apps.intel.count) en Intel" : "Pas encore analysé",
                                    page: .apps, tab: { app.apps.filter = .unused })
                     ScanResultTile(symbol: "power", title: "Démarrage", tint: Theme.warn,
-                                   running: app.startup.isScanning,
+                                   running: app.startup.isScanning, activity: .searching,
                                    value: app.startup.lastScan != nil ? "\(app.startup.activeCount)" : "—",
                                    detail: app.startup.lastScan != nil ? "agents tiers actifs · \(app.startup.flagged.count) à examiner" : "Pas encore analysé",
                                    page: .performance, tab: { app.performance.tab = .startup })
@@ -208,6 +212,8 @@ struct ScanResultTile: View {
     var title: String
     var tint: Color
     var running: Bool
+    /// What the mascot does in the corner while this part of the scan runs.
+    var activity: MascotActivity
     var value: String
     var detail: String
     var page: Page
@@ -225,7 +231,7 @@ struct ScanResultTile: View {
                     IconBadge(symbol: symbol, tint: tint)
                     Text(title).font(.ui(12)).foregroundStyle(Theme.text2)
                     Spacer()
-                    if running { ProgressView().controlSize(.small).scaleEffect(0.7) } else {
+                    if running { BusyMascot(activity, pixel: 1) } else {
                         Image(systemName: "chevron.right").font(.ui(10, .semibold)).foregroundStyle(Theme.text3).opacity(hovering ? 1 : 0.4)
                     }
                 }
@@ -295,7 +301,7 @@ struct ToolsOverview: View {
     }
 
     private func tile(_ page: Page, tint: Color, value: String, detail: String) -> some View {
-        ScanResultTile(symbol: page.symbol, title: page.title, tint: tint, running: false, value: value, detail: detail, page: page)
+        ScanResultTile(symbol: page.symbol, title: page.title, tint: tint, running: false, activity: .inspecting, value: value, detail: detail, page: page)
     }
 }
 

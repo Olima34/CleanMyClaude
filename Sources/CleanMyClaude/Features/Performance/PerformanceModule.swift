@@ -31,6 +31,12 @@ extension PerformanceModel: AppModule {
 
     func applySnapshotTab(_ tab: String) {
         if let t = PerformanceTab(rawValue: tab) { self.tab = t }
+        if tab == "attente" {
+            self.tab = .bench
+            bench.job = .full
+            bench.progress = 0.4
+            bench.currentTest = PerformanceBenchTest.allCases.dropFirst().first
+        }
     }
 
     var quickToggles: [QuickToggle] {

@@ -272,6 +272,11 @@ final class NetworkModel: AppModule {
 
     func applySnapshotTab(_ tab: String) {
         if let t = NetworkTab(rawValue: tab) { self.tab = t }
+        if tab == "attente" {
+            self.tab = .speed
+            speedState = .running
+            speedProgress = 0.45
+        }
     }
 
     func loadDemo() {

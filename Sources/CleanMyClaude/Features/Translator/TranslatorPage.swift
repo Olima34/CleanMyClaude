@@ -42,7 +42,7 @@ struct TranslatorPage: View {
                     ZStack {
                         TranslatorEditor(text: .constant(model.resultText), placeholder: placeholder, editable: false, tint: Theme.text)
                         if model.isTranslating {
-                            ProgressView().controlSize(.small)
+                            BusyMascot(.reading, pixel: 4)
                         }
                     }
                 } footer: {

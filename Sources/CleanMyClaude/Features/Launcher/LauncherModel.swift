@@ -167,6 +167,15 @@ final class LauncherModel: AppModule {
     }
 
     func applySnapshotTab(_ tab: String) {
+        if tab == "attente" {
+            // The file window while Spotlight looks (no instant index yet).
+            scope = .files
+            query = "devis cuisine"
+            indexState = .off
+            sections = []
+            fileSearchPending = true
+            return
+        }
         // "actions:corb": the panel open, its search field holding "corb".
         let parts = tab.split(separator: ":", maxSplits: 1).map(String.init)
         // The file window (`--tab files --query facture`); the actions of a file are shown there too.

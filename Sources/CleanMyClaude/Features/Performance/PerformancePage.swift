@@ -252,7 +252,8 @@ struct StartupTab: View {
                 Callout(symbol: "power", title: "Ce qui démarre avec ton Mac",
                         text: "Ces agents tournent en arrière-plan dès l'ouverture de session : mises à jour automatiques, synchronisation, assistants… Désactiver ceux dont tu ne te sers pas allège le démarrage. C'est réversible à tout moment.")
                 VStack(alignment: .leading, spacing: 8) {
-                    ScanButton(title: startup.lastScan == nil ? "Analyser" : "Actualiser", symbol: "arrow.clockwise", running: startup.isScanning) {
+                    ScanButton(title: startup.lastScan == nil ? "Analyser" : "Actualiser", symbol: "arrow.clockwise", running: startup.isScanning,
+                               activity: .searching) {
                         Task { await startup.scan() }
                     }
                     Button("Apps ouvertes à la connexion…") { Finder.open(SettingsPane.loginItems) }
@@ -329,7 +330,7 @@ struct MaintenanceCard: View {
                             Task { await model.run(task) }
                         } label: {
                             HStack(spacing: 6) {
-                                if model.runningTasks.contains(task.id) { ProgressView().controlSize(.small).scaleEffect(0.6) }
+                                if model.runningTasks.contains(task.id) { BusyMascot(.typing, pixel: 1) }
                                 Text(model.runningTasks.contains(task.id) ? "En cours…" : "Lancer")
                             }
                         }

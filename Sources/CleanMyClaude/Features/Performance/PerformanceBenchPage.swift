@@ -52,7 +52,7 @@ struct PerformanceBenchHero: View {
                         .font(.ui(11)).foregroundStyle(Theme.text3)
                     HStack(spacing: 10) {
                         ScanButton(title: bench.latest == nil ? "Lancer le benchmark" : "Mesurer à nouveau", symbol: "speedometer",
-                                   running: running, runningTitle: "Mesure…") {
+                                   running: running, runningTitle: "Mesure…", activity: .lifting) {
                             bench.runFull(mode: p.boost.effectiveMode, onBattery: app.monitor.battery.map { !$0.onAC } ?? false)
                         }
                         .disabled(bench.isRunning && !running)
@@ -66,6 +66,9 @@ struct PerformanceBenchHero: View {
                     }
                 }
                 Spacer(minLength: 12)
+                if running {
+                    BusyMascot(.lifting, pixel: 4)
+                }
                 if !running, let last = bench.latest, let base = bench.baseline, let delta = last.gain(over: base) {
                     VStack(alignment: .trailing, spacing: 4) {
                         Text(PerformanceBenchFormat.delta(delta))
@@ -111,7 +114,7 @@ struct PerformanceBenchCard: View {
                     Text(test.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
                     Spacer(minLength: 4)
                     if active {
-                        ProgressView().controlSize(.small).scaleEffect(0.6)
+                        BusyMascot(.lifting, pixel: 1)
                     } else if let score, let baseScore, baseScore > 0 {
                         Text(PerformanceBenchFormat.delta(score / baseScore - 1)).font(.ui(11, .semibold))
                             .foregroundStyle(PerformanceBenchFormat.deltaColor(score / baseScore - 1))

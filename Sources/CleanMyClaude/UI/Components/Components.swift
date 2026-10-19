@@ -665,19 +665,22 @@ struct SoftButtonStyle: ButtonStyle {
     }
 }
 
-/// The big "Analyser" button of each section.
+/// The big "Analyser" button of each section. While it runs, the mascot works inside it.
 struct ScanButton: View {
     var title: String
     var symbol: String = "sparkle.magnifyingglass"
     var running = false
     var runningTitle = "Analyse…"
+    /// What the mascot does while it runs.
+    var activity: MascotActivity = .inspecting
     var action: () -> Void
 
     var body: some View {
-        Button(action: action) {
+        // While it runs it ignores clicks without looking disabled: the mascot inside stays bright.
+        Button { if !running { action() } } label: {
             HStack(spacing: 8) {
                 if running {
-                    ProgressView().controlSize(.small).scaleEffect(0.75).tint(Theme.onAccent)
+                    BusyMascot(activity, pixel: 1, ink: Theme.onAccent)
                 } else if Theme.icons != .hidden {
                     Image(systemName: symbol).font(.ui(13, .semibold))
                 }
@@ -691,7 +694,7 @@ struct ScanButton: View {
             .contentShape(PillShape())
         }
         .buttonStyle(.plain)
-        .disabled(running)
+        .allowsHitTesting(!running)
     }
 }
 

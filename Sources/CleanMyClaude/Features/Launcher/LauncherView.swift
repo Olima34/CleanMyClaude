@@ -369,7 +369,11 @@ struct LauncherIndexBadge: View {
     var body: some View {
         switch app.launcher.indexState {
         case .ready(let count): Tag(text: "Index · " + Fmt.plural(count, "fichier", "fichiers"), symbol: "bolt.fill", tint: Theme.good, filled: true)
-        case .building: Tag(text: "Indexation…", symbol: "hourglass", tint: Theme.text2)
+        case .building:
+            HStack(spacing: 6) {
+                BusyMascot(.sorting, pixel: 1)
+                Tag(text: "Indexation…", tint: Theme.text2)
+            }
         case .off: Tag(text: "Spotlight", symbol: "magnifyingglass", tint: Theme.text2)
         }
     }
@@ -397,8 +401,8 @@ struct LauncherFilesEmpty: View {
                         .buttonStyle(SoftButtonStyle(prominent: true, small: true))
                 }
             } else if m.fileSearchPending {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
+                HStack(spacing: 12) {
+                    BusyMascot(.searching, pixel: 2)
                     Text("Spotlight cherche « \(q) »…").font(.ui(12.5)).foregroundStyle(Theme.text3)
                 }
             } else {

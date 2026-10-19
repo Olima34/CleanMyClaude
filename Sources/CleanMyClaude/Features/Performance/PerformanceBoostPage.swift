@@ -176,7 +176,7 @@ struct PerformanceModePanel: View {
                             .font(.ui(11)).foregroundStyle(Theme.text3)
                     }
                     Spacer(minLength: 8)
-                    if b.energyBusy { ProgressView().controlSize(.small).scaleEffect(0.7) }
+                    if b.energyBusy { BusyMascot(.lifting, pixel: 1) }
                     if let e = b.energy {
                         PillPicker(options: e.levels, selection: Binding(get: { e.level }, set: { level in
                             Task { await b.setEnergy(level) }

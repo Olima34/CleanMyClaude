@@ -24,6 +24,7 @@ struct ConverterBottomBar: View {
             ActionBar {
                 if model.isBusy {
                     let active = model.activeJobs.count
+                    BusyMascot(.converting, pixel: 2)
                     VStack(alignment: .leading, spacing: 5) {
                         Text(active == 1 ? "Une conversion en cours…" : "\(active) conversions en attente ou en cours…")
                             .font(.serif(17)).foregroundStyle(Theme.text)

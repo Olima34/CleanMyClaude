@@ -171,14 +171,10 @@ struct ConverterStepper: View {
     }
 }
 
-/// A spinner while running, a still glyph in snapshots (no endless animation either way: AppKit draws it).
+/// The mascot at its gear machine while a job runs (a still frame in snapshots).
 struct ConverterSpinner: View {
     var body: some View {
-        if Snapshot.isActive {
-            Image(systemName: "hourglass").font(.ui(11, .semibold)).foregroundStyle(Theme.accent)
-        } else {
-            ProgressView().controlSize(.small).scaleEffect(0.75)
-        }
+        BusyMascot(.converting, pixel: 1)
     }
 }
 

@@ -246,8 +246,8 @@ private struct NetworkSpeedPanel: View {
     private func running(_ m: NetworkModel) -> some View {
         let mon = app.monitor
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                NetworkSpinner()
+            HStack(spacing: 14) {
+                BusyMascot(.beaming, pixel: 3)
                 Text("Mesure en cours…").font(.serif(19)).foregroundStyle(Theme.text)
                 Spacer()
                 Text("↓ \(Fmt.speed(mon.netIn))   ↑ \(Fmt.speed(mon.netOut))").font(.mono(12)).foregroundStyle(Theme.text2)
@@ -579,7 +579,7 @@ struct NetworkBottomBar: View {
         let m = app.network
         if m.speedState.isRunning && m.tab != .speed {
             ActionBar {
-                NetworkSpinner()
+                BusyMascot(.beaming, pixel: 2)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Test de débit en cours").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
                     Text("↓ \(Fmt.speed(app.monitor.netIn))   ↑ \(Fmt.speed(app.monitor.netOut))").font(.mono(10.5)).foregroundStyle(Theme.text3)
@@ -647,15 +647,9 @@ private struct NetworkCopyText: View {
     }
 }
 
-/// A small spinner (a still arc in snapshots, where AppKit controls do not render).
+/// The mascot and its antenna, small, while a measure runs (a still frame in snapshots).
 private struct NetworkSpinner: View {
     var body: some View {
-        if Snapshot.isActive {
-            Circle().trim(from: 0, to: 0.7)
-                .stroke(Theme.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .frame(width: 13, height: 13)
-        } else {
-            ProgressView().controlSize(.small).scaleEffect(0.7).frame(width: 16, height: 16)
-        }
+        BusyMascot(.beaming, pixel: 1)
     }
 }

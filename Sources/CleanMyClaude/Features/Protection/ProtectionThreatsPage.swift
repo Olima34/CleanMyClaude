@@ -92,7 +92,7 @@ struct FileCheckCard: View {
             Card(padding: 16) {
                 if model.isInspecting {
                     HStack(spacing: 10) {
-                        ProgressView().controlSize(.small)
+                        BusyMascot(.inspecting, pixel: 1.5)
                         Text("J'examine son code avec les signatures d'Apple…").font(.ui(12.5)).foregroundStyle(Theme.text2)
                     }
                 } else if let v = model.verdict {
@@ -149,7 +149,7 @@ struct ThreatScanProgress: View {
         let model = app.protection
         Card(padding: 22) {
             HStack(spacing: 18) {
-                ClaudeSpark(size: 38, spin: true)
+                BusyMascot(.inspecting, pixel: 4)
                 VStack(alignment: .leading, spacing: 8) {
                     Text(model.scanTotal > 0 ? "\(model.scanPhase) \(Fmt.int(model.scanDone)) sur \(Fmt.int(model.scanTotal)) fichiers…" : model.scanPhase)
                         .font(.serif(20)).foregroundStyle(Theme.text)
@@ -158,7 +158,7 @@ struct ThreatScanProgress: View {
                     if model.scanTotal > 0 {
                         UsageBar(fraction: Double(model.scanDone) / Double(max(1, model.scanTotal)), tint: Theme.accent, height: 6)
                     } else {
-                        ProgressView().progressViewStyle(.linear).tint(Theme.accent)
+                        ScanIndeterminateBar()
                     }
                 }
                 Button("Annuler") { model.cancelScan() }.buttonStyle(SoftButtonStyle())
@@ -199,7 +199,7 @@ struct ThreatRow: View {
                 }
                 Spacer(minLength: 8)
                 if model.removing.contains(threat.id) {
-                    ProgressView().controlSize(.small)
+                    BusyMascot(.sweeping, pixel: 1)
                 } else {
                     BorderlessMenu(indicator: false) {
                         if !threat.removable.isEmpty {
@@ -253,7 +253,7 @@ struct ThreatActionBar: View {
                 confirm = true
             } label: {
                 HStack(spacing: 6) {
-                    if !model.removing.isEmpty { ProgressView().controlSize(.small).scaleEffect(0.7).tint(Theme.onBad) }
+                    if !model.removing.isEmpty { BusyMascot(.sweeping, pixel: 1, ink: Theme.onBad) }
                     Text("Neutraliser")
                 }
             }

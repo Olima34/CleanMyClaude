@@ -58,7 +58,7 @@ struct AssistantConnectCard: View {
                     Text("Pas besoin de clé API : l'assistant passe par Claude Code, livré avec l'app Claude, et consomme ton abonnement Claude comme une conversation normale.")
                         .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     if model.isCheckingStatus && status == nil {
-                        HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Je cherche Claude Code…").font(.ui(12)).foregroundStyle(Theme.text3) }
+                        HStack(spacing: 8) { BusyMascot(.searching, pixel: 1.5); Text("Je cherche Claude Code…").font(.ui(12)).foregroundStyle(Theme.text3) }
                     } else if let status, !status.available {
                         Label("Claude Code est introuvable sur ce Mac.", systemImage: "exclamationmark.triangle").font(.ui(12.5)).foregroundStyle(Theme.warn)
                         Button("Télécharger l'app Claude") { Finder.open("https://claude.ai/download") }
@@ -71,7 +71,7 @@ struct AssistantConnectCard: View {
                                 .buttonStyle(SoftButtonStyle(prominent: true))
                             Button("J'ai terminé la connexion") { Task { await app.assistant.refreshStatus() } }
                                 .buttonStyle(SoftButtonStyle())
-                            if model.isCheckingStatus { ProgressView().controlSize(.small) }
+                            if model.isCheckingStatus { BusyMascot(.searching, pixel: 1) }
                         }
                         if let msg = model.connectMessage {
                             Text(msg).font(.ui(11.5)).foregroundStyle(Theme.text2)
@@ -254,8 +254,8 @@ struct AssistantConversation: View {
                     AssistantEntryView(entry: entry)
                 }
                 if model.isThinking {
-                    HStack(spacing: 10) {
-                        ClaudeSpark(size: 18, spin: true)
+                    HStack(spacing: 12) {
+                        BusyMascot(.thinking, pixel: 2.5)
                         Text("Claude réfléchit…").font(.ui(12.5)).foregroundStyle(Theme.text3)
                     }
                 }

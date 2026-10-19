@@ -115,14 +115,14 @@ struct MenuBarPanel: View {
             }
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                quick("memorychip", "Libérer la RAM", id: "ram") { QuickActions.freeMemory() }
-                quick("trash", "Vider la Corbeille", id: "trash") { QuickActions.emptyTrash() }
-                quick("network", "Purger le DNS", id: "dns") { QuickActions.flushDNS() }
+                quick("memorychip", "Libérer la RAM", id: "ram", activity: .lifting) { QuickActions.freeMemory() }
+                quick("trash", "Vider la Corbeille", id: "trash", activity: .sweeping) { QuickActions.emptyTrash() }
+                quick("network", "Purger le DNS", id: "dns", activity: .beaming) { QuickActions.flushDNS() }
                 Button {
                     openMain(page: .dashboard)
                     Task { await app.smartScan() }
                 } label: {
-                    quickLabel("wand.and.stars", "Tout analyser", running: app.smartScanRunning)
+                    quickLabel("wand.and.stars", "Tout analyser", running: app.smartScanRunning, activity: .inspecting)
                 }
                 .buttonStyle(.plain)
             }
@@ -174,7 +174,7 @@ struct MenuBarPanel: View {
         .frame(maxWidth: .infinity)
     }
 
-    private func quick(_ symbol: String, _ title: String, id: String, action: @escaping () -> String?) -> some View {
+    private func quick(_ symbol: String, _ title: String, id: String, activity: MascotActivity, action: @escaping () -> String?) -> some View {
         Button {
             guard busy == nil else { return }
             busy = id
@@ -187,14 +187,14 @@ struct MenuBarPanel: View {
                 }
             }
         } label: {
-            quickLabel(symbol, title, running: busy == id)
+            quickLabel(symbol, title, running: busy == id, activity: activity)
         }
         .buttonStyle(.plain)
     }
 
-    private func quickLabel(_ symbol: String, _ title: String, running: Bool) -> some View {
+    private func quickLabel(_ symbol: String, _ title: String, running: Bool, activity: MascotActivity) -> some View {
         HStack(spacing: 7) {
-            if running { ProgressView().controlSize(.small).scaleEffect(0.6).frame(width: 14) } else {
+            if running { BusyMascot(activity, pixel: 1) } else {
                 Image(systemName: symbol).font(.ui(11.5)).foregroundStyle(Theme.accent).frame(width: 14)
             }
             Text(title).font(.ui(11.5)).foregroundStyle(Theme.text).lineLimit(1)

@@ -325,6 +325,10 @@ final class UpdatesModel: AppModule {
 
     func applySnapshotTab(_ tab: String) {
         selfUpdate.applySnapshotTab(tab)
+        if tab == "attente" {
+            sparkleState = .checking
+            macOSState = .checking
+        }
     }
 
     func loadDemo() {

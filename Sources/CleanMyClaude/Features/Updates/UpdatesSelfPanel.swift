@@ -177,7 +177,8 @@ struct UpdatesSelfPanel: View {
                     .buttonStyle(SoftButtonStyle(prominent: true))
             }
         case .downloading(let received, let expected):
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .center) {
+                BusyMascot(.downloading, pixel: 1.5)
                 Text("Téléchargement…").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
                 Spacer()
                 Text(expected > 0 ? "\(Fmt.bytes(received)) sur \(Fmt.bytes(expected))" : Fmt.bytes(received))
@@ -196,7 +197,7 @@ struct UpdatesSelfPanel: View {
             }
         case .verifying:
             HStack(spacing: 8) {
-                UpdatesSpinner()
+                UpdatesSpinner(activity: m.signing ? .typing : .inspecting)
                 Text(m.signing ? "Signature avec ton certificat local…" : "Vérification de l'empreinte et de la signature…")
                     .font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
                 Spacer()
@@ -268,7 +269,7 @@ struct UpdatesSelfPanel: View {
             }
         case .installing:
             HStack(spacing: 8) {
-                UpdatesSpinner()
+                UpdatesSpinner(activity: .unpacking)
                 Text("Installation, puis relance…").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
             }
         case .failed(let message):
@@ -432,11 +433,12 @@ struct UpdatesSelfCard: View {
             Spacer()
             switch m.step {
             case .downloading(let received, let expected):
+                UpdatesSpinner(activity: .downloading)
                 UsageBar(fraction: expected > 0 ? Double(received) / Double(expected) : 0, tint: Theme.accent, height: 5)
                     .frame(width: 120)
                 Button("Afficher") { m.showPanel() }.buttonStyle(SoftButtonStyle(small: true))
             case .verifying, .installing:
-                UpdatesSpinner()
+                UpdatesSpinner(activity: m.step == .installing ? .unpacking : .inspecting)
                 Button("Afficher") { m.showPanel() }.buttonStyle(SoftButtonStyle(small: true))
             case .password:
                 Button("Signer et installer") { m.showPanel() }.buttonStyle(SoftButtonStyle(prominent: true, small: true))

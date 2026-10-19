@@ -1,15 +1,13 @@
 import SwiftUI
 import AppKit
 
-/// The Claude "spark": irregular rounded rays around a center.
-/// Themes without ornaments leave it out (a plain spinner stands in while work is in progress).
+/// The Claude "spark": irregular rounded rays around a center. Themes without ornaments leave it out.
+/// While work is in progress, `BusyMascot` shows it instead.
 struct ClaudeSpark: View {
     var size: CGFloat = 28
     var color: Color = Theme.brand
     /// A short turn when it appears.
     var animate = false
-    /// Keeps turning: only while work is in progress (every frame redraws the view graph).
-    var spin = false
     /// False where the spark is content rather than decoration (the drawn app icons).
     var ornament = true
     @State private var turn = 0.0
@@ -17,12 +15,6 @@ struct ClaudeSpark: View {
     var body: some View {
         if !ornament || Theme.current.spec.mascot {
             spark
-        } else if spin {
-            if Snapshot.isActive {
-                PillShape(scale: 1).stroke(Theme.text3, lineWidth: 2).frame(width: size * 0.6, height: size * 0.6)
-            } else {
-                ProgressView().controlSize(.small)
-            }
         }
     }
 
@@ -49,9 +41,7 @@ struct ClaudeSpark: View {
         .frame(width: size, height: size)
         .rotationEffect(.degrees(turn))
         .onAppear {
-            if spin {
-                withAnimation(.linear(duration: 3).repeatForever(autoreverses: false)) { turn = 360 }
-            } else if animate {
+            if animate {
                 withAnimation(.easeOut(duration: 1.4)) { turn = 32 }
             }
         }
@@ -80,14 +70,12 @@ struct ClaudeSpark: View {
     }
 }
 
-/// The little pixel creature of Claude Code, here with its broom.
+/// The little pixel creature of Claude Code, here with its broom, at rest.
+/// At work (scanning, cleaning, translating…), `BusyMascot` shows it busy with the task.
 struct PixelMascot: View {
     var pixel: CGFloat = 4
     var color: Color = Theme.brand
-    /// Bounces up and down: only while work is in progress.
-    var bob = false
     var broom = false
-    @State private var up = false
     @State private var blink = false
 
     // 1 = body, 2 = eye, 0 = empty
@@ -119,7 +107,7 @@ struct PixelMascot: View {
                 for (x, v) in row.enumerated() where v != 0 {
                     let rect = CGRect(x: CGFloat(x) * pixel, y: (CGFloat(y) + yOff) * pixel, width: pixel, height: pixel)
                     if v == 2 {
-                        ctx.fill(Path(rect), with: .color(blink ? color : Color.black.opacity(0.85)))
+                        ctx.fill(Path(rect), with: .color(blink ? color : Theme.onBrand))
                     } else {
                         ctx.fill(Path(rect), with: .color(color))
                     }
@@ -128,18 +116,13 @@ struct PixelMascot: View {
             if broom {
                 for b in Self.broomGrid {
                     let rect = CGRect(x: CGFloat(b.x) * pixel, y: (CGFloat(b.y) + yOff) * pixel, width: pixel, height: pixel)
-                    ctx.fill(Path(rect), with: .color(b.v == 3 ? Color(hex: 0xB0856A) : Color(hex: 0xCBB26A)))
+                    ctx.fill(Path(rect), with: .color(b.v == 3 ? Theme.text2 : Theme.warn))
                 }
                 // The arm reaching the handle.
                 ctx.fill(Path(CGRect(x: 9 * pixel, y: (2 + yOff) * pixel, width: 2 * pixel, height: pixel)), with: .color(color))
             }
         }
         .frame(width: pixel * cols, height: pixel * rows)
-        .offset(y: up ? -pixel * 0.6 : 0)
-        .onAppear {
-            guard bob else { return }
-            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { up = true }
-        }
         .task {
             // Blinks now and then: two tiny updates every few seconds, nothing per frame.
             while !Task.isCancelled {
