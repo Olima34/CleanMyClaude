@@ -152,6 +152,10 @@ private struct AdBlockStatusCard: View {
             let l = level ?? m.settings.level
             var text = "Niveau \(l.title) (\(l.list)), par un DNS chiffré : Safari, Chrome, Firefox, les apps et les jeux en profitent, sans rien installer d'autre."
             if m.settings.installedLevel == nil { text += " Un autre outil que Clean My Claude bloque déjà les pubs sur ce Mac." }
+            // Measured: a browser left open keeps its connections to the ad servers for a few minutes.
+            if let at = m.settings.installedAt, Date().timeIntervalSince(at) < 15 * 60 {
+                text += " Un navigateur resté ouvert garde ses connexions aux régies quelques minutes : recharge tes pages, ou relance-le."
+            }
             return text
         case .off:
             if m.installed && !m.waitingForInstall {
