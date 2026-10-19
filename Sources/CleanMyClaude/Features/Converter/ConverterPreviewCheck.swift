@@ -28,7 +28,9 @@ enum ConverterPreviewCheck {
         writePDF(pdf, pages: 3)
         _ = Shell.run("/usr/bin/say", ["-o", audio.path, "Bonjour, ceci est un essai."], timeout: 30)
         if let ffmpeg = Shell.which("ffmpeg") {
-            _ = Shell.run(ffmpeg, ["-v", "error", "-f", "lavfi", "-i", "testsrc=duration=8:size=640x360:rate=25", "-pix_fmt", "yuv420p", video.path], timeout: 60)
+            _ = Shell.run(ffmpeg, ["-v", "error", "-f", "lavfi", "-i", "testsrc=duration=8:size=640x360:rate=25",
+                                   "-f", "lavfi", "-i", "sine=frequency=440:duration=8", "-shortest",
+                                   "-pix_fmt", "yuv420p", "-c:a", "aac", video.path], timeout: 60)
         }
         _ = Shell.run("/usr/bin/zip", ["-j", "-q", zip.path, text.path, md.path], timeout: 30)
 
@@ -56,7 +58,8 @@ enum ConverterPreviewCheck {
                                             options: options, folder: nil, ffmpeg: ffmpeg)
             let t = Date()
             do {
-                let r = try await ConverterPreviewer.make(spec, folder: folder, control: ConverterControl(report: { _ in }))
+                let piece: (start: Double, seconds: Double?) = ConverterPreviewer.usesPiece(op) ? (2, 4) : (0, nil)
+                let r = try await ConverterPreviewer.make(spec, folder: folder, control: ConverterControl(report: { _ in }), piece: piece)
                 let shown = ConverterPreviewFiles.expand(r.outputs)
                 // Everything the preview made must sit in its own scratch folder.
                 let outside = shown.filter { !$0.path.hasPrefix(folder.path) && !$0.path.hasPrefix(dir.path) }

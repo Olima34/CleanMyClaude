@@ -4,6 +4,29 @@ import AVFoundation
 /// What the preview shows: the real result of the chosen operation and options, computed on one file into a private
 /// scratch folder (nothing is saved where the user keeps files). Videos are previewed on their first seconds,
 /// archives to extract by listing their content.
+/// How much of a video the compression preview converts (the rest is extrapolated for the size).
+enum ConverterPreviewSpan: String, CaseIterable, Identifiable {
+    case s10, s30, m1, full
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .s10: return "10 s"
+        case .s30: return "30 s"
+        case .m1: return "1 min"
+        case .full: return "Tout"
+        }
+    }
+    var seconds: Double? {
+        switch self {
+        case .s10: return 10
+        case .s30: return 30
+        case .m1: return 60
+        case .full: return nil
+        }
+    }
+}
+
 struct ConverterPreviewResult {
     var operation: ConverterOperation
     var sources: [URL]
@@ -13,6 +36,7 @@ struct ConverterPreviewResult {
     /// For a video previewed on its first seconds: the size expected for the whole file.
     var estimatedSize: Int64?
     var excerptSeconds: Double?
+    var excerptStart: Double = 0
     var note: String?
     var text: String?
     var codes: [String] = []
@@ -40,9 +64,21 @@ final class ConverterPreviewer {
     /// When a result is made of several files (a PDF cut page by page): which one is shown.
     var outputIndex = 0
 
+    /// Video compression: how long a piece is converted for the preview, and from where (the "Avant" player's position).
+    var span: ConverterPreviewSpan = .s10 {
+        didSet { if span != oldValue, let model { schedule(model) } }
+    }
+    var start: Double = 0 {
+        didSet { if start != oldValue, let model { schedule(model) } }
+    }
+    /// Where the "Avant" player is (updated about once a second while it plays).
+    var playhead: Double = 0
+
+    @ObservationIgnored private weak var model: ConverterModel?
     @ObservationIgnored private var control: ConverterControl?
     @ObservationIgnored private var work: DispatchWorkItem?
     @ObservationIgnored private var key = ""
+    @ObservationIgnored private var lastFileIndex = 0
     @ObservationIgnored private var currentFolder: URL?
 
     /// Scratch space for previews, inside the user's temporary folder (wiped by macOS anyway).
@@ -59,6 +95,7 @@ final class ConverterPreviewer {
 
     /// Called whenever the files, the operation or an option changes: the preview follows, a moment later.
     func schedule(_ model: ConverterModel) {
+        self.model = model
         work?.cancel()
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
         guard let op = model.operation, Self.previews(op) else {
@@ -72,16 +109,24 @@ final class ConverterPreviewer {
         }
         if fileIndex >= targets.count { fileIndex = 0 }
         let inputs = op.isBatch ? targets : [targets[fileIndex]]
-        let newKey = "\(op.rawValue)|\(model.options)|\(inputs.map(\.url.path).joined(separator: "|"))|\(model.ffmpegPath ?? "")"
+        if fileIndex != lastFileIndex { start = 0; lastFileIndex = fileIndex }
+        let pieceKey = Self.usesPiece(op) ? "|\(span.rawValue)|\(Int(start))" : ""
+        let newKey = "\(op.rawValue)|\(model.options)|\(inputs.map(\.url.path).joined(separator: "|"))|\(model.ffmpegPath ?? "")\(pieceKey)"
         guard newKey != key else { return }
         let spec = ConverterEngine.Spec(operation: op, inputs: inputs.map(\.url), kinds: inputs.map(\.kind), names: [],
                                         options: model.options, folder: nil, ffmpeg: model.ffmpegPath)
+        let piece: (start: Double, seconds: Double?) = (start, Self.usesPiece(op) ? span.seconds : nil)
         let item = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.run(spec, key: newKey) }
+            MainActor.assumeIsolated { self?.run(spec, key: newKey, piece: piece) }
         }
         work = item
         let delay = op.family == .videos ? 0.9 : 0.5
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+    }
+
+    /// Only re-encoding a video takes long enough to preview a piece of it; sound and GIFs are made whole.
+    nonisolated static func usesPiece(_ op: ConverterOperation) -> Bool {
+        op == .videoCompress || op == .videoContainer
     }
 
     /// Operations that get a preview here (renaming has its own list, a QR code is drawn as it is typed).
@@ -109,7 +154,7 @@ final class ConverterPreviewer {
         currentFolder = nil
     }
 
-    private func run(_ spec: ConverterEngine.Spec, key newKey: String) {
+    private func run(_ spec: ConverterEngine.Spec, key newKey: String, piece: (start: Double, seconds: Double?)) {
         control?.cancel()
         guard let root = Self.root else {
             state = .failed("Pas de dossier temporaire pour préparer l'aperçu.")
@@ -132,7 +177,7 @@ final class ConverterPreviewer {
         self.control = control
         Task { [weak self] in
             let outcome: Result<ConverterPreviewResult, Error> = await Task.detached(priority: .userInitiated) {
-                do { return .success(try await Self.make(spec, folder: folder, control: control)) } catch { return .failure(error) }
+                do { return .success(try await Self.make(spec, folder: folder, control: control, piece: piece)) } catch { return .failure(error) }
             }.value
             guard let self, self.key == newKey, !control.isCancelled else { return }
             switch outcome {
@@ -146,7 +191,8 @@ final class ConverterPreviewer {
 
     // MARK: Making the preview (off the main thread)
 
-    nonisolated static func make(_ spec: ConverterEngine.Spec, folder: URL, control: ConverterControl) async throws -> ConverterPreviewResult {
+    nonisolated static func make(_ spec: ConverterEngine.Spec, folder: URL, control: ConverterControl,
+                                 piece: (start: Double, seconds: Double?) = (0, nil)) async throws -> ConverterPreviewResult {
         let op = spec.operation
         var result = ConverterPreviewResult(operation: op, sources: spec.inputs)
         result.sourceSize = spec.inputs.reduce(0) { $0 + ConverterOutputs.size($1) }
@@ -163,16 +209,17 @@ final class ConverterPreviewer {
         var run = spec
         run = ConverterEngine.Spec(operation: spec.operation, inputs: spec.inputs, kinds: spec.kinds, names: spec.names,
                                    options: spec.options, folder: folder, ffmpeg: spec.ffmpeg)
-        // Videos: the first seconds, converted for real; the full size is extrapolated.
+        // Re-encoding a video: the chosen piece (10 s by default, from the chosen position) converted for real,
+        // the full size extrapolated. "Tout", sound and GIFs: the whole result.
         var ratio: Double?
-        if spec.operation.family == .videos, let duration = await duration(spec.inputs[0]), duration > 6 {
-            let seconds = spec.operation == .videoGIF ? min(Double(spec.options.gifSeconds), 4) : 4
-            if let clip = try await excerpt(spec.inputs[0], seconds: seconds, into: folder, ffmpeg: spec.ffmpeg) {
+        if usesPiece(spec.operation), let seconds = piece.seconds, let duration = await duration(spec.inputs[0]), duration > seconds + 1 {
+            let from = max(0, min(piece.start, duration - seconds))
+            if let clip = try await excerpt(spec.inputs[0], start: from, seconds: seconds, into: folder, ffmpeg: spec.ffmpeg) {
                 run = ConverterEngine.Spec(operation: spec.operation, inputs: [clip], kinds: spec.kinds, names: spec.names,
                                            options: spec.options, folder: folder, ffmpeg: spec.ffmpeg)
                 result.excerptSeconds = seconds
-                let full = spec.operation == .videoGIF ? min(Double(spec.options.gifSeconds), duration) : duration
-                ratio = full / seconds
+                result.excerptStart = from
+                ratio = duration / seconds
             }
         }
         try control.check()
@@ -214,7 +261,7 @@ final class ConverterPreviewer {
     }
 
     /// The first `seconds` of a video, copied without re-encoding (AVFoundation, or ffmpeg for MKV and WebM).
-    nonisolated static func excerpt(_ url: URL, seconds: Double, into folder: URL, ffmpeg: String?) async throws -> URL? {
+    nonisolated static func excerpt(_ url: URL, start: Double = 0, seconds: Double, into folder: URL, ffmpeg: String?) async throws -> URL? {
         let asset = AVURLAsset(url: url)
         if (try? await asset.load(.isExportable)) == true,
            let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) {
@@ -222,7 +269,8 @@ final class ConverterPreviewer {
             let out = FileOps.uniqueURL(folder.appendingPathComponent("extrait.\(type == .mp4 ? "mp4" : "mov")"))
             session.outputURL = out
             session.outputFileType = type
-            session.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: seconds, preferredTimescale: 600))
+            session.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),
+                                            duration: CMTime(seconds: seconds, preferredTimescale: 600))
             // macOS 14 has no async `export(to:as:)`: the classic call, awaited.
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
                 session.exportAsynchronously { done.resume() }
@@ -231,7 +279,7 @@ final class ConverterPreviewer {
         }
         if let ffmpeg {
             let out = FileOps.uniqueURL(folder.appendingPathComponent("extrait." + url.pathExtension.lowercased()))
-            let r = Shell.run(ffmpeg, ["-v", "error", "-i", url.path, "-t", String(seconds), "-c", "copy", out.path], timeout: 60)
+            let r = Shell.run(ffmpeg, ["-v", "error", "-ss", String(start), "-i", url.path, "-t", String(seconds), "-c", "copy", out.path], timeout: 60)
             if r.ok, FS.exists(out.path) { return out }
         }
         return nil
@@ -282,7 +330,7 @@ final class ConverterPreviewer {
             r.outputDetail = file.detail
             r.note = model.options.stripOnConvert ? "Sans le GPS : la position de la photo n'est plus dans le fichier." : nil
         case .videos:
-            r.excerptSeconds = 4
+            r.excerptSeconds = 10
             r.outputSize = Int64(Double(file.size) * 0.012)
             r.estimatedSize = Int64(Double(file.size) * 0.21)
             r.outputDetail = "HEVC · 1 920 × 1 080"
