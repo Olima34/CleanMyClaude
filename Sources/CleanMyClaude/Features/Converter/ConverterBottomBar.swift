@@ -36,7 +36,7 @@ struct ConverterBottomBar: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(count == 0 ? "Aucun fichier pour « \(op.title) »" : "\(Fmt.plural(count, "fichier prêt", "fichiers prêts"))")
                             .font(.serif(18)).foregroundStyle(Theme.text)
-                        Text("\(op.title) · \(ConverterModel.summary(op, model.options)) · \(op == .rename ? "sur place" : model.destinationLabel.lowercased())")
+                        Text("\(op.title) · \(ConverterModel.summary(op, model.options, qualityApplies: model.qualityApplies(op))) · \(op == .rename ? "sur place" : model.destinationLabel.lowercased())")
                             .font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
                     }
                     Spacer()

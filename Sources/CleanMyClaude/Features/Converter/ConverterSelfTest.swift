@@ -15,6 +15,10 @@ extension ConverterModel {
             previewFailures.append("aperçu : opérations couvertes")
         }
         if ConverterDestination.saved() == .beside, DemoData.isEnabled { previewFailures.append("destination : Téléchargements par défaut en démo") }
+        if !ConverterPreviewer.processesEverything(.archiveZip) || !ConverterPreviewer.processesEverything(.pdfCompress)
+            || ConverterPreviewer.processesEverything(.videoCompress) || ConverterPreviewer.heavyLimit != 200_000_000 {
+            previewFailures.append("aperçu : opérations trop lourdes sans clic")
+        }
         var failures: [String] = []
         func expect(_ condition: Bool, _ what: @autoclosure () -> String) {
             if !condition { failures.append(what()) }
@@ -98,6 +102,8 @@ extension ConverterModel {
         expect(name("x.txt") == "Sans titre.txt", "Nom vide")
         rule = ConverterRenameRule(pattern: "{nom} v2")
         expect(name("Projet.final", dir: true) == "Projet.final v2", "Dossier avec un point")
+        expect(ConverterRename.needsDates(ConverterRenameRule(pattern: "Plage {Date}")) && ConverterRename.needsDates(ConverterRenameRule(pattern: "{HEURE}"))
+               && !ConverterRename.needsDates(ConverterRenameRule(pattern: "{nom} {n:3}")), "Motif avec date : attente des dates")
         let batch = ["a.jpg", "b.jpg"].map { ConverterFile(url: URL(fileURLWithPath: "/nonexistent-cmc/\($0)"), kind: .image) }
         let preview = ConverterRename.preview(batch, rule: ConverterRenameRule(pattern: "photo"))
         expect(preview.count == 2 && !preview[0].conflict && preview[1].conflict, "Doublon de nom non signalé")
@@ -114,6 +120,28 @@ extension ConverterModel {
         expect(writable.contains("public.jpeg") && writable.contains("public.png"), "ImageIO n'écrit ni JPEG ni PNG ?")
         expect(!writable.contains("org.webmproject.webp") || ConverterImageEngine.writable.contains("org.webmproject.webp"), "WebP sans ffmpeg")
         expect(ConverterImageFormat.matching(uti: "public.heif") == .heic, "HEIF → HEIC")
+        let same = { (name: String) in ConverterImageEngine.sameFormat(for: URL(fileURLWithPath: "/nonexistent-cmc/" + name)) }
+        expect(same("a.PNG") == .png && !same("a.png").lossy && same("b.jpeg") == .jpeg && same("c.xyz123") == .jpeg, "« Même format » d'après le nom")
+
+        // "Même format" on a PNG: lossless, the quality is neither shown nor announced.
+        let pngs = ConverterModel()
+        pngs.files = ["a.png", "b.png"].map { ConverterFile(url: URL(fileURLWithPath: "/nonexistent-cmc/\($0)"), kind: .image) }
+        pngs.options.compressFormat = nil
+        expect(!pngs.qualityApplies(.imageCompress), "Qualité proposée pour des PNG gardés en PNG")
+        expect(!ConverterModel.summary(.imageCompress, pngs.options, qualityApplies: false).contains("qualité"), "Résumé : qualité d'un PNG")
+        pngs.files.append(ConverterFile(url: URL(fileURLWithPath: "/nonexistent-cmc/c.jpg"), kind: .image))
+        expect(pngs.qualityApplies(.imageCompress), "Qualité absente avec un JPEG dans la sélection")
+        pngs.files.removeLast()
+        pngs.options.compressFormat = .jpeg
+        expect(pngs.qualityApplies(.imageCompress), "Qualité absente pour des PNG convertis en JPEG")
+        pngs.options.resizeFormat = .png
+        expect(!pngs.qualityApplies(.imageResize), "Qualité proposée pour un redimensionnement en PNG")
+
+        // "MOV ↔ MP4" refuses a video already in the chosen format (the preview asks the same question).
+        let mp4 = URL(fileURLWithPath: "/nonexistent-cmc/film.mp4")
+        expect((try? ConverterMediaEngine.checkChangesContainer(mp4, to: .mp4)) == nil, "MP4 → MP4 accepté")
+        expect((try? ConverterMediaEngine.checkChangesContainer(URL(fileURLWithPath: "/nonexistent-cmc/film.m4v"), to: .mp4)) == nil, "M4V → MP4 accepté")
+        expect((try? ConverterMediaEngine.checkChangesContainer(mp4, to: .mov)) != nil, "MP4 → MOV refusé")
         expect(!ConverterAudioFormat.available(ffmpeg: false).contains(.mp3), "MP3 proposé sans ffmpeg")
         expect(ConverterAudioFormat.available(ffmpeg: true).contains(.mp3), "MP3 absent avec ffmpeg")
         let encoders = ConverterMediaEngine.ffmpegEncodersParse(" V....D libx264              libx264 H.264\n A....D libmp3lame   MP3\n ------\n")

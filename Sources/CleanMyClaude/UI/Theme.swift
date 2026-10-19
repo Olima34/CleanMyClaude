@@ -199,7 +199,8 @@ enum Fmt {
         let units = ["Ko", "Mo", "Go", "To", "Po"]
         var x = v / 1000
         var i = 0
-        while x >= 1000 && i < units.count - 1 { x /= 1000; i += 1 }
+        // 999,6 Ko shows as "1 Mo", not "1 000 Ko".
+        while x >= 999.5 && i < units.count - 1 { x /= 1000; i += 1 }
         return "\(dec(x)) \(units[i])"
     }
 

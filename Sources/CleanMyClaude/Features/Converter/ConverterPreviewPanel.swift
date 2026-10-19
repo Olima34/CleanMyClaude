@@ -67,6 +67,8 @@ struct ConverterPreviewPanel: View {
             .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.bg.opacity(0.5)))
         case .failed(let message):
             placeholder(symbol: "exclamationmark.triangle", text: "Cette conversion échouerait : \(message)", tint: Theme.warn)
+        case .skipped(let message):
+            placeholder(symbol: "scalemass", text: message)
         case .ready(let r):
             HStack(spacing: 12) {
                 pane(title: "Avant", detail: detailLine(size: r.sourceSize, detail: r.sourceDetail)) {
@@ -97,7 +99,7 @@ struct ConverterPreviewPanel: View {
         } else if r.operation == .qrRead {
             listBox(r.codes.isEmpty ? ["Aucun code trouvé."] : r.codes)
         } else if let listing = r.listing {
-            listBox(listing + (r.listingTotal > listing.count ? ["… et \(r.listingTotal - listing.count) autres"] : []))
+            listBox(listing + (r.listingTotal > listing.count ? ["… et \(Fmt.plural(r.listingTotal - listing.count, "autre", "autres"))"] : []))
         } else {
             let shown = ConverterPreviewFiles.expand(r.outputs)
             VStack(spacing: 6) {
@@ -205,7 +207,7 @@ struct ConverterPreviewPanel: View {
 
     private func placeholder(symbol: String, text: String, tint: Color = Theme.text3) -> some View {
         VStack(spacing: 10) {
-            Image(systemName: symbol).font(.system(size: 24, weight: .light)).foregroundStyle(tint)
+            Image(systemName: symbol).font(.ui(24, .light)).foregroundStyle(tint)
             Text(text).font(.ui(12)).foregroundStyle(tint == Theme.text3 ? Theme.text3 : tint)
                 .multilineTextAlignment(.center).frame(maxWidth: 520)
         }
@@ -415,7 +417,7 @@ struct ConverterDemoArtwork: View {
                         Spacer()
                         Text(badge).font(.ui(10.5, .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 7).padding(.vertical, 3)
-                            .background(Capsule().fill(.black.opacity(0.45)))
+                            .background(PillShape().fill(.black.opacity(0.45)))
                     }
                     Spacer()
                 }
@@ -445,9 +447,11 @@ struct ConverterPDFPane: View {
                         .buttonStyle(.plain).disabled(page >= count)
                 }
                 .font(.ui(10.5, .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Theme.text)
                 .padding(.horizontal, 10).padding(.vertical, 5)
-                .background(Capsule().fill(.black.opacity(0.55)))
+                .background(PillShape().fill(Theme.card.opacity(0.92)))
+                .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
+                .themedShadow(color: .black.opacity(0.18), radius: 4, y: 1)
                 .padding(10)
             }
         }
@@ -467,7 +471,8 @@ struct ConverterPDFView: NSViewRepresentable {
         view.autoScales = true
         view.displayMode = .singlePageContinuous
         view.displaysPageBreaks = true
-        view.backgroundColor = NSColor(white: 0.12, alpha: 1)
+        // The theme's page background around the (white) pages, like Preview's gray.
+        view.backgroundColor = NSColor(Theme.track)
         context.coordinator.attach(view)
         load(view, context: context)
         return view
@@ -475,6 +480,7 @@ struct ConverterPDFView: NSViewRepresentable {
 
     func updateNSView(_ view: PDFView, context: Context) {
         context.coordinator.parent = self
+        view.backgroundColor = NSColor(Theme.track)
         if view.document?.documentURL != url { load(view, context: context) }
     }
 

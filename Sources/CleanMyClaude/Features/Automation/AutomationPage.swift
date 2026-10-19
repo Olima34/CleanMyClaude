@@ -235,7 +235,7 @@ private struct AutomationPreviewBox<Content: View>: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg.opacity(0.6)))
-        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, style: StrokeStyle(lineWidth: Theme.line, dash: [4, 3])))
     }
 }
 
@@ -486,6 +486,8 @@ private struct AutomationAlertsCard: View {
               symbol: "bell.badge", tint: Theme.bad) {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(isOn: Binding(get: { DemoData.isEnabled || alerts }, set: { on in
+                    // The demo never writes the real preferences.
+                    guard !DemoData.isEnabled else { return HUD.show(DemoData.refusal, symbol: "theatermasks") }
                     alerts = on
                     if on { Alerts.requestPermission() }
                 })) {

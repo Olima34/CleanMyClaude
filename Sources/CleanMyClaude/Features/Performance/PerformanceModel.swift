@@ -10,6 +10,17 @@ struct MaintenanceTask: Identifiable {
     let command: String
     var warning: String? = nil
 
+    /// Tasks that delete something, interrupt work or keep the Mac busy for long ask first.
+    var confirmation: String? {
+        switch id {
+        case "spotlight": return warning
+        case "snapshots": return "Les instantanés locaux de Time Machine seront supprimés : tu ne pourras plus revenir à ces versions de tes fichiers."
+        case "finder": return "Les fenêtres du Finder se ferment, et une copie en cours serait interrompue."
+        case "simulators": return "Les simulateurs dont la version d'iOS n'est plus installée seront supprimés définitivement, avec leurs données."
+        default: return nil
+        }
+    }
+
     var available: Bool {
         DemoData.isEnabled || id != "simulators" || FS.exists("/Applications/Xcode.app") || Shell.exists("/usr/bin/xcrun") && FS.exists(FS.home + "/Library/Developer/CoreSimulator")
     }
@@ -102,6 +113,7 @@ final class PerformanceModel {
         let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
             _ = MainActor.assumeIsolated { Task { await self?.sampleProcesses() } }
         }
+        t.tolerance = 0.5
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }

@@ -42,6 +42,9 @@ struct LauncherPage: View {
                                 StatusBadge(status: model.hotKeyActive ? .ok : .bad, text: model.hotKeyActive ? "Actif" : "Refusé par macOS")
                             }
                         }
+                        if let refusal = model.comboRefusal {
+                            Text(refusal).font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                        }
                         Text(model.hotKeyActive
                              ? "Appuie dessus depuis n'importe quelle app. S'il ne réagit pas, une autre app l'utilise peut-être : choisis-en un autre (⌃⌥Espace, ⇧⌘Espace…)."
                              : "macOS a refusé ce raccourci. Choisis-en un avec ⌘ ou ⌃ (⌥ seul n'est plus accepté par certaines versions de macOS).")
@@ -120,11 +123,12 @@ struct LauncherPage: View {
 
     /// The titles of the most used commands, with their counts.
     private var mostUsed: [(String, Int)] {
-        let all = ModuleRegistry.commands(app)
-        return CommandRunner.usage.value
+        let titles = Dictionary(ModuleRegistry.commands(app).map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        // Only the commands that still exist (files, results of a past query… are not in the catalogue), then the top 6.
+        return Array(CommandRunner.usage.value
             .sorted { $0.value.count > $1.value.count }
-            .prefix(6)
-            .compactMap { id, u in all.first { $0.id == id }.map { ($0.title, u.count) } }
+            .compactMap { id, u in titles[id].map { ($0, u.count) } }
+            .prefix(6))
     }
 }
 

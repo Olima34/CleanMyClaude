@@ -76,6 +76,7 @@ final class ConverterModel: AppModule {
                 self.files[i].detail = info.detail
                 self.files[i].date = info.date
                 self.files[i].pages = info.pages
+                self.files[i].inspected = true
             }
         }
     }
@@ -116,6 +117,34 @@ final class ConverterModel: AppModule {
         ConverterRename.preview(targets(for: .rename), rule: options.rename)
     }
 
+    /// False while {date} or {heure} wait for the files' own dates (read just after they were added).
+    var renameDatesReady: Bool {
+        !ConverterRename.needsDates(options.rename) || targets(for: .rename).allSatisfy(\.inspected)
+    }
+
+    /// The format chosen for an image operation (nil: "même format", each image keeps its own).
+    func chosenImageFormat(_ op: ConverterOperation) -> ConverterImageFormat? {
+        switch op {
+        case .imageConvert: return options.imageFormat
+        case .imageResize: return options.resizeFormat
+        case .imageCompress: return options.compressFormat
+        default: return nil
+        }
+    }
+
+    /// The format each image of `op` is written in ("même format" keeps a PNG in PNG, without loss).
+    func writtenFormats(_ op: ConverterOperation) -> [ConverterImageFormat] {
+        let chosen = chosenImageFormat(op)
+        return targets(for: op).map { chosen ?? ConverterImageEngine.sameFormat(for: $0.url) }
+    }
+
+    /// False when every image would be written without loss (a PNG kept in PNG): the quality changes nothing then.
+    func qualityApplies(_ op: ConverterOperation) -> Bool {
+        if let chosen = chosenImageFormat(op) { return chosen.lossy }
+        let formats = writtenFormats(op)
+        return formats.isEmpty || formats.contains(where: \.lossy)
+    }
+
     /// Selects an operation (launcher, gallery, chips).
     func focus(_ op: ConverterOperation) {
         operation = op
@@ -128,7 +157,7 @@ final class ConverterModel: AppModule {
         let count = targets(for: op).count
         guard count >= op.minimumCount else { return false }
         switch op {
-        case .rename: return renamePreview.contains { !$0.unchanged }
+        case .rename: return renamePreview.contains { !$0.unchanged } && renameDatesReady
         case .pdfSplit, .pdfRotate, .pdfToImages:
             return targets(for: op).allSatisfy { file in
                 guard let pages = file.pages else { return false }
@@ -203,9 +232,13 @@ final class ConverterModel: AppModule {
         let targets = targets(for: op)
         guard targets.count >= op.minimumCount else { return }
         let options = options
-        let summary = Self.summary(op, options)
+        let summary = Self.summary(op, options, qualityApplies: qualityApplies(op))
         var new: [ConverterJob] = []
         if op == .rename {
+            guard renameDatesReady else {
+                message = "Je lis encore les dates des fichiers : un instant."
+                return
+            }
             let preview = renamePreview.filter { !$0.unchanged }
             guard !preview.isEmpty else {
                 message = "Les noms ne changent pas : rien à renommer."
@@ -332,7 +365,7 @@ final class ConverterModel: AppModule {
             job.undone = true
             message = "Les anciens noms sont revenus."
         } catch {
-            message = "Annulation incomplète : \(error.localizedDescription)"
+            message = "Les anciens noms n'ont pas pu revenir (rien n'a changé) : \(error.localizedDescription)"
         }
     }
 
@@ -412,8 +445,9 @@ final class ConverterModel: AppModule {
         }
     }
 
-    /// What the job will do, in a few words: "→ JPEG · qualité 82 %".
-    static func summary(_ op: ConverterOperation, _ o: ConverterOptions) -> String {
+    /// What the job will do, in a few words: "→ JPEG · qualité 82 %". `qualityApplies` false: every image is written
+    /// without loss (a PNG kept in PNG), the quality is not mentioned.
+    static func summary(_ op: ConverterOperation, _ o: ConverterOptions, qualityApplies: Bool = true) -> String {
         let quality = "qualité \(Int((o.imageQuality * 100).rounded())) %"
         switch op {
         case .imageConvert:
@@ -422,7 +456,8 @@ final class ConverterModel: AppModule {
         case .imageResize:
             return "→ \(Fmt.int(o.maxSide)) px max · \(o.resizeFormat?.name ?? "même format")"
         case .imageCompress:
-            return "→ \(quality) · \(o.compressFormat?.name ?? "même format")" + (o.compressMaxSide > 0 ? " · \(Fmt.int(o.compressMaxSide)) px" : "")
+            return "→ " + [qualityApplies ? quality : nil, o.compressFormat?.name ?? "même format",
+                           o.compressMaxSide > 0 ? "\(Fmt.int(o.compressMaxSide)) px" : nil].compactMap { $0 }.joined(separator: " · ")
         case .imageStrip:
             return o.stripMode == .gps ? "→ sans localisation" : "→ sans métadonnées"
         case .imagesToPDF:

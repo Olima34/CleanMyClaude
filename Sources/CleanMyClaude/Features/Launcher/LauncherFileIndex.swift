@@ -151,7 +151,8 @@ final class LauncherFileIndex: @unchecked Sendable {
         return .dir
     }
 
-    /// True for a folder the index covers (not hidden, not in ~/Library, not inside a package or a dependency folder).
+    /// True for a folder the index reads (not hidden, not in ~/Library, not a package nor inside one, not a dependency folder).
+    /// A package (.xcodeproj, .pages…) is listed in its parent but never read: FSEvents reports it when its content changes.
     func isIndexable(_ path: String) -> Bool {
         Self.isIndexable(path, roots: roots, home: home)
     }
@@ -162,12 +163,7 @@ final class LauncherFileIndex: @unchecked Sendable {
         if path == root { return true }
         let parts = path.dropFirst(root.count + 1).split(separator: "/").map(String.init)
         if root == home, parts.first == "Library" { return false }
-        for (i, p) in parts.enumerated() {
-            let k = kind(p, isDir: true)
-            if k == .skip { return false }
-            if k == .package, i < parts.count - 1 { return false }
-        }
-        return true
+        return !parts.contains { kind($0, isDir: true) != .dir }
     }
 
     /// Walks a folder with fts(3), without stat (the directory entries say what is a folder).
@@ -388,9 +384,39 @@ final class LauncherFileIndex: @unchecked Sendable {
     /// Ranked by how well the name matches, then by recent changes, location and depth.
     static func search(_ query: String, in s: Snapshot, limit: Int = 40, now: Date = Date(), checkDates: Bool = true) -> [Hit] {
         let tokens = query.split(separator: " ").map { fold(String($0)) }.filter { !$0.isEmpty }
-        guard let primary = tokens.max(by: { $0.count < $1.count }), s.count > 0 else { return [] }
-        let others = tokens.filter { $0 != primary }
+        guard s.count > 0, !tokens.isEmpty else { return [] }
         let whole = fold(query.trimmingCharacters(in: .whitespaces))
+        // One word must be in the name itself: the longest first (the fewest candidates), then the next ones,
+        // until something matches ("administratif avis" finds Administratif/Avis d'imposition.pdf).
+        var tried: [[UInt8]] = []
+        var candidates: [(index: Int, score: Double)] = []
+        for primary in tokens.sorted(by: { $0.count > $1.count }) where !tried.contains(primary) {
+            tried.append(primary)
+            candidates = matches(in: s, primary: primary, others: tokens.filter { $0 != primary }, whole: whole)
+            if !candidates.isEmpty { break }
+        }
+        // Dates only for the best candidates: a stat each, a few microseconds.
+        candidates.sort { $0.score > $1.score }
+        var hits: [Hit] = []
+        for c in candidates.prefix(checkDates ? 160 : limit) {
+            let dir = s.dirs[Int(s.parents[c.index])]
+            let path = dir + "/" + s.names[c.index]
+            var score = c.score
+            if checkDates {
+                var st = stat()
+                if stat(path, &st) == 0 {
+                    let age = now.timeIntervalSince1970 - Double(st.st_mtimespec.tv_sec)
+                    if age < 86_400 { score += 90 } else if age < 7 * 86_400 { score += 60 } else if age < 30 * 86_400 { score += 30 } else if age < 365 * 86_400 { score += 10 }
+                }
+            }
+            hits.append(Hit(path: path, name: s.names[c.index], isDir: s.isDir[c.index], score: score))
+        }
+        hits.sort { $0.score > $1.score }
+        return Array(hits.prefix(limit))
+    }
+
+    /// Every name that contains `primary`, whose other words are in the name or its folder, with its base score.
+    private static func matches(in s: Snapshot, primary: [UInt8], others: [[UInt8]], whole: [UInt8]) -> [(index: Int, score: Double)] {
         var candidates: [(index: Int, score: Double)] = []
         s.folded.withUnsafeBufferPointer { buf in
             let n = primary.count
@@ -423,24 +449,7 @@ final class LauncherFileIndex: @unchecked Sendable {
                                                inFolder: inFolder, snapshot: s, index: i)))
             }
         }
-        // Dates only for the best candidates: a stat each, a few microseconds.
-        candidates.sort { $0.score > $1.score }
-        var hits: [Hit] = []
-        for c in candidates.prefix(checkDates ? 160 : limit) {
-            let dir = s.dirs[Int(s.parents[c.index])]
-            let path = dir + "/" + s.names[c.index]
-            var score = c.score
-            if checkDates {
-                var st = stat()
-                if stat(path, &st) == 0 {
-                    let age = now.timeIntervalSince1970 - Double(st.st_mtimespec.tv_sec)
-                    if age < 86_400 { score += 90 } else if age < 7 * 86_400 { score += 60 } else if age < 30 * 86_400 { score += 30 } else if age < 365 * 86_400 { score += 10 }
-                }
-            }
-            hits.append(Hit(path: path, name: s.names[c.index], isDir: s.isDir[c.index], score: score))
-        }
-        hits.sort { $0.score > $1.score }
-        return Array(hits.prefix(limit))
+        return candidates
     }
 
     private static func baseScore(_ buf: UnsafeBufferPointer<UInt8>, start: Int, end: Int, position: Int, primary: [UInt8], whole: [UInt8],

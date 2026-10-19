@@ -151,7 +151,9 @@ struct CleanupGroupPanel: View {
         let tint = Theme.color(index: group.tint)
         Card(padding: 0) { VStack(spacing: 0) {
             HStack(spacing: 12) {
-                CheckBox(state: model.state(of: group)) { model.toggle(group) }
+                CheckBox(state: model.state(of: group), disabled: model.targets(in: group).allSatisfy { $0.cleanable.isEmpty }) {
+                    model.toggle(group)
+                }
                 IconBadge(symbol: group.symbol, tint: tint, size: 30)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(group.title).font(.ui(14, .semibold)).foregroundStyle(Theme.text)

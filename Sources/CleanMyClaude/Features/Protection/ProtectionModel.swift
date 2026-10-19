@@ -22,6 +22,7 @@ final class ProtectionModel {
     var tab: ProtectionTab = .security
     var checks: [SecurityCheck] = []
     var pending: SecurityCheck?
+    @ObservationIgnored private var pendingChecked = Date.distantPast
     var isCheckingUpdates = false
     var isAuditing = false
     var lastAudit: Date?
@@ -63,13 +64,15 @@ final class ProtectionModel {
         traceSelection = Set(t.filter { $0.defaultOn && $0.blockedReason == nil && !$0.needsFullDiskAccess }.map(\.id))
         lastAudit = Date()
         isAuditing = false
-        if pending == nil { await checkUpdates() }
+        // Asked again when it failed, when updates were waiting (maybe installed since) or after an hour.
+        if pending?.status != .ok || Date().timeIntervalSince(pendingChecked) > 3600 { await checkUpdates() }
     }
 
     func checkUpdates() async {
         guard !isCheckingUpdates else { return }
         isCheckingUpdates = true
         pending = await Task.detached(priority: .utility) { SecurityAudit.pendingUpdates() }.value
+        pendingChecked = Date()
         isCheckingUpdates = false
     }
 

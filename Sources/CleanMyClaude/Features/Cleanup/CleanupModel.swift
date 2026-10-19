@@ -102,6 +102,7 @@ final class CleanupModel {
     func scan() async {
         guard !isScanning else { return }
         isScanning = true
+        lastReport = nil
         progress = 0
         progressLabel = "Préparation…"
         let running = RunningApps.snapshot()

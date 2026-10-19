@@ -139,6 +139,7 @@ final class AppModel {
                     Alerts.check(self.monitor)
                 }
             }
+            t.tolerance = 10
             RunLoop.main.add(t, forMode: .common)
         }
     }
@@ -203,9 +204,9 @@ final class AppModel {
 
     var healthColor: Color {
         switch healthScore {
-        case 80...: return Theme.good
-        case 60..<80: return Theme.accent
-        case 45..<60: return Theme.warn
+        case 85...: return Theme.good
+        case 70..<85: return Theme.accent
+        case 50..<70: return Theme.warn
         default: return Theme.bad
         }
     }

@@ -164,7 +164,8 @@ struct PersistenceTab: View {
                              detail: "Non signés, orphelins ou scripts", tint: startup.flagged.isEmpty ? Theme.good : Theme.warn)
                 }
                 if let msg = startup.message {
-                    Callout(symbol: "info.circle", title: "Fait", text: msg)
+                    Callout(symbol: startup.messageOK ? "checkmark.circle" : "exclamationmark.triangle", title: startup.messageOK ? "Fait" : "Pas tout à fait",
+                          text: msg, tint: startup.messageOK ? Theme.good : Theme.warn)
                 }
                 if !startup.flagged.isEmpty {
                     Panel(title: "Points d'attention", subtitle: "Pas forcément dangereux : souvent un reste d'app désinstallée ou un petit outil maison. Mais à regarder de près.",

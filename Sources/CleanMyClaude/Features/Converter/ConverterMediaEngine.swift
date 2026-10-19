@@ -60,13 +60,18 @@ enum ConverterMediaEngine {
                                 suffix: preset.short, folder: folder, control: control)
     }
 
-    /// MOV ↔ MP4 without re-encoding when the streams allow it; MKV and WebM (and exotic sources) through ffmpeg.
-    static func changeContainer(_ input: URL, to container: ConverterVideoContainer, ffmpeg: String?, folder: URL?,
-                                control: ConverterControl) async throws -> (url: URL, note: String?) {
+    /// Refuses a video already in that container: "MOV ↔ MP4" would have nothing to do (the preview asks too).
+    static func checkChangesContainer(_ input: URL, to container: ConverterVideoContainer) throws {
         let ext = input.pathExtension.lowercased()
         if ext == container.ext || (container == .mp4 && ext == "m4v") {
             throw ConverterError.unsupported("« \(input.lastPathComponent) » est déjà en \(container.name).")
         }
+    }
+
+    /// MOV ↔ MP4 without re-encoding when the streams allow it; MKV and WebM (and exotic sources) through ffmpeg.
+    static func changeContainer(_ input: URL, to container: ConverterVideoContainer, ffmpeg: String?, folder: URL?,
+                                control: ConverterControl) async throws -> (url: URL, note: String?) {
+        try checkChangesContainer(input, to: container)
         if container.viaFFmpeg || needsFFmpeg(input) {
             guard let ffmpeg else { throw ConverterError.unsupported("Ce format demande ffmpeg (brew install ffmpeg).") }
             let url = try await ffmpegVideo(input, to: container, ffmpeg: ffmpeg, folder: folder, control: control)

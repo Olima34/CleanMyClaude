@@ -112,9 +112,13 @@ final class PermissionCenter {
             return
         }
         var s: [PermissionKind: PermissionState] = [:]
-        let notif = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
-        s[.notifications] = !Notifier.available ? .notAsked
-            : (notif == .authorized || notif == .provisional ? .granted : (notif == .denied ? .denied : .notAsked))
+        // Outside an app bundle the notification center throws: it is only asked for in the assembled app.
+        if Notifier.available {
+            let notif = await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+            s[.notifications] = notif == .authorized || notif == .provisional ? .granted : (notif == .denied ? .denied : .notAsked)
+        } else {
+            s[.notifications] = .notAsked
+        }
         switch CLLocationManager().authorizationStatus {
         case .authorizedAlways, .authorized: s[.location] = .granted
         case .denied, .restricted: s[.location] = .denied

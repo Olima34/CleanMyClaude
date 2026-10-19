@@ -163,7 +163,8 @@ struct ShortcutRecorder: View {
                 stop()
                 return nil
             }
-            if event.keyCode == 51 { // Backspace
+            // Backspace alone clears; with modifiers it is a shortcut like any other (⌃⌥⌫ is a default one).
+            if event.keyCode == 51, event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
                 onChange(nil)
                 stop()
                 return nil

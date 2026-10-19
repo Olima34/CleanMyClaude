@@ -34,18 +34,18 @@ struct LauncherView: View {
             HStack(spacing: 12) {
                 ClaudeSpark(size: 22)
                 if Snapshot.isActive {
-                    Text(model.query).font(.system(size: 21)).foregroundStyle(Theme.text)
+                    Text(model.query).font(.ui(21)).foregroundStyle(Theme.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     TextField("Apps, fichiers, calculs, traductions, commandes…", text: $model.query)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 21, weight: .regular))
+                        .font(.ui(21))
                         .foregroundStyle(Theme.text)
                         .focused($focused)
                 }
                 if !model.query.isEmpty {
                     Button { model.query = "" } label: {
-                        Image(systemName: "xmark.circle.fill").font(.system(size: 14)).foregroundStyle(Theme.text3)
+                        Image(systemName: "xmark.circle.fill").font(.ui(14)).foregroundStyle(Theme.text3)
                     }
                     .buttonStyle(.plain)
                 }
@@ -231,7 +231,7 @@ struct LauncherAssignView: View {
                 Text(target.kind).font(.ui(12)).foregroundStyle(Theme.text3)
             }
             Text(current?.display ?? "Tape les touches…")
-                .font(.system(size: 26, weight: .semibold, design: .rounded))
+                .font(.ui(26, .semibold))
                 .foregroundStyle(current == nil ? Theme.text3 : Theme.text)
                 .padding(.horizontal, 22).padding(.vertical, 10)
                 .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.card))
@@ -300,6 +300,6 @@ struct LauncherDragPreview: View {
             Text((path as NSString).lastPathComponent).font(.ui(12, .medium)).foregroundStyle(Theme.text).lineLimit(1)
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.cardRaised))
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.cardRaised))
     }
 }

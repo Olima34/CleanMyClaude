@@ -33,7 +33,8 @@ struct StoragePage: View {
                 }
             })
             if let msg = model.message {
-                Callout(symbol: "info.circle", title: "Fait", text: msg)
+                Callout(symbol: model.messageOK ? "checkmark.circle" : "exclamationmark.triangle", title: model.messageOK ? "Fait" : "Pas tout à fait",
+                          text: msg, tint: model.messageOK ? Theme.good : Theme.warn)
             }
             switch model.tab {
             case .explorer: ExplorerTab()

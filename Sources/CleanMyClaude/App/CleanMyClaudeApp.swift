@@ -72,6 +72,7 @@ enum LoginItem {
 
     @discardableResult
     static func set(_ on: Bool) -> String? {
+        guard !DemoData.isEnabled else { return DemoData.refusal }
         do {
             if on { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
             return nil

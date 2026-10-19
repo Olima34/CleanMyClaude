@@ -227,6 +227,12 @@ final class TranslatorModel: AppModule {
         let codes = TranslatorLanguage.all.map(\.code)
         if Set(codes).count != codes.count { failures.append("langue en double") }
         if !Self.claudeSystem(target: "en", source: nil, tone: .formal).contains("Anglais") { failures.append("consigne de Claude") }
+        let articles = ["en": "l'anglais", "es": "l'espagnol", "de": "l'allemand", "it": "l'italien", "uk": "l'ukrainien", "ar": "l'arabe",
+                        "id": "l'indonésien", "hi": "l'hindi", "he": "l'hébreu", "hu": "le hongrois", "ja": "le japonais",
+                        "zh-Hans": "le chinois (simplifié)", "th": "le thaï", "fr": "le français"]
+        for (code, expected) in articles where TranslatorLanguage.withArticle(code) != expected {
+            failures.append("article : « \(TranslatorLanguage.withArticle(code)) » au lieu de « \(expected) »")
+        }
         return failures
     }
 
@@ -289,10 +295,20 @@ final class TranslatorModel: AppModule {
         if self.engine == .claude { Task { await translateWithClaude() } } else { translateSoon(delay: 0.05) }
     }
 
+    /// The text and its translation change sides, with their languages (the result keeps its engine: it is the same pair).
     func swapLanguages() {
-        let from = effectiveSource ?? "fr"
-        let to = effectiveTarget
-        if !resultText.isEmpty { sourceText = resultText }
+        var from = effectiveSource ?? "fr"
+        var to = effectiveTarget
+        if !resultText.isEmpty {
+            // The result's own languages: the target may have changed since (with Claude, nothing re-translates by itself).
+            from = resultFrom ?? from
+            to = resultTo ?? to
+            let original = sourceText
+            sourceText = resultText
+            resultText = original
+            resultFrom = to
+            resultTo = from
+        }
         sourceCode = to
         targetCode = from
     }
@@ -331,7 +347,13 @@ final class TranslatorModel: AppModule {
                 pairStatus = status == .unknown ? .unsupported : status
                 isTranslating = false
                 resultText = ""
-                error = status == .downloadable ? nil : "Je ne reconnais pas la langue de ce texte : choisis-la dans le Traducteur, ou ⌘↩ pour Claude."
+                if status == .downloadable {
+                    error = nil
+                } else if let source, status == .unsupported {
+                    error = "Apple ne traduit pas \(TranslatorLanguage.named(source)) → \(TranslatorLanguage.named(target)) : ⌘↩ pour Claude."
+                } else {
+                    error = "Je ne reconnais pas la langue de ce texte : choisis-la dans le Traducteur, ou ⌘↩ pour Claude."
+                }
                 return
             }
             if !download, status == .downloadable {
@@ -387,6 +409,11 @@ final class TranslatorModel: AppModule {
         }
     }
 
+    /// A request overtaken by a newer one (the text changed meanwhile) changes nothing on screen: the newer one answers.
+    private func isCurrent(_ request: TranslatorRequest, _ channel: TranslatorChannel) -> Bool {
+        self.request(for: channel)?.id == request.id
+    }
+
     func appleFinished(_ request: TranslatorRequest, result: String?, channel: TranslatorChannel) {
         switch channel {
         case .launcher:
@@ -395,12 +422,14 @@ final class TranslatorModel: AppModule {
                 if launcherCache.count > 300 { launcherCache.removeAll() } // typed words pile up: a fresh start now and then
                 launcherCache[key] = result
             }
-            launcherAsked = nil
+            if isCurrent(request, channel) { launcherAsked = nil }
             app?.launcher.refreshKeepingSelection()
         case .page, .panel:
+            guard isCurrent(request, channel) else { return }
             isTranslating = false
             if request.download { Task { await refreshLanguageStatuses(); refreshPairStatus() } }
             guard let result, request.text == sourceText else { return }
+            error = nil
             resultText = result
             resultEngine = .apple
             resultFrom = request.source ?? detectedCode
@@ -411,14 +440,17 @@ final class TranslatorModel: AppModule {
     }
 
     func appleFailed(_ request: TranslatorRequest, error: Error, channel: TranslatorChannel) {
+        // A translation cancelled because a newer one replaced it is not a failure: only a download is cancelled by the user.
+        let replaced = error is CancellationError && !request.download
         switch channel {
         case .launcher:
-            launcherNotes[request.target + "|" + request.text] = TranslatorAvailability.message(error)
-            launcherAsked = nil
+            if !replaced { launcherNotes[request.target + "|" + request.text] = TranslatorAvailability.message(error) }
+            if isCurrent(request, channel) { launcherAsked = nil }
             app?.launcher.refreshKeepingSelection()
         case .page, .panel:
+            guard isCurrent(request, channel) else { return }
             isTranslating = false
-            self.error = TranslatorAvailability.message(error)
+            if !replaced { self.error = TranslatorAvailability.message(error) }
         }
     }
 
@@ -437,7 +469,7 @@ final class TranslatorModel: AppModule {
                     let status = source == nil ? TranslatorPairStatus.unsupported : await TranslatorAvailability.status(from: source!, to: target)
                     if status != .installed {
                         self.launcherNotes[key] = status == .downloadable
-                            ? "Télécharge le \(TranslatorLanguage.named(target).lowercased()) dans le Traducteur (↩)"
+                            ? "Télécharge \(TranslatorLanguage.withArticle(target)) dans le Traducteur (↩)"
                             : "Langue non reconnue ou non proposée par Apple : choisis Claude"
                         self.launcherAsked = nil
                         self.app?.launcher.refreshKeepingSelection()
@@ -521,11 +553,14 @@ final class TranslatorModel: AppModule {
 
     func restore(_ entry: TranslatorEntry) {
         autoWork?.cancel()
+        sourceCode = nil
         sourceText = entry.source
         targetCode = entry.to
         resultText = entry.result
         resultFrom = entry.from
         resultTo = entry.to
+        resultEngine = entry.engine
+        error = nil
         autoWork?.cancel()
     }
 

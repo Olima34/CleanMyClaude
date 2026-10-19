@@ -22,6 +22,12 @@ enum ClipboardChecks {
         expect(!ClipboardFilter.isExcluded(nil, list: defaults), "app inconnue ignorée")
         expect(!ClipboardSettings().enabled, "historique activé par défaut")
 
+        // "Coller en texte brut": markers kept, plain text left alone.
+        let rich = ["public.rtf", "public.utf8-plain-text", ClipboardFilter.concealed, ClipboardFilter.transient]
+        expect(ClipboardFilter.markers(in: rich) == [ClipboardFilter.concealed, ClipboardFilter.transient], "marqueurs perdus en texte brut")
+        expect(!ClipboardFilter.isPlainTextOnly(rich), "texte riche pris pour du texte brut")
+        expect(ClipboardFilter.isPlainTextOnly(["public.utf8-plain-text", ClipboardFilter.concealed]), "mot de passe réécrit en texte brut")
+
         // Titles and kinds.
         expect(ClipboardText.title("\n\n   Bonjour   le\tmonde  \nsuite") == "Bonjour le monde", "titre : \(ClipboardText.title("\n\n   Bonjour   le\tmonde  \nsuite"))")
         expect(ClipboardText.kind(of: "https://exemple.fr/page?x=1") == .link, "lien non reconnu")

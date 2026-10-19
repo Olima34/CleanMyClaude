@@ -326,7 +326,7 @@ private struct NetworkHistoryPanel: View {
     var body: some View {
         let m = app.network
         let tests = Array(m.history.suffix(20))
-        Panel(title: "Historique", subtitle: tests.isEmpty ? "Tes tests s'afficheront ici." : "\(Fmt.plural(m.history.count, "test", "tests")) gardés sur ce Mac.",
+        Panel(title: "Historique", subtitle: tests.isEmpty ? "Tes tests s'afficheront ici." : "\(Fmt.plural(m.history.count, "test gardé", "tests gardés")) sur ce Mac.",
               symbol: "chart.xyaxis.line", tint: Theme.accent) {
             if !m.history.isEmpty {
                 Button("Effacer") { confirmClear = true }.buttonStyle(SoftButtonStyle(small: true))
@@ -369,7 +369,9 @@ private struct NetworkHistoryPanel: View {
                 }
             }
         }
-        .confirmAction("Effacer l'historique des tests ?", message: "Les \(Fmt.plural(m.history.count, "mesure", "mesures")) gardées sur ce Mac seront oubliées.",
+        .confirmAction("Effacer l'historique des tests ?",
+                       message: m.history.count == 1 ? "La mesure gardée sur ce Mac sera oubliée."
+                           : "Les \(Fmt.int(m.history.count)) mesures gardées sur ce Mac seront oubliées.",
                        button: "Effacer", isPresented: $confirmClear) {
             m.clearHistory()
         }
@@ -634,7 +636,8 @@ private struct NetworkCopyText: View {
 
     var body: some View {
         Button {
-            _ = CommandRunner.copy(text)
+            guard !DemoData.isEnabled else { return HUD.show(DemoData.refusal, symbol: "theatermasks") }
+            _ = NetworkModel.copy(text)
             HUD.show("Copié : \(text)", symbol: "doc.on.clipboard.fill")
         } label: {
             Text(text).font(font).foregroundStyle(Theme.text).multilineTextAlignment(.trailing).lineLimit(2).truncationMode(.middle)

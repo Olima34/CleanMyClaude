@@ -50,11 +50,14 @@ final class AppsModel {
     var isFindingLeftovers = false
     var isRemoving = false
     var message: String?
+    /// False when `message` reports a failure (shown as a warning, not as "done").
+    var messageOK = true
 
 
     func scan() async {
         guard !isScanning else { return }
         isScanning = true
+        message = nil
         progress = 0
         let running = RunningApps.snapshot()
         apps = await Task.detached(priority: .userInitiated) {
@@ -91,6 +94,12 @@ final class AppsModel {
     // MARK: Uninstall
 
     func prepareUninstall(_ app: InstalledApp) async {
+        var app = app
+        // The app may have been opened since the last scan: an open app must be quit first.
+        if !DemoData.isEnabled, let id = app.bundleID {
+            app.isRunning = NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == id }
+            if let i = apps.firstIndex(where: { $0.id == app.id }) { apps[i].isRunning = app.isRunning }
+        }
         uninstallTarget = app
         leftovers = []
         isFindingLeftovers = true
@@ -104,6 +113,7 @@ final class AppsModel {
     func quitTarget() {
         guard !DemoData.isEnabled else {
             message = DemoData.refusal
+            messageOK = false
             return
         }
         guard let app = uninstallTarget, let id = app.bundleID else { return }
@@ -125,11 +135,14 @@ final class AppsModel {
         uninstallTarget = nil
         if !report.failures.contains(where: { $0.path == app.path }) && !FS.exists(app.path) {
             apps.removeAll { $0.id == app.id }
+            messageOK = true
             message = "\(app.name) est désinstallée : \(Fmt.bytes(report.freed)) envoyés à la Corbeille."
             ActionLog.write("DÉSINSTALLÉ \(app.name) (\(app.path))")
         } else if DemoData.isEnabled {
             message = DemoData.refusal
+            messageOK = false
         } else {
+            messageOK = false
             message = "\(app.name) n'a pas pu être supprimée. Glisse-la dans la Corbeille depuis le Finder."
         }
     }
@@ -159,6 +172,7 @@ final class AppsModel {
         let failed = Set(report.failures.map(\.path))
         orphans.removeAll { orphanSelection.contains($0.id) && !failed.contains($0.id) }
         orphanSelection = []
+        messageOK = report.failures.isEmpty
         message = "Restes envoyés à la Corbeille : \(report.summary)"
         isRemoving = false
     }

@@ -165,17 +165,17 @@ struct SmartScanPanel: View {
                                    running: app.protection.isAuditing,
                                    value: app.protection.hasAudit ? "\(app.protection.passedCount)/\(app.protection.scoredCount)" : "—",
                                    detail: app.protection.hasAudit ? (app.protection.issues.isEmpty ? "Toutes les protections sont actives" : "\(Fmt.plural(app.protection.issues.count, "point", "points")) à vérifier") : "Pas encore analysé",
-                                   page: .protection)
+                                   page: .protection, tab: { app.protection.tab = .security })
                     ScanResultTile(symbol: "square.grid.2x2", title: "Applications", tint: Theme.palette[4],
                                    running: app.apps.isScanning,
                                    value: app.apps.lastScan != nil ? "\(app.apps.unused.count)" : "—",
                                    detail: app.apps.lastScan != nil ? "inutilisées depuis 3 mois · \(app.apps.intel.count) en Intel" : "Pas encore analysé",
-                                   page: .apps)
+                                   page: .apps, tab: { app.apps.filter = .unused })
                     ScanResultTile(symbol: "power", title: "Démarrage", tint: Theme.warn,
                                    running: app.startup.isScanning,
                                    value: app.startup.lastScan != nil ? "\(app.startup.activeCount)" : "—",
                                    detail: app.startup.lastScan != nil ? "agents tiers actifs · \(app.startup.flagged.count) à examiner" : "Pas encore analysé",
-                                   page: .performance)
+                                   page: .performance, tab: { app.performance.tab = .startup })
                 }
             }
         }
@@ -203,10 +203,15 @@ struct ScanResultTile: View {
     var value: String
     var detail: String
     var page: Page
+    /// Picks the right tab of the page before opening it.
+    var tab: (() -> Void)? = nil
     @State private var hovering = false
 
     var body: some View {
-        Button { app.page = page } label: {
+        Button {
+            tab?()
+            app.page = page
+        } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 7) {
                     IconBadge(symbol: symbol, tint: tint)
@@ -291,6 +296,8 @@ struct Advice: Identifiable {
     let text: String
     let tint: Color
     var page: Page? = nil
+    /// Picks the right tab of the page before opening it.
+    var tab: (() -> Void)? = nil
 }
 
 struct Recommendations: View {
@@ -309,7 +316,10 @@ struct Recommendations: View {
                     .padding(.vertical, 8)
                 }
                 ForEach(list.prefix(5)) { a in
-                    Button { if let p = a.page { app.page = p } } label: {
+                    Button {
+                        a.tab?()
+                        if let p = a.page { app.page = p }
+                    } label: {
                         HStack(alignment: .top, spacing: 10) {
                             IconBadge(symbol: a.symbol, tint: a.tint, size: 26)
                             VStack(alignment: .leading, spacing: 2) {
@@ -342,7 +352,8 @@ struct Recommendations: View {
                               text: "Il reste \(Fmt.bytes(m.diskFree)). Garde idéalement 15 à 20 % de libre.", tint: Theme.warn, page: .storage))
         }
         for c in app.protection.issues.prefix(3) {
-            out.append(Advice(id: c.id, symbol: c.symbol, title: c.title, text: c.detail, tint: c.status.color, page: .protection))
+            out.append(Advice(id: c.id, symbol: c.symbol, title: c.title, text: c.detail, tint: c.status.color, page: .protection,
+                              tab: { app.protection.tab = .security }))
         }
         if app.cleanup.hasResults && app.cleanup.recommendedSize > 1_000_000_000 {
             out.append(Advice(id: "junk", symbol: "sparkles", title: "\(Fmt.bytes(app.cleanup.recommendedSize)) à récupérer sans risque",
@@ -362,7 +373,7 @@ struct Recommendations: View {
         if m.swapUsed > m.memTotal / 2 || m.pressure != .normal {
             out.append(Advice(id: "memory", symbol: "memorychip", title: "Ta mémoire est à l'étroit",
                               text: "macOS déborde sur le disque (\(Fmt.bytes(m.swapUsed)) d'échange). Ferme les apps gourmandes repérées dans Optimisation.",
-                              tint: Theme.warn, page: .performance))
+                              tint: Theme.warn, page: .performance, tab: { app.performance.tab = .monitor }))
         }
         if m.uptime > 14 * 86400 {
             out.append(Advice(id: "uptime", symbol: "arrow.clockwise", title: "Pense à redémarrer",
@@ -375,15 +386,18 @@ struct Recommendations: View {
         }
         if !app.apps.intel.isEmpty {
             out.append(Advice(id: "intel", symbol: "cpu", title: "\(Fmt.plural(app.apps.intel.count, "app tourne", "apps tournent")) encore via Rosetta",
-                              text: "Apple retire Rosetta après macOS 27 : cherche leurs versions Apple Silicon.", tint: Theme.warn, page: .apps))
+                              text: "Apple retire Rosetta après macOS 27 : cherche leurs versions Apple Silicon.", tint: Theme.warn, page: .apps,
+                              tab: { app.apps.filter = .intel }))
         }
         if app.startup.flagged.count > 0 {
             out.append(Advice(id: "flagged", symbol: "exclamationmark.shield", title: "\(Fmt.plural(app.startup.flagged.count, "élément persistant", "éléments persistants")) à examiner",
-                              text: "Non signés, orphelins ou scripts qui démarrent avec ton Mac.", tint: Theme.warn, page: .protection))
+                              text: "Non signés, orphelins ou scripts qui démarrent avec ton Mac.", tint: Theme.warn, page: .protection,
+                              tab: { app.protection.tab = .persistence }))
         }
         if app.apps.unused.count >= 5 {
             out.append(Advice(id: "unused", symbol: "moon.zzz", title: "\(app.apps.unused.count) apps dorment",
-                              text: "Pas ouvertes depuis trois mois : \(Fmt.bytes(app.apps.unused.reduce(0) { $0 + $1.size })) au total.", tint: Theme.palette[4], page: .apps))
+                              text: "Pas ouvertes depuis trois mois : \(Fmt.bytes(app.apps.unused.reduce(0) { $0 + $1.size })) au total.", tint: Theme.palette[4], page: .apps,
+                              tab: { app.apps.filter = .unused }))
         }
         return out
     }

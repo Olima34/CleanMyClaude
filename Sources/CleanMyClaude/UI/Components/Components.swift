@@ -786,6 +786,8 @@ enum IconCache {
         icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
         NSGraphicsContext.restoreGraphicsState()
         guard let cg = ctx.makeImage() else { return nil }
+        // The app lives for weeks in the menu bar: thousands of files must not keep their icons forever.
+        if cache.count > 600 { cache.removeAll(keepingCapacity: true) }
         cache[key] = cg
         return cg
     }

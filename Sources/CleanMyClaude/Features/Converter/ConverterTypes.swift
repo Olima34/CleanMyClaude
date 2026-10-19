@@ -689,6 +689,8 @@ struct ConverterFile: Identifiable, Equatable {
     var detail: String?
     /// Page count of a PDF, once read.
     var pages: Int?
+    /// Size, date and details read (in the background, just after the file was added).
+    var inspected = false
 
     var name: String { url.lastPathComponent }
     var ext: String { url.pathExtension.uppercased() }

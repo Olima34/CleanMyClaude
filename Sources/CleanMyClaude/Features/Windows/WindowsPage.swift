@@ -31,6 +31,9 @@ struct WindowsPage: View {
             if let note = model.note {
                 Callout(symbol: "arrow.triangle.swap", title: "Raccourci déplacé", text: note, tint: Self.tint)
             }
+            if let refusal = model.refusal {
+                Callout(symbol: "exclamationmark.triangle", title: "Raccourci déjà pris", text: refusal, tint: Theme.warn)
+            }
             HStack(alignment: .top, spacing: 14) {
                 VStack(spacing: 14) {
                     WindowsGroupPanel(group: .halves)
@@ -132,7 +135,7 @@ struct WindowsMiniScreen: View {
                             .offset(x: inset + r.minX * w + 0.5, y: inset + r.minY * hh + 0.5)
                     }
                     if action == .restore {
-                        Image(systemName: "arrow.uturn.backward").font(.system(size: 8, weight: .bold)).foregroundStyle(WindowsPage.tint)
+                        Image(systemName: "arrow.uturn.backward").font(.ui(8, .bold)).foregroundStyle(WindowsPage.tint)
                             .frame(width: width, height: h)
                     }
                 }
@@ -146,7 +149,7 @@ struct WindowsMiniScreen: View {
         return HStack(spacing: 0) {
             screen(filled: action == .previousDisplay, side: small)
             Image(systemName: action == .nextDisplay ? "arrow.right" : "arrow.left")
-                .font(.system(size: 7, weight: .bold)).foregroundStyle(Theme.text3)
+                .font(.ui(7, .bold)).foregroundStyle(Theme.text3)
                 .frame(width: width - small * 2)
             screen(filled: action == .nextDisplay, side: small)
         }

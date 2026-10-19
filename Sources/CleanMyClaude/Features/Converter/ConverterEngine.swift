@@ -29,19 +29,19 @@ enum ConverterEngine {
                 return ConverterOutput(files: [try await webp(input, maxSide: 0, quality: o.imageQuality, spec: spec, control: control)])
             }
             return ConverterOutput(files: [try ConverterImageEngine.convert(input, format: o.imageFormat, maxSide: 0, quality: o.imageQuality,
-                                                                             strip: o.stripOnConvert, suffix: nil, folder: folder, control: control)])
+                                                                             strip: o.stripOnConvert ? .all : nil, suffix: nil, folder: folder, control: control)])
         case .imageResize:
             if let format = o.resizeFormat, format.viaFFmpeg {
                 return ConverterOutput(files: [try await webp(input, maxSide: o.maxSide, quality: o.imageQuality, spec: spec, control: control)])
             }
             return ConverterOutput(files: [try ConverterImageEngine.convert(input, format: o.resizeFormat, maxSide: o.maxSide, quality: o.imageQuality,
-                                                                             strip: false, suffix: "\(o.maxSide) px", folder: folder, control: control)])
+                                                                             strip: nil, suffix: "\(o.maxSide) px", folder: folder, control: control)])
         case .imageCompress:
             if let format = o.compressFormat, format.viaFFmpeg {
                 return ConverterOutput(files: [try await webp(input, maxSide: o.compressMaxSide, quality: o.imageQuality, spec: spec, control: control)])
             }
             let url = try ConverterImageEngine.convert(input, format: o.compressFormat, maxSide: o.compressMaxSide, quality: o.imageQuality,
-                                                       strip: false, suffix: "compressée", folder: folder, control: control)
+                                                       strip: nil, suffix: "compressée", folder: folder, control: control)
             return ConverterOutput(files: [url])
         case .imageStrip:
             let r = try ConverterImageEngine.stripMetadata(input, mode: o.stripMode, folder: folder, control: control)

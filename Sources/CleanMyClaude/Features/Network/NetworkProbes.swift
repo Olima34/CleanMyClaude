@@ -11,10 +11,11 @@ import Darwin
 
 enum NetworkFormat {
     /// Bits per second, the unit of internet plans ("312 Mbit/s").
+    /// The thresholds sit half a unit lower: 999,6 Mbit/s rounds to "1 Gbit/s", not "1 000 Mbit/s".
     static func bits(_ bps: Double) -> String {
-        if bps >= 1e9 { return Fmt.dec(bps / 1e9) + " Gbit/s" }
-        if bps >= 1e6 { return Fmt.int(bps / 1e6) + " Mbit/s" }
-        if bps >= 1e3 { return Fmt.int(bps / 1e3) + " kbit/s" }
+        if bps >= 999_500_000 { return Fmt.dec(bps / 1e9) + " Gbit/s" }
+        if bps >= 999_500 { return Fmt.int(bps / 1e6) + " Mbit/s" }
+        if bps >= 999.5 { return Fmt.int(bps / 1e3) + " kbit/s" }
         return Fmt.int(bps) + " bit/s"
     }
 
@@ -267,6 +268,11 @@ struct NetworkInterface: Identifiable, Equatable {
     var ipv4: [String] = []
     var ipv6: [String] = []
     var isPrimary = false
+
+    /// The address to show: IPv4 first, unless IPv6 is asked for.
+    func address(preferringIPv6 v6: Bool = false) -> String? {
+        v6 ? (ipv6.first ?? ipv4.first) : (ipv4.first ?? ipv6.first)
+    }
 }
 
 struct NetworkAddresses: Equatable {

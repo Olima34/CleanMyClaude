@@ -161,9 +161,9 @@ enum ToolboxLauncher {
                 out.append(failure("json", "JSON invalide : \(e.description)"))
             }
         case "lorem":
-            let n = Int(rest) ?? 1
+            let n = min(max(Int(rest) ?? 1, 1), 200)
             let text = ToolboxText.lorem(n, unit: .paragraphs, seed: UInt64(n))
-            out.append(result("lorem", short(text, 70), "\(Fmt.plural(min(max(n, 1), 200), "paragraphe", "paragraphes")) de Lorem ipsum",
+            out.append(result("lorem", short(text, 70), "\(Fmt.plural(n, "paragraphe", "paragraphes")) de Lorem ipsum",
                               symbol: "text.alignleft") { m.copy(text) })
         case "ts", "timestamp", "horodatage", "unix", "epoch":
             if rest.isEmpty {

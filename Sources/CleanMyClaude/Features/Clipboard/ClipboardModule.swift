@@ -195,6 +195,11 @@ final class ClipboardModel: AppModule {
     }
 
     func setCombo(_ c: KeyCombo?) {
+        // A shortcut already used elsewhere in Clean My Claude would answer only one of the two.
+        if let c, let other = (app ?? AppContext.model)?.hotkeys.owner(of: c, except: .clipboard) {
+            HUD.show("\(c.display) est déjà utilisé par \(other).", symbol: "exclamationmark.triangle.fill")
+            return
+        }
         combo = c
         HotKeyCenter.shared.change(Self.hotKeyID, to: c) { [weak self] in self?.showInLauncher() }
     }
@@ -238,12 +243,15 @@ final class ClipboardModel: AppModule {
         let source = (name: front?.localizedName, id: front?.bundleIdentifier, path: front?.bundleURL?.path)
         let now = Date()
 
-        if settings.keepFiles, types.contains(NSPasteboard.PasteboardType.fileURL.rawValue),
-           let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-            let paths = urls.map(\.path)
-            add(ClipboardItem(kind: .files, files: paths, digest: ClipboardStorage.digest(Data(paths.joined(separator: "\n").utf8)),
-                              date: now, firstDate: now, appName: source.name, appBundleID: source.id, appPath: source.path))
-            return
+        if types.contains(NSPasteboard.PasteboardType.fileURL.rawValue) {
+            // Files left out: the file name the Finder also puts on the clipboard as text is not kept either.
+            guard settings.keepFiles else { return }
+            if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+                let paths = urls.map(\.path)
+                add(ClipboardItem(kind: .files, files: paths, digest: ClipboardStorage.digest(Data(paths.joined(separator: "\n").utf8)),
+                                  date: now, firstDate: now, appName: source.name, appBundleID: source.id, appPath: source.path))
+                return
+            }
         }
         if let text = pb.string(forType: .string), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard text.utf8.count <= ClipboardHistory.maxTextBytes else { skipped += 1; return }
@@ -348,9 +356,26 @@ final class ClipboardModel: AppModule {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return .message(DemoData.refusal) }
         let pb = pasteboard
         guard let text = pb.string(forType: .string), !text.isEmpty else { return .failed("Le presse-papiers ne contient pas de texte.") }
-        pb.clearContents()
-        pb.setString(text, forType: .string)
-        lastChange = pb.changeCount
+        let types = (pb.types ?? []).map(\.rawValue)
+        // Already plain (a password from a manager, typically): left as it is, so the change count the manager
+        // compares before clearing it does not move.
+        if !ClipboardFilter.isPlainTextOnly(types) {
+            // Secrets and temporary data keep their markers: histories (this one included) still skip them.
+            let markers = ClipboardFilter.markers(in: types).map { NSPasteboard.PasteboardType($0) }
+            let saved = markers.map { ($0, pb.data(forType: $0) ?? Data()) }
+            pb.clearContents()
+            pb.declareTypes([.string] + markers, owner: nil)
+            pb.setString(text, forType: .string)
+            for (type, data) in saved { pb.setData(data, forType: type) }
+            lastChange = pb.changeCount
+            if markers.contains(where: { $0.rawValue == ClipboardFilter.concealed }) {
+                // The app that copied the secret no longer recognizes the clipboard: clear it after 90 s ourselves.
+                let count = pb.changeCount
+                DispatchQueue.main.asyncAfter(deadline: .now() + 90) {
+                    if pb.changeCount == count { pb.clearContents() }
+                }
+            }
+        }
         if canPaste {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { Self.postPaste() }
             return .done

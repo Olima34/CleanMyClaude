@@ -5,6 +5,8 @@ import AppKit
 @main
 enum Entry {
     static func main() {
+        // A tool that quits before reading its input (claude, a killed process) must not take the app down with it.
+        signal(SIGPIPE, SIG_IGN)
         let args = CommandLine.arguments
         if args.contains("--selftest") {
             exit(SelfTest.run() ? 0 : 1)
@@ -128,7 +130,7 @@ enum Diagnostics {
             for t in targets where !t.items.isEmpty || t.needsFullDiskAccess {
                 let on = t.cleanable.filter(\.defaultOn).reduce(Int64(0)) { $0 + $1.size }
                 let blocked = t.items.filter { $0.blockedReason != nil }.count
-                print("  [\(t.group.title)] \(t.title) : \(Fmt.bytes(t.size)) en \(t.items.count) éléments" +
+                print("  [\(t.group.title)] \(t.title) : \(Fmt.bytes(t.size)) en \(Fmt.plural(t.items.count, "élément", "éléments"))" +
                       (t.needsFullDiskAccess ? " — ACCÈS COMPLET REQUIS" : "") +
                       " · coché \(Fmt.bytes(on))" + (blocked > 0 ? " · \(blocked) bloqués (app ouverte)" : ""))
                 for i in t.items.prefix(3) { print("      \(Fmt.bytes(i.size))\t\(i.name)\(i.detail.map { " — \($0)" } ?? "")") }
@@ -353,6 +355,12 @@ enum SelfTest {
                 print("✗ proposé mais protégé : \(i.path)")
                 ok = false
             }
+        }
+        // Sizes switch unit instead of showing "1 000 Ko".
+        for (bytes, text) in [(Int64(999), "999 o"), (999_600, "1 Mo"), (999_400, "999 Ko"), (1_500_000_000, "1,5 Go")]
+        where Fmt.bytes(bytes) != text {
+            print("✗ Fmt.bytes(\(bytes)) = \(Fmt.bytes(bytes)), attendu \(text)")
+            ok = false
         }
         // Module checks (calculator, conversions, command ids…).
         let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) }

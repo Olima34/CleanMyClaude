@@ -33,7 +33,9 @@ enum ClipboardLauncher {
             },
             AppCommand(id: "clip_pin_last", title: "Épingler le dernier élément copié", keywords: words + ["épingler", "garder"],
                        icon: .symbol("pin", tint), group: .clipboard, assistantSafe: true) { _ in
-                guard let first = m.items.first(where: { !$0.pinned }) else { return .failed("Rien à épingler.") }
+                // The newest item, even when it is already pinned (an older unpinned one is not "the last copied").
+                guard let first = m.items.first else { return .failed("Rien à épingler.") }
+                guard !first.pinned else { return .message("Déjà épinglé : \(first.title.prefix(40))") }
                 m.togglePin(first.id)
                 return .message("Épinglé : \(first.title.prefix(40))")
             },

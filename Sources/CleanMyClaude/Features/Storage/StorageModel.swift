@@ -49,6 +49,8 @@ final class StorageModel {
     var unreadable = 0
     var lastScan: Date?
     var message: String?
+    /// False when `message` reports a failure (shown as a warning, not as "done").
+    var messageOK = true
 
     var bigFiles: [BigFile] = []
     var bigSelection: Set<String> = []
@@ -66,6 +68,8 @@ final class StorageModel {
     var isRemoving = false
 
     @ObservationIgnored private var cancelFlag = CancelFlag()
+    /// The duplicate search has its own: cancelling it must not stop the explorer, and the other way round.
+    @ObservationIgnored private var dupFlag = CancelFlag()
 
     var rootTitle: String {
         switch rootPath {
@@ -97,7 +101,8 @@ final class StorageModel {
                 }
             }
         }.value
-        isScanning = false
+        // A scan cancelled then replaced by a newer one must not mark the newer one as finished.
+        if cancelFlag === flag { isScanning = false }
         guard !flag.isCancelled else { return }
         root = result.root
         rootPath = result.root.path
@@ -148,7 +153,7 @@ final class StorageModel {
         let result = await Task.detached(priority: .userInitiated) {
             StorageScanner.scan(path, isCancelled: { flag.isCancelled }) { _, _ in }
         }.value
-        isScanning = false
+        if cancelFlag === flag { isScanning = false }
         guard !flag.isCancelled else { return }
         node.children = result.root.children
         node.children.forEach { $0.parent = node }
@@ -164,8 +169,11 @@ final class StorageModel {
             if current === node { current = node.parent }
             node.detach()
             bigFiles.removeAll { $0.path == node.path || $0.path.hasPrefix(node.path + "/") }
+            bigSelection = bigSelection.filter { $0 != node.path && !$0.hasPrefix(node.path + "/") }
+            messageOK = true
             message = "« \(node.name) » est dans la Corbeille (\(Fmt.bytes(node.size)))."
         } else {
+            messageOK = false
             message = "Impossible de mettre « \(node.name) » à la Corbeille : \(report.failures.first?.reason ?? "emplacement protégé")."
         }
         version += 1
@@ -190,6 +198,7 @@ final class StorageModel {
         let failed = Set(report.failures.map(\.path))
         bigFiles.removeAll { bigSelection.contains($0.id) && !failed.contains($0.id) }
         bigSelection = bigSelection.intersection(failed)
+        messageOK = report.failures.isEmpty
         message = "Gros fichiers : \(report.summary)"
         isRemoving = false
     }
@@ -213,13 +222,13 @@ final class StorageModel {
         dupProgress = "Inventaire des fichiers…"
         let roots = dupRoots
         let flag = CancelFlag()
-        cancelFlag = flag
+        dupFlag = flag
         let groups = await Task.detached(priority: .userInitiated) {
             DuplicateFinder.find(in: roots, isCancelled: { flag.isCancelled }) { text in
                 Task { @MainActor in self.dupProgress = text }
             }
         }.value
-        isFindingDups = false
+        if dupFlag === flag { isFindingDups = false }
         guard !flag.isCancelled else { return }
         dupGroups = groups
         dupsScanned = true
@@ -257,12 +266,13 @@ final class StorageModel {
         }
         dupGroups.removeAll { $0.paths.count < 2 }
         dupSelection = dupSelection.intersection(failed)
+        messageOK = report.failures.isEmpty
         message = "Doublons : \(report.summary)"
         isRemoving = false
     }
 
     func cancelDuplicates() {
-        cancelFlag.cancel()
+        dupFlag.cancel()
         isFindingDups = false
     }
 }

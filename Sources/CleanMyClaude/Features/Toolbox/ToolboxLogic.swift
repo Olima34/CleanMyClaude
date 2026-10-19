@@ -904,7 +904,8 @@ enum ToolboxTime {
     private static func posix(_ format: String, utc: Bool = false) -> DateFormatter {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = utc ? TimeZone(identifier: "UTC") : .current
+        // Autoupdating: these formatters live as long as the app, which may cross a time zone change.
+        f.timeZone = utc ? TimeZone(identifier: "UTC") : .autoupdatingCurrent
         f.dateFormat = format
         return f
     }
@@ -961,13 +962,14 @@ enum ToolboxTime {
     private static let isoLocal: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime]
-        f.timeZone = .current
+        f.timeZone = .autoupdatingCurrent
         return f
     }()
 
     private static let long: DateFormatter = {
         let f = DateFormatter()
         f.locale = Fmt.fr
+        f.timeZone = .autoupdatingCurrent
         f.dateStyle = .full
         f.timeStyle = .medium
         return f
@@ -1021,6 +1023,8 @@ enum ToolboxTime {
         var minutes = 0
         var number = ""
         var sawUnit = false
+        // More than 6 digits is never a real duration, and could overflow once turned into minutes.
+        func value(_ digits: String) -> Int? { digits.count <= 6 ? Int(digits) : nil }
         var i = s.startIndex
         while i < s.endIndex {
             let c = s[i]
@@ -1030,7 +1034,7 @@ enum ToolboxTime {
                 continue
             }
             let rest = s[i...]
-            guard let n = Int(number) else { return nil }
+            guard let n = value(number) else { return nil }
             if rest.hasPrefix("heures") || rest.hasPrefix("heure") || rest.hasPrefix("h") {
                 minutes += n * 60
                 let len = rest.hasPrefix("heures") ? 6 : (rest.hasPrefix("heure") ? 5 : 1)
@@ -1038,7 +1042,7 @@ enum ToolboxTime {
                 number = ""
                 sawUnit = true
                 // "1h30": the trailing number is minutes.
-                if i < s.endIndex, s[i...].allSatisfy(\.isNumber), let m = Int(s[i...]) { return m < 60 ? .minutes(minutes + m) : nil }
+                if i < s.endIndex, s[i...].allSatisfy(\.isNumber), let m = value(String(s[i...])) { return m < 60 ? .minutes(minutes + m) : nil }
                 continue
             }
             if rest.hasPrefix("minutes") || rest.hasPrefix("minute") || rest.hasPrefix("min") || rest.hasPrefix("mn") || rest.hasPrefix("m") {
@@ -1053,7 +1057,7 @@ enum ToolboxTime {
         }
         if !number.isEmpty {
             // A bare number is minutes ("15").
-            guard !sawUnit, let n = Int(number) else { return nil }
+            guard !sawUnit, let n = value(number) else { return nil }
             minutes += n
         }
         guard minutes > 0, minutes <= 7 * 24 * 60 else { return nil }

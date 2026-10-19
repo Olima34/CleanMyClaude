@@ -17,7 +17,7 @@ enum LauncherCalculator {
 
     /// The value of `input` if it is a calculation (a lone number is not), else nil.
     static func evaluate(_ input: String) -> Double? {
-        let text = input.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "=", with: "")
+        let text = joinThousands(input.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "=", with: ""))
         guard !text.isEmpty, text.count <= 200, text.contains(where: \.isNumber) else { return nil }
         guard let tokens = tokenize(text) else { return nil }
         let isCalculation = tokens.contains { if case .op = $0 { return true }; if case .ident = $0 { return true }; return false }
@@ -27,18 +27,34 @@ enum LauncherCalculator {
         return value
     }
 
-    /// French display: "1 234,5", up to 10 significant digits.
+    /// French display: "1 234,5". At least 10 significant digits, more for a large number (up to 15, what a Double
+    /// holds exactly), so that "12345678901*10" shows and copies every digit.
     static func format(_ v: Double) -> String {
         let f = NumberFormatter()
         f.locale = Fmt.fr
         f.numberStyle = .decimal
         f.usesSignificantDigits = true
-        f.maximumSignificantDigits = 10
+        let integerDigits = abs(v) >= 1 ? Int(log10(abs(v))) + 1 : 1
+        f.maximumSignificantDigits = min(15, max(10, integerDigits + 3))
         if abs(v) >= 1e15 || (abs(v) < 1e-6 && v != 0) {
             f.numberStyle = .scientific
         }
         return f.string(from: NSNumber(value: v)) ?? "\(v)"
     }
+
+    /// "1 000" or "1 500,15" (the calculator's own display, with its narrow spaces) → "1000", "1500,15":
+    /// spaces between groups of three digits are thousands separators. "2 3" or "06 12 34" stay as typed.
+    static func joinThousands(_ s: String) -> String {
+        guard s.contains(where: { $0 == " " || $0 == "\u{00A0}" || $0 == "\u{202F}" }) else { return s }
+        var out = s
+        for m in thousandsPattern.matches(in: s, range: NSRange(s.startIndex..., in: s)).reversed() {
+            guard let r = Range(m.range, in: out) else { continue }
+            out.replaceSubrange(r, with: out[r].filter(\.isNumber))
+        }
+        return out
+    }
+
+    private static let thousandsPattern = try! NSRegularExpression(pattern: "(?<![0-9.,])[0-9]{1,3}(?:[ \u{00A0}\u{202F}][0-9]{3})+(?![0-9])")
 
     private static func tokenize(_ s: String) -> [Token]? {
         var tokens: [Token] = []
@@ -92,46 +108,62 @@ enum LauncherCalculator {
         private func peek() -> Token? { pos < tokens.count ? tokens[pos] : nil }
 
         // expression := term (("+"|"-") term)*
+        // "a + b %" and "a - b %" add or take b percent of a, like a pocket calculator ("1500 + 15 %" = 1725).
         mutating func expression() -> Double? {
             guard var v = term() else { return nil }
             while case .op(let o)? = peek(), o == "+" || o == "-" {
                 pos += 1
+                if let rate = percentTerm() {
+                    v = o == "+" ? v * (1 + rate) : v * (1 - rate)
+                    continue
+                }
                 guard let r = term() else { return nil }
                 v = o == "+" ? v + r : v - r
             }
             return v
         }
 
-        // term := power (("*"|"/") power)*
+        /// b/100 when the next term is exactly "number %" (then the end, ")", "+" or "-"), which it consumes.
+        private mutating func percentTerm() -> Double? {
+            guard pos + 1 < tokens.count, case .number(let n) = tokens[pos], tokens[pos + 1] == .op("%") else { return nil }
+            switch pos + 2 < tokens.count ? tokens[pos + 2] : nil {
+            case nil, .rparen?, .op("+")?, .op("-")?: break
+            default: return nil
+            }
+            pos += 2
+            return n / 100
+        }
+
+        // term := unary (("*"|"/") unary)*
         mutating func term() -> Double? {
-            guard var v = power() else { return nil }
+            guard var v = unary() else { return nil }
             while case .op(let o)? = peek(), o == "*" || o == "/" {
                 pos += 1
-                guard let r = power() else { return nil }
+                guard let r = unary() else { return nil }
                 v = o == "*" ? v * r : v / r
             }
             return v
         }
 
-        // power := unary ("^" power)?
-        mutating func power() -> Double? {
-            guard let base = unary() else { return nil }
-            if case .op("^")? = peek() {
-                pos += 1
-                guard let e = power() else { return nil }
-                return pow(base, e)
-            }
-            return base
-        }
-
-        // unary := ("-"|"+") unary | postfix
+        // unary := ("-"|"+") unary | power   ("-2^2" = -4, as in mathematics)
         mutating func unary() -> Double? {
             if case .op(let o)? = peek(), o == "-" || o == "+" {
                 pos += 1
                 guard let v = unary() else { return nil }
                 return o == "-" ? -v : v
             }
-            return postfix()
+            return power()
+        }
+
+        // power := postfix ("^" unary)?   (right-associative, and "2^-1" = 0.5)
+        mutating func power() -> Double? {
+            guard let base = postfix() else { return nil }
+            if case .op("^")? = peek() {
+                pos += 1
+                guard let e = unary() else { return nil }
+                return pow(base, e)
+            }
+            return base
         }
 
         // postfix := primary "%"*
@@ -267,7 +299,8 @@ enum LauncherUnits {
     }
 
     /// (input, result) such as ("10 km", "6,214 mi"), or nil if `query` is not a conversion.
-    static func convert(_ query: String) -> (from: String, to: String, value: Double)? {
+    static func convert(_ raw: String) -> (from: String, to: String, value: Double)? {
+        let query = LauncherCalculator.joinThousands(raw)
         let separators = [" en ", " in ", " to ", " vers ", " → ", " -> ", " = "]
         guard let sep = separators.first(where: { query.contains($0) }),
               let range = query.range(of: sep) else { return nil }
@@ -282,8 +315,19 @@ enum LauncherUnits {
               let from = unit(String(left[firstNonNumber...])), let to = unit(right),
               type(of: from).baseUnit().symbol == type(of: to).baseUnit().symbol else { return nil }
         let result = Measurement(value: value, unit: from).converted(to: to).value
-        return ("\(LauncherCalculator.format(value)) \(from.symbol)", "\(LauncherCalculator.format(result)) \(to.symbol)", result)
+        return ("\(LauncherCalculator.format(value)) \(symbol(from))", "\(LauncherCalculator.format(result)) \(symbol(to))", result)
     }
+
+    /// The French symbol of a unit ("h", "Go", "kcal"…): Foundation's are the English ones ("hr", "GB", "kCal").
+    static func symbol(_ unit: Dimension) -> String {
+        frenchSymbols[unit.symbol] ?? unit.symbol
+    }
+
+    private static let frenchSymbols: [String: String] = [
+        "hr": "h", "B": "o", "kB": "ko", "MB": "Mo", "GB": "Go", "TB": "To",
+        "KiB": "Kio", "MiB": "Mio", "GiB": "Gio", "TiB": "Tio", "kb": "kbit", "Mb": "Mbit", "Gb": "Gbit",
+        "kCal": "kcal", "L": "l", "mL": "ml", "cL": "cl", "dL": "dl", "mph": "mi/h", "kn": "nd", "NM": "nmi", "cup": "tasse"
+    ]
 }
 
 /// "heure Tokyo", "heure à New York" → current time there.
@@ -312,6 +356,28 @@ enum LauncherWorldClock {
         f.locale = Fmt.fr
         f.timeZone = tz
         f.dateFormat = "HH:mm, EEEE d MMMM"
-        return (Fmt.cap(city), f.string(from: Date()))
+        return (title(city), f.string(from: Date()))
+    }
+
+    /// "new york" → "New York", "le caire" → "Le Caire", "pointe-à-pitre" → "Pointe-à-Pitre".
+    static func title(_ city: String) -> String {
+        let small: Set<String> = ["à", "a", "de", "du", "des", "la", "le", "les", "sur", "en"]
+        var out = "", word = ""
+        var first = true
+        func flush() {
+            out += !first && small.contains(word) ? word : word.prefix(1).uppercased() + word.dropFirst()
+            word = ""
+            first = false
+        }
+        for c in city {
+            if c == " " || c == "-" {
+                flush()
+                out.append(c)
+            } else {
+                word.append(c)
+            }
+        }
+        flush()
+        return out
     }
 }

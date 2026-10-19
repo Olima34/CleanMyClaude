@@ -41,6 +41,18 @@ enum HotkeysTarget: Codable, Equatable {
     }
 }
 
+/// Who asks whether a shortcut is free (it does not conflict with itself).
+/// `.windows` leaves out every window action: that page moves a shortcut from one action to another itself.
+enum HotkeysOwner: Equatable {
+    case launcher, clipboard, windows
+    case binding(String)
+
+    var bindingKey: String? {
+        if case .binding(let key) = self { return key }
+        return nil
+    }
+}
+
 struct HotkeysBinding: Codable, Identifiable, Equatable {
     var id = UUID()
     var target: HotkeysTarget
@@ -182,15 +194,22 @@ final class HotkeysModel: AppModule {
         if b.combo != nil, !ok { refused.insert(id) } else { refused.remove(id) }
     }
 
-    /// The other shortcut of the app that already uses `combo`, if any (launcher, windows, another binding).
+    /// The other shortcut of the app that already uses `combo`, if any (launcher, clipboard, windows, another binding).
     func conflict(for combo: KeyCombo?, except id: UUID) -> String? {
         guard let combo else { return nil }
         if let reserved = Self.reservedReason(combo) { return reserved }
         let exceptKey = bindings.first { $0.id == id }?.target.key ?? ""
-        if let other = Self.conflict(combo, among: bindings, exceptKey: exceptKey) { return other }
+        return owner(of: combo, except: .binding(exceptKey))
+    }
+
+    /// Who uses `combo` in Clean My Claude, apart from `except`: the launcher, the clipboard history,
+    /// a window action or one of these shortcuts. Every shortcut recorder of the app asks it before saving.
+    func owner(of combo: KeyCombo, except: HotkeysOwner) -> String? {
+        if let other = Self.conflict(combo, among: bindings, exceptKey: except.bindingKey ?? "") { return other }
         guard let app = app ?? AppContext.model else { return nil }
-        if app.launcher.combo == combo { return "le lanceur" }
-        if let action = app.windows.combos.first(where: { $0.value == combo })?.key { return "Fenêtres (\(action.title))" }
+        if except != .launcher, app.launcher.combo == combo { return "le lanceur" }
+        if except != .clipboard, app.clipboard.combo == combo { return "l'historique du presse-papiers" }
+        if except != .windows, let action = app.windows.combos.first(where: { $0.value == combo })?.key { return "Fenêtres (\(action.title))" }
         return nil
     }
 
@@ -289,7 +308,7 @@ final class HotkeysModel: AppModule {
             return
         }
         let windowCombos = app.map { Array($0.windows.combos.values) } ?? []
-        let taken = Set(bindings.compactMap(\.combo) + [app?.launcher.combo].compactMap { $0 } + windowCombos)
+        let taken = Set(bindings.compactMap(\.combo) + [app?.launcher.combo, app?.clipboard.combo].compactMap { $0 } + windowCombos)
         let b = HotkeysBinding(target: target, combo: Self.suggestedCombo(for: target.title, taken: taken))
         bindings.append(b)
         register(b)

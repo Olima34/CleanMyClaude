@@ -143,6 +143,20 @@ enum ClipboardFilter {
         types.contains { sensitiveTypes.contains($0) }
     }
 
+    /// The markers of `types`, to declare again when the clipboard is rewritten (as plain text).
+    static func markers(in types: [String]) -> [String] {
+        types.filter { sensitiveTypes.contains($0) }
+    }
+
+    static let plainTextTypes: Set<String> = [
+        "public.utf8-plain-text", "public.plain-text", "public.utf16-plain-text", "public.utf16-external-plain-text", "NSStringPboardType"
+    ]
+
+    /// Nothing but plain text and markers: there is no formatting to remove.
+    static func isPlainTextOnly(_ types: [String]) -> Bool {
+        types.allSatisfy { plainTextTypes.contains($0) || sensitiveTypes.contains($0) }
+    }
+
     /// Password managers: nothing copied while one of them is in front is kept (the list can be edited).
     static let passwordManagers: [ClipboardExcludedApp] = [
         ClipboardExcludedApp(bundleID: "com.1password.1password", name: "1Password"),

@@ -51,7 +51,9 @@ enum Remover {
     static func isSafe(_ raw: String) -> Bool {
         let path = (raw as NSString).standardizingPath
         guard path.hasPrefix("/"), !path.contains("/../") else { return false }
-        if Preferences.exclusions.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
+        // An excluded path is never touched, nor is a folder that holds one.
+        if Preferences.exclusions.map({ ($0 as NSString).standardizingPath })
+            .contains(where: { path == $0 || path.hasPrefix($0 + "/") || $0.hasPrefix(path + "/") }) { return false }
         if path.hasPrefix(ActionLog.folder) || path == DataStore.folder || path.hasPrefix(DataStore.folder + "/") { return false }
 
         let home = FS.home
@@ -73,9 +75,11 @@ enum Remover {
     static func remove(_ entries: [RemovalEntry], mode: RemovalMode) -> RemovalReport {
         // The demo shows fictional paths: nothing may ever be deleted, whatever they point to.
         if DemoData.isEnabled { return RemovalReport(failures: entries.map { ($0.path, DemoData.refusal) }) }
-        let effective: RemovalMode = Preferences.alwaysTrash ? .trash : mode
+        let trash = FS.home + "/.Trash/"
         var report = RemovalReport()
         for e in entries {
+            // "Always use the Trash" cannot apply to what is already in it: emptying the Trash still deletes.
+            let effective: RemovalMode = Preferences.alwaysTrash && !e.path.hasPrefix(trash) ? .trash : mode
             guard isSafe(e.path) else {
                 report.failures.append((e.path, "Emplacement protégé"))
                 ActionLog.write("REFUSÉ \(e.path)")

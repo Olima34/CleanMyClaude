@@ -27,6 +27,12 @@ enum ConverterPreviewSpan: String, CaseIterable, Identifiable {
     }
 }
 
+/// A preview left out on purpose: too heavy to compute without a click (a 20 Go ZIP would be made in the scratch folder).
+struct ConverterPreviewSkipped: LocalizedError {
+    var reason: String
+    var errorDescription: String? { reason }
+}
+
 struct ConverterPreviewResult {
     var operation: ConverterOperation
     var sources: [URL]
@@ -53,7 +59,7 @@ struct ConverterPreviewResult {
 @MainActor
 final class ConverterPreviewer {
     enum State {
-        case idle, working, ready(ConverterPreviewResult), failed(String)
+        case idle, working, ready(ConverterPreviewResult), failed(String), skipped(String)
     }
 
     var state: State = .idle
@@ -134,6 +140,14 @@ final class ConverterPreviewer {
         op != .rename && op != .qrGenerate
     }
 
+    /// Operations whose preview processes the whole selection (no excerpt possible): beyond `heavyLimit` of sources,
+    /// the preview waits for a click instead of zipping or rewriting gigabytes in the scratch folder by itself.
+    nonisolated static func processesEverything(_ op: ConverterOperation) -> Bool {
+        op == .archiveZip || op == .pdfMerge || op == .pdfCompress || op == .imagesToPDF
+    }
+
+    nonisolated static let heavyLimit: Int64 = 200_000_000
+
     func reset() {
         control?.cancel()
         control = nil
@@ -184,7 +198,11 @@ final class ConverterPreviewer {
             case .success(let r): self.state = .ready(r)
             case .failure(let e):
                 if case ConverterError.cancelled = e { return }
-                self.state = .failed(e.localizedDescription)
+                if let skipped = e as? ConverterPreviewSkipped {
+                    self.state = .skipped(skipped.reason)
+                } else {
+                    self.state = .failed(e.localizedDescription)
+                }
             }
         }
     }
@@ -196,6 +214,13 @@ final class ConverterPreviewer {
         let op = spec.operation
         var result = ConverterPreviewResult(operation: op, sources: spec.inputs)
         result.sourceSize = spec.inputs.reduce(0) { $0 + ConverterOutputs.size($1) }
+        if processesEverything(op), result.sourceSize > heavyLimit {
+            throw ConverterPreviewSkipped(reason: "Trop volumineux pour un aperçu : \(Fmt.bytes(result.sourceSize)) à traiter, "
+                + "je ne le calcule pas sans ton accord. Lance « \(op.actionTitle) » quand tu veux.")
+        }
+        // "MOV ↔ MP4" on a video already in that format: the preview fails like the conversion would,
+        // before cutting an excerpt for nothing.
+        if op == .videoContainer { try ConverterMediaEngine.checkChangesContainer(spec.inputs[0], to: spec.options.container) }
         result.sourceDetail = await describe(spec.inputs[0], kind: spec.kinds.first ?? .other)
 
         // An archive to extract: its table of contents, not a copy of everything.
@@ -265,8 +290,12 @@ final class ConverterPreviewer {
         let asset = AVURLAsset(url: url)
         if (try? await asset.load(.isExportable)) == true,
            let session = AVAssetExportSession(asset: asset, presetName: AVAssetExportPresetPassthrough) {
-            let type: AVFileType = session.supportedFileTypes.contains(.mov) ? .mov : (session.supportedFileTypes.first ?? .mov)
-            let out = FileOps.uniqueURL(folder.appendingPathComponent("extrait.\(type == .mp4 ? "mp4" : "mov")"))
+            // The excerpt keeps the source's container: "MOV ↔ MP4" has the same work to do on it as on the whole file
+            // (an MP4 excerpt written as .mov would wrongly be "déjà en MOV").
+            let own: AVFileType? = ["mp4": AVFileType.mp4, "m4v": .m4v, "mov": .mov][url.pathExtension.lowercased()]
+            let type: AVFileType = own.flatMap { session.supportedFileTypes.contains($0) ? $0 : nil }
+                ?? (session.supportedFileTypes.contains(.mov) ? .mov : (session.supportedFileTypes.first ?? .mov))
+            let out = FileOps.uniqueURL(folder.appendingPathComponent("extrait.\(type == .mp4 ? "mp4" : (type == .m4v ? "m4v" : "mov"))"))
             session.outputURL = out
             session.outputFileType = type
             session.timeRange = CMTimeRange(start: CMTime(seconds: start, preferredTimescale: 600),

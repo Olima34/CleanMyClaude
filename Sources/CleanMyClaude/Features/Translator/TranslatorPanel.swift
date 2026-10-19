@@ -10,22 +10,22 @@ struct TranslatorPanelView: View {
         @Bindable var model = app.translator
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "character.bubble").font(.system(size: 19, weight: .medium))
+                Image(systemName: "character.bubble").font(.ui(19, .medium))
                     .foregroundStyle(Theme.palette[1]).frame(width: 24).padding(.top, 2)
                 if Snapshot.isActive {
                     Text(model.sourceText.isEmpty ? "Texte à traduire…" : model.sourceText)
-                        .font(.system(size: 19)).foregroundStyle(model.sourceText.isEmpty ? Theme.text3 : Theme.text)
+                        .font(.ui(19)).foregroundStyle(model.sourceText.isEmpty ? Theme.text3 : Theme.text)
                         .lineLimit(4).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     TextField("Texte à traduire…", text: $model.sourceText, axis: .vertical)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 19))
+                        .font(.ui(19))
                         .foregroundStyle(Theme.text)
                         .lineLimit(1...4)
                         .focused($focused)
                 }
                 Button { app.launcher.backToSearch() } label: {
-                    Image(systemName: "chevron.backward.circle.fill").font(.system(size: 15)).foregroundStyle(Theme.text3)
+                    Image(systemName: "chevron.backward.circle.fill").font(.ui(15)).foregroundStyle(Theme.text3)
                 }
                 .buttonStyle(.plain)
                 .help("Revenir à la recherche (⎋)")
@@ -92,8 +92,8 @@ struct TranslatorPanelView: View {
             }
             .foregroundStyle(selected ? Theme.text : Theme.text2)
             .padding(.horizontal, 9).padding(.vertical, 4)
-            .background(Capsule().fill(selected ? Theme.accent.opacity(0.22) : Theme.track.opacity(0.6)))
-            .overlay(Capsule().strokeBorder(selected ? Theme.accent.opacity(0.7) : .clear))
+            .background(PillShape().fill(selected ? Theme.accent.opacity(0.22) : Theme.track.opacity(0.6)))
+            .overlay(PillShape().strokeBorder(selected ? Theme.accent.opacity(0.7) : .clear, lineWidth: Theme.line))
         }
         .buttonStyle(.plain)
         .help(installed ? "Sur ton Mac" : "À télécharger dans le Traducteur (ou ⌘↩ pour Claude)")
@@ -103,7 +103,7 @@ struct TranslatorPanelView: View {
     private var result: some View {
         let m = app.translator
         let text = Text(m.resultText.isEmpty ? placeholder : m.resultText)
-            .font(.system(size: 21))
+            .font(.ui(21))
             .foregroundStyle(m.resultText.isEmpty ? Theme.text3 : Theme.text)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -134,7 +134,7 @@ struct TranslatorPanelView: View {
             if let error = m.error {
                 Label(error, systemImage: "exclamationmark.triangle.fill").font(.ui(11.5)).foregroundStyle(Theme.warn).lineLimit(2)
             } else if m.engine == .apple, m.pairStatus == .downloadable, m.resultText.isEmpty, !m.sourceText.isEmpty {
-                Label("Le \(TranslatorLanguage.named(m.effectiveTarget).lowercased()) n'est pas encore sur ton Mac : ⌘↩ pour Claude, ou télécharge-le dans le Traducteur.",
+                Label("\(Fmt.cap(TranslatorLanguage.withArticle(m.effectiveTarget))) n'est pas encore sur ton Mac : ⌘↩ pour Claude, ou télécharge-le dans le Traducteur.",
                       systemImage: "arrow.down.circle")
                     .font(.ui(11.5)).foregroundStyle(Theme.text2).lineLimit(2)
             } else if let by = m.resultEngine, !m.resultText.isEmpty {

@@ -93,13 +93,15 @@ final class UpdatesModel: AppModule {
 
     // MARK: Inventory (local, no network)
 
-    func loadInventory() async {
-        if DemoData.isEnabled || inventoryLoaded { return }
+    /// Lists the apps once; `force` reads them again (a check after an update must see the new versions).
+    /// Concurrent calls share the same scan.
+    func loadInventory(force: Bool = false) async {
+        if DemoData.isEnabled || (inventoryLoaded && !force) { return }
         if let running = inventoryTask { return await running.value }
         let task = Task {
             let scan = await Task.detached(priority: .userInitiated) { UpdatesInventory.scan() }.value
-            sparkleApps = scan.sparkle
-            storeApps = scan.store
+            sparkleApps = Self.keepingResults(scan.sparkle, from: sparkleApps)
+            storeApps = Self.keepingResults(scan.store, from: storeApps)
             sparkleWithoutFeed = scan.sparkleWithoutFeed
             inventoryLoaded = true
         }
@@ -108,13 +110,27 @@ final class UpdatesModel: AppModule {
         inventoryTask = nil
     }
 
+    /// A new listing keeps the last answer of the apps whose version did not change (until the check replaces it);
+    /// an app updated in the meantime starts again unchecked.
+    private static func keepingResults(_ fresh: [UpdatesApp], from old: [UpdatesApp]) -> [UpdatesApp] {
+        let previous = Dictionary(old.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        return fresh.map { app in
+            guard let p = previous[app.path], p.version == app.version, p.build == app.build, p.feedURL == app.feedURL else { return app }
+            var a = app
+            a.result = p.result
+            return a
+        }
+    }
+
     // MARK: Checks (each one only after a click)
 
     func checkAll() async {
         async let a: Void = checkBrew()
-        async let b: Void = checkSparkle()
-        async let c: Void = checkStore()
         async let d: Void = checkMacOS()
+        // One fresh listing for both app sources.
+        await loadInventory(force: true)
+        async let b: Void = checkSparkle(reload: false)
+        async let c: Void = checkStore(reload: false)
         _ = await (a, b, c, d)
     }
 
@@ -134,25 +150,31 @@ final class UpdatesModel: AppModule {
         }
     }
 
-    func checkSparkle() async {
-        guard !DemoData.isEnabled else { return }
-        await loadInventory()
+    /// `reload`: lists the apps again first, so that an app updated since the last check shows its new version.
+    func checkSparkle(reload: Bool = true) async {
+        guard !DemoData.isEnabled, !sparkleState.isChecking else { return }
+        await loadInventory(force: reload)
         guard !sparkleState.isChecking, !sparkleApps.isEmpty else { return }
         sparkleState = .checking
         let os = UpdatesVersion.macOS
         let results = await Self.concurrently(sparkleApps, limit: 6) { await UpdatesSparkle.check($0, os: os) }
         apply(results, to: \.sparkleApps)
-        sparkleState = .done(Date())
+        sparkleState = Self.allFailed(results) ? .failed("Aucun flux joignable") : .done(Date())
     }
 
-    func checkStore() async {
-        guard !DemoData.isEnabled else { return }
-        await loadInventory()
+    func checkStore(reload: Bool = true) async {
+        guard !DemoData.isEnabled, !storeState.isChecking else { return }
+        await loadInventory(force: reload)
         guard !storeState.isChecking, !storeApps.isEmpty else { return }
         storeState = .checking
         let results = await Self.concurrently(storeApps, limit: 4) { await UpdatesAppStore.check($0) }
         apply(results, to: \.storeApps)
-        storeState = .done(Date())
+        storeState = Self.allFailed(results) ? .failed("L'App Store n'a pas répondu") : .done(Date())
+    }
+
+    /// Not a single answer (offline, typically): the source failed, it is not "up to date".
+    static func allFailed(_ results: [String: UpdatesResult]) -> Bool {
+        !results.isEmpty && results.values.allSatisfy { if case .failed = $0 { return true } else { return false } }
     }
 
     func checkMacOS() async {
@@ -245,10 +267,11 @@ final class UpdatesModel: AppModule {
             }.value
             buffer.flush()
             brewJob?.outcome = cancel.isCancelled ? .cancelled : (status == 0 ? .succeeded : .failed(status))
+            // A cask of the batch asked for the password after all: once the list is read again, the casks still late
+            // move to "À faire dans le Terminal" (the others of the batch did update).
+            var askedPassword = Set<String>()
             if case .failed = brewJob?.outcome, let job = brewJob, UpdatesBrew.askedForPassword(job.lines) {
-                // A cask asked for the password after all: it moves to "À faire dans le Terminal".
-                let casks = brewPackages.filter { $0.isCask && job.ids.contains($0.id) }.map(\.name)
-                passwordCasks.formUnion(casks)
+                askedPassword = Set(brewPackages.filter { $0.isCask && job.ids.contains($0.id) }.map(\.name))
                 brewJob?.lines.append("→ Ce paquet demande ton mot de passe : lance la commande indiquée dans le Terminal.")
             }
             brewCancel = nil
@@ -259,6 +282,13 @@ final class UpdatesModel: AppModule {
                               throttle: 0)
             }
             await checkBrew()
+            if !askedPassword.isEmpty {
+                let stillLate = Set(brewPackages.filter { $0.isCask && askedPassword.contains($0.name) }.map(\.name))
+                passwordCasks.formUnion(stillLate)
+                for i in brewPackages.indices where stillLate.contains(brewPackages[i].name) && brewPackages[i].isCask {
+                    brewPackages[i].needsPassword = true
+                }
+            }
         }
     }
 
@@ -378,11 +408,18 @@ final class UpdatesModel: AppModule {
                     let m = ctx.app.updates
                     ctx.app.page = .updates
                     AppContext.showMainWindow()
-                    Task {
-                        if m.brewState.date == nil { await m.checkBrew() }
-                        m.upgradeAll()
+                    guard !DemoData.isEnabled else { return .message(DemoData.refusal) }
+                    if m.brewJob?.isRunning == true { return .failed("Homebrew est déjà au travail : attends la fin de la commande en cours.") }
+                    if m.brewState.isChecking { return .failed("Homebrew vérifie encore ce qui est en retard : réessaie dans un instant.") }
+                    if m.brewState.date == nil { await m.checkBrew() }
+                    if case .failed(let why) = m.brewState { return .failed(why) }
+                    guard !m.brewUpgradable.isEmpty else {
+                        return .message(m.brewManual.isEmpty ? "Rien à mettre à jour avec Homebrew : tout est à jour."
+                                                             : "Rien à lancer ici : le reste est à faire dans le Terminal.")
                     }
-                    return .message("Homebrew se met au travail…")
+                    m.upgradeAll()
+                    return m.brewJob?.isRunning == true ? .message("Homebrew se met au travail…")
+                                                        : .failed("Homebrew n'a pas pu démarrer.")
                 },
                 AppCommand(id: "upd_brew_update", title: "Rafraîchir Homebrew", subtitle: "brew update",
                            keywords: ["brew", "homebrew", "update"], icon: .symbol("arrow.clockwise", Theme.warn), group: .actions,
@@ -430,10 +467,29 @@ final class UpdatesModel: AppModule {
             ("2.0.1", "2.0", .orderedDescending), ("1.0b1", "1.0", .orderedAscending), ("1.0a2", "1.0b1", .orderedAscending),
             ("115", "112", .orderedDescending), ("26.3.0.39832", "26.2.0.39821", .orderedDescending), ("3.8.2", "3.8.2", .orderedSame),
             ("1.25.0_1", "1.25.0", .orderedDescending), ("12345678901234567890", "12345678901234567891", .orderedAscending),
-            ("2024.10", "2024.9.30", .orderedDescending), ("v2", "v10", .orderedAscending)
+            ("2024.10", "2024.9.30", .orderedDescending), ("v2", "v10", .orderedAscending),
+            // A pre-release after separators or zeros is still older than the release.
+            ("1.0", "1.0.0b1", .orderedDescending), ("1.0.0b1", "1.0", .orderedAscending), ("1.0", "1.0-beta", .orderedDescending),
+            ("1.0-beta", "1.0", .orderedAscending), ("2.1", "2.1.0.0.1", .orderedAscending), ("3.0.0-rc.1", "3.0", .orderedAscending),
+            ("1.0.0.1", "1.0", .orderedDescending)
         ]
         for (a, b, expected) in order where UpdatesVersion.compare(a, b) != expected {
             f.append("Versions : \(a) contre \(b) donne \(UpdatesVersion.compare(a, b).rawValue), attendu \(expected.rawValue)")
+        }
+
+        // Offline: every answer failed, the source is in failure rather than "up to date".
+        let late = UpdatesResult.available(UpdatesRelease(version: "2.0"))
+        if !Self.allFailed(["/a": .failed("Flux injoignable"), "/b": .failed("Flux injoignable")]) { f.append("Échec de toutes les sources non repéré") }
+        if Self.allFailed(["/a": .failed("Flux injoignable"), "/b": .upToDate(latest: nil)]) || Self.allFailed([:]) {
+            f.append("Une source en partie joignable passe pour un échec")
+        }
+        // Listing the apps again keeps the answers of the unchanged apps only.
+        let before = [UpdatesApp(path: "/A.app", name: "A", bundleID: "a", version: "1.0", build: "1", result: late),
+                      UpdatesApp(path: "/B.app", name: "B", bundleID: "b", version: "1.0", build: "1", result: late)]
+        let after = Self.keepingResults([UpdatesApp(path: "/A.app", name: "A", bundleID: "a", version: "1.0", build: "1"),
+                                         UpdatesApp(path: "/B.app", name: "B", bundleID: "b", version: "2.0", build: "2")], from: before)
+        if after.first?.result != late || after.last?.result != .unchecked || after.last?.version != "2.0" {
+            f.append("Inventaire relu : une app mise à jour garde son ancienne réponse")
         }
 
         // A made-up appcast mixing Sparkle 1 (attributes) and Sparkle 2 (elements), a beta, a too recent macOS and deltas.

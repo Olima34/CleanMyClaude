@@ -345,10 +345,10 @@ enum CleanupCatalog {
             // MARK: Fichiers personnels
             TargetSpec(id: "mailDownloads", group: .personal, title: "Pièces jointes ouvertes dans Mail",
                        explanation: "Copies des pièces jointes que tu as ouvertes. Les originaux restent dans tes e-mails.",
-                       symbol: "paperclip",
+                       symbol: "paperclip", mode: .trash, defaultOn: false,
                        accessProbe: home + "/Library/Containers/com.apple.mail") {
                 let dir = home + "/Library/Containers/com.apple.mail/Data/Library/Mail Downloads"
-                return FS.children(dir).map { Candidate(path: dir + "/" + $0, name: $0) }
+                return FS.children(dir).map { Candidate(path: dir + "/" + $0, name: $0, defaultOn: false) }
             },
             TargetSpec(id: "installers", group: .personal, title: "Installeurs téléchargés",
                        explanation: "Images disque et paquets (.dmg, .pkg, .iso) qui restent dans Téléchargements après l'installation.",
@@ -479,7 +479,9 @@ enum StaleDependencies {
         let limit = Date().addingTimeInterval(-Double(days) * 86400)
         var out: [Candidate] = []
         var seen = Set<String>()
-        for r in roots {
+        // Names as they really are on disk: on a case-insensitive volume "code" would find "Code" a second time.
+        let present = Set(FS.children(FS.home))
+        for r in roots where present.contains(r) {
             let root = FS.home + "/" + r
             guard FS.isDirectory(root), !FS.isSymlink(root) else { continue }
             let real = (root as NSString).resolvingSymlinksInPath

@@ -74,6 +74,8 @@ final class WindowsModel: AppModule {
     var active: Set<WindowsAction> = []
     /// A remark after a change ("⌃⌥C servait à…").
     var note: String?
+    /// Why the last shortcut typed was refused (already used elsewhere in Clean My Claude).
+    var refusal: String?
 
     @ObservationIgnored private let store = JSONStore<WindowsSettings>("windows", default: WindowsSettings())
     @ObservationIgnored private var memory: [WindowsMemory] = []
@@ -176,6 +178,15 @@ final class WindowsModel: AppModule {
         }
         let decoded = try? JSONDecoder.store.decode(WindowsSettings.self, from: Data("{\"gap\": 8}".utf8))
         if decoded?.gap != 8 || decoded?.enabled != true { failures.append("réglages partiels mal relus") }
+        // "Raccourcis par défaut" brings every default back, even after one was removed (only in demo: nothing is saved).
+        if DemoData.isEnabled {
+            let (keptCombos, keptActive, keptCleared) = (combos, active, store.value.cleared)
+            setCombo(nil, for: .leftHalf)
+            resetShortcuts()
+            let defaults = Dictionary(uniqueKeysWithValues: WindowsAction.allCases.compactMap { a in a.defaultCombo.map { (a, $0) } })
+            if combos != defaults { failures.append("« Raccourcis par défaut » ne remet pas les raccourcis d'origine") }
+            (combos, active, store.value.cleared, note, refusal) = (keptCombos, keptActive, keptCleared, nil, nil)
+        }
         return failures
     }
 
@@ -223,9 +234,15 @@ final class WindowsModel: AppModule {
         store.value.cycles = on
     }
 
-    /// Saves a new shortcut. A shortcut already used by another action is taken from it.
+    /// Saves a new shortcut. A shortcut already used by another action is taken from it; one used elsewhere
+    /// in Clean My Claude (launcher, clipboard, Raccourcis) is refused.
     func setCombo(_ combo: KeyCombo?, for a: WindowsAction) {
         note = nil
+        refusal = nil
+        if let combo, let owner = AppContext.model?.hotkeys.owner(of: combo, except: .windows) {
+            refusal = "\(combo.display) est déjà utilisé par \(owner) : choisis-en un autre pour « \(a.title) »."
+            return
+        }
         if let combo, let other = combos.first(where: { $0.key != a && $0.value == combo })?.key {
             save(nil, for: other)
             note = "\(combo.display) servait à « \(other.title) » : ce raccourci lui a été retiré."
@@ -235,13 +252,14 @@ final class WindowsModel: AppModule {
 
     func resetShortcuts() {
         note = nil
+        refusal = nil
         store.value.cleared = []
         for a in WindowsAction.allCases {
-            // Forgetting the saved choice brings the default back.
-            HotKeyCenter.shared.change(a.commandID, to: nil) {}
+            // `change(…, to: nil)` would save "no shortcut": each action gets its default saved again instead.
+            HotKeyCenter.shared.change(a.commandID, to: a.defaultCombo) {}
         }
         combos = Self.savedCombos(cleared: [])
-        registerAll()
+        if DemoData.isEnabled { active = Set(combos.keys) } else { registerAll() }
     }
 
     private func save(_ combo: KeyCombo?, for a: WindowsAction) {

@@ -238,10 +238,12 @@ enum ConverterPDFEngine {
         for (n, url) in inputs.enumerated() {
             try control.check()
             let src = try ConverterImageEngine.source(url)
-            guard let upright = ConverterImageEngine.uprightImage(src, index: CGImageSourceGetPrimaryImageIndex(src), maxSide: 0) else {
+            let primary = CGImageSourceGetPrimaryImageIndex(src)
+            guard let upright = ConverterImageEngine.uprightImage(src, index: primary, maxSide: 0) else {
                 throw ConverterError.unreadable(url.lastPathComponent)
             }
-            let image = embeddable(upright, quality: quality)
+            let props = CGImageSourceCopyPropertiesAtIndex(src, primary, nil) as? [CFString: Any]
+            let image = embeddable(upright, transparent: props?[kCGImagePropertyHasAlpha] as? Bool == true, quality: quality)
             let iw = CGFloat(image.width), ih = CGFloat(image.height)
             var page: CGRect
             var target: CGRect
@@ -272,13 +274,10 @@ enum ConverterPDFEngine {
     }
 
     /// A JPEG-backed copy (Core Graphics then embeds the JPEG bytes as they are), unless the image has transparency.
-    private static func embeddable(_ image: CGImage, quality: Double) -> CGImage {
-        switch image.alphaInfo {
-        case .none, .noneSkipFirst, .noneSkipLast:
-            break
-        default:
-            return image
-        }
+    /// The source decides (ImageIO sets "HasAlpha" only on images with an alpha channel, PNG, HEIC, TIFF, GIF…):
+    /// the decoded image cannot tell, an opaque HEIC or AVIF comes out premultiplied.
+    private static func embeddable(_ image: CGImage, transparent: Bool, quality: Double) -> CGImage {
+        if transparent { return image }
         guard let jpeg = ConverterImageEngine.encode(image, uti: ConverterImageFormat.jpeg.uti, quality: quality),
               let provider = CGDataProvider(data: jpeg as CFData),
               let decoded = CGImage(jpegDataProviderSource: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else {

@@ -23,6 +23,10 @@ struct AssistantPage: View {
             }
         }
         .task { if app.assistant.provider == .subscription { await app.assistant.refreshStatus() } }
+        // Back on the subscription (picker or "…" menu): check the Claude Code login again.
+        .onChange(of: model.provider) { _, provider in
+            if provider == .subscription { Task { await app.assistant.refreshStatus() } }
+        }
     }
 }
 
@@ -194,11 +198,10 @@ struct AssistantSettingsStrip: View {
             }
             Button("Nouvelle conversation") { model.reset() }
                 .buttonStyle(SoftButtonStyle(small: true))
-                .disabled(model.entries.isEmpty)
+                .disabled(model.entries.isEmpty || model.isThinking)
             BorderlessMenu(indicator: false) {
                 Button(subscription ? "Utiliser plutôt une clé API" : "Utiliser plutôt mon abonnement Claude") {
                     model.provider = subscription ? .apiKey : .subscription
-                    if model.provider == .subscription { Task { await model.refreshStatus() } }
                 }
                 if model.hasKey {
                     Button("Supprimer ma clé API", role: .destructive) { model.deleteKey() }
@@ -344,12 +347,13 @@ struct AssistantBottomBar: View {
                         .onSubmit { model.sendDraft() }
                         .padding(.horizontal, 12).padding(.vertical, 9)
                         .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.card))
-                        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(focused ? Theme.accent.opacity(0.6) : Theme.border))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.r(10))
+                            .strokeBorder(focused ? Theme.accent.opacity(0.6) : Theme.border, lineWidth: Theme.line))
                 }
                 Button {
                     model.sendDraft()
                 } label: {
-                    Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(model.draft.isEmpty || model.isThinking ? Theme.text3 : Theme.onBrand)
+                    Image(systemName: "arrow.up").font(.ui(13, .bold)).foregroundStyle(model.draft.isEmpty || model.isThinking ? Theme.text3 : Theme.onBrand)
                         .frame(width: 32, height: 32)
                         .background(PillShape().fill(model.draft.isEmpty || model.isThinking ? Theme.track : Theme.brand))
                 }

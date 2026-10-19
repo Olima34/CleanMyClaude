@@ -12,13 +12,13 @@ struct ConverterOptionsPanel: View {
                 VStack(alignment: .leading, spacing: 16) {
                     if count < op.minimumCount {
                         Callout(symbol: "tray", title: count == 0 ? "Aucun fichier pour cette opération" : "Il en faut au moins \(op.minimumCount)",
-                                text: "Ajoute des \(acceptedText(op)) à la liste pour \(op.title.lowercased()).", tint: Theme.warn)
+                                text: "Ajoute des \(acceptedText(op)) à la liste.", tint: Theme.warn)
                     }
                     options(op)
                     if count >= op.minimumCount && op != .rename {
                         HStack(spacing: 6) {
                             Image(systemName: "arrow.turn.down.right").font(.ui(10.5, .semibold)).foregroundStyle(Theme.text3)
-                            Text("\(op.isBatch ? Fmt.plural(count, "fichier", "fichiers") + " → 1 résultat" : Fmt.plural(count, "fichier", "fichiers")) · \(ConverterModel.summary(op, model.options))")
+                            Text("\(op.isBatch ? Fmt.plural(count, "fichier", "fichiers") + " → 1 résultat" : Fmt.plural(count, "fichier", "fichiers")) · \(ConverterModel.summary(op, model.options, qualityApplies: model.qualityApplies(op)))")
                                 .font(.ui(11.5)).foregroundStyle(Theme.text3)
                         }
                     }
@@ -54,12 +54,13 @@ struct ConverterOptionsPanel: View {
                 }
             }
             ConverterOptionRow(label: "Format") { formatChips(selection: $model.options.resizeFormat, includeSame: true) }
-            if model.options.resizeFormat?.lossy ?? true { qualityRow($model.options.imageQuality) }
+            if model.qualityApplies(op) { qualityRow($model.options.imageQuality) }
         case .imageCompress:
-            qualityRow($model.options.imageQuality)
+            if model.qualityApplies(op) { qualityRow($model.options.imageQuality) }
             ConverterOptionRow(label: "Format", hint: "le HEIC est deux fois plus léger que le JPEG") {
                 formatChips(selection: $model.options.compressFormat, includeSame: true, lossyOnly: true)
             }
+            losslessNote(op)
             ConverterOptionRow(label: "Réduire aussi la taille") {
                 FlowLayout(spacing: 6, lineSpacing: 6) {
                     ForEach([0, 3000, 2048, 1600, 1280], id: \.self) { n in
@@ -242,6 +243,21 @@ struct ConverterOptionsPanel: View {
         }
     }
 
+    /// "Même format" on a PNG (or a TIFF, a GIF…): lossless, the quality changes nothing. Said instead of a useless slider.
+    @ViewBuilder
+    private func losslessNote(_ op: ConverterOperation) -> some View {
+        let model = app.converter
+        let formats = model.writtenFormats(op)
+        let lossless = formats.filter { !$0.lossy }
+        if model.chosenImageFormat(op) == nil, !lossless.isEmpty {
+            let names = lossless.map(\.name).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: ", ")
+            let n = lossless.count
+            note("info.circle", n == formats.count
+                 ? "\(names) : format sans perte, la qualité n'y change rien. Choisis JPEG ou HEIC pour vraiment alléger."
+                 : "La qualité ne s'applique pas \(n == 1 ? "à l'image" : "aux \(n) images") en \(names), sans perte : choisis JPEG ou HEIC pour vraiment \(n == 1 ? "l'alléger" : "les alléger").")
+        }
+    }
+
     private func note(_ symbol: String, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: symbol).font(.ui(11.5, .medium)).foregroundStyle(Theme.text3).frame(width: 16)
@@ -286,7 +302,7 @@ struct ConverterOptionsPanel: View {
                         Text("\(Fmt.plural(parsed.count, "page", "pages")) : \(ConverterPDFEngine.describePages(parsed))")
                             .font(.ui(11)).foregroundStyle(Theme.good)
                     } else if smallest != nil {
-                        Text("Je ne comprends pas cette liste (le PDF le plus court a \(smallest!) pages).")
+                        Text("Je ne comprends pas cette liste (le PDF le plus court a \(Fmt.plural(smallest!, "page", "pages"))).")
                             .font(.ui(11)).foregroundStyle(Theme.warn)
                     }
                 }

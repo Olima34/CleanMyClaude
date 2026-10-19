@@ -125,7 +125,9 @@ enum ToolboxChecks {
         expect(ToolboxTime.parse("bonjour") == nil, "texte pris pour une date")
         let durations: [(String, ToolboxTime.Duration?)] = [
             ("15", .minutes(15)), ("15 min", .minutes(15)), ("1h", .minutes(60)), ("1 h 30", .minutes(90)), ("2 heures", .minutes(120)),
-            ("90min", .minutes(90)), ("indéfiniment", .indefinite), ("off", .stop), ("arrêt", .stop), ("bientôt", nil), ("0", nil)
+            ("90min", .minutes(90)), ("indéfiniment", .indefinite), ("off", .stop), ("arrêt", .stop), ("bientôt", nil), ("0", nil),
+            // Huge numbers used to overflow (and crash) once turned into minutes.
+            ("200000000000000000h", nil), ("99999999999999999999 min", nil), ("1h200000000000000000", nil), ("1000000", nil)
         ]
         for (input, want) in durations { equal(ToolboxTime.duration(input), want, "durée « \(input) »") }
 
@@ -134,6 +136,7 @@ enum ToolboxChecks {
         expect(lorem.hasPrefix("Lorem ipsum dolor sit amet, consectetur"), "Lorem ipsum ne commence pas par l'incipit")
         equal(lorem.components(separatedBy: "\n\n").count, 3, "paragraphes de Lorem ipsum")
         equal(ToolboxText.lorem(12, unit: .words).split(separator: " ").count, 12, "mots de Lorem ipsum")
+        equal(ToolboxText.lorem(500, unit: .words).split(separator: " ").count, 200, "mots de Lorem ipsum plafonnés")
         equal(ToolboxText.lorem(2, unit: .paragraphs, seed: 9), ToolboxText.lorem(2, unit: .paragraphs, seed: 9), "Lorem ipsum reproductible")
 
         // Text operations of the page.
@@ -153,6 +156,12 @@ enum ToolboxChecks {
         }
         if let pw = ToolboxLauncher.results("mdp 24", model: m).first?.title, pw.count != 24 { f.append("lanceur « mdp 24 » : \(pw.count) caractères") }
         equal(ToolboxLauncher.results("b64 hello", model: m).first?.title, "aGVsbG8=", "lanceur Base64")
+        // Negative or huge counts used to crash (UInt64 of a negative number).
+        for (input, want) in [("lorem -3", "1 paragraphe de Lorem ipsum"), ("lorem 0", "1 paragraphe de Lorem ipsum"),
+                              ("lorem 99999999", "200 paragraphes de Lorem ipsum")] {
+            equal(ToolboxLauncher.results(input, model: m).first?.subtitle, want, "lanceur « \(input) »")
+        }
+        expect(ToolboxLauncher.results("caféine 200000000000000000h", model: m).isEmpty, "lanceur : durée de caféine énorme acceptée")
         for noise in ["safari", "facade", "bonjour", "2024", "12 + 4"] where !ToolboxLauncher.results(noise, model: m).isEmpty {
             f.append("le lanceur répond à « \(noise) »")
         }

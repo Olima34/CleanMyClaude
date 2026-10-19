@@ -267,10 +267,13 @@ final class StartupModel {
     var lastScan: Date?
     var busy: Set<String> = []
     var message: String?
+    /// False when `message` reports a failure (shown as a warning, not as "done").
+    var messageOK = true
 
     func scan() async {
         guard !isScanning else { return }
         isScanning = true
+        message = nil
         items = await Task.detached(priority: .userInitiated) { LaunchItemScanner.scan() }.value
         lastScan = Date()
         isScanning = false
@@ -285,6 +288,7 @@ final class StartupModel {
         let error = await Task.detached { LaunchItemScanner.setDisabled(item, disable) }.value
         busy.remove(item.id)
         if let error, !error.isEmpty {
+            messageOK = false
             message = "Impossible de modifier « \(item.label) » : \(error)"
         } else if let i = items.firstIndex(where: { $0.id == item.id }) {
             items[i].disabled = disable
@@ -298,8 +302,10 @@ final class StartupModel {
         busy.remove(item.id)
         if report.removed > 0 {
             items.removeAll { $0.id == item.id }
+            messageOK = true
             message = "« \(item.label) » est arrêté et son fichier est dans la Corbeille."
         } else {
+            messageOK = false
             message = "Impossible de supprimer « \(item.label) »."
         }
     }

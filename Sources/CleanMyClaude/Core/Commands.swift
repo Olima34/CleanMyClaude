@@ -168,10 +168,10 @@ enum CommandRunner {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    /// Copies text and reports it.
     /// Copies text. `concealed` marks it as a secret (clipboard managers skip it) and clears it after 90 s
-    /// if it is still there.
+    /// if it is still there. The demo never replaces what the user copied.
     static func copy(_ text: String, concealed: Bool = false) -> CommandOutcome {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return .message(DemoData.refusal) }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(text, forType: .string)

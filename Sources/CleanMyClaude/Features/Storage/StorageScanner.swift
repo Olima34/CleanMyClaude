@@ -138,6 +138,8 @@ enum StorageScanner {
         var unreadable = 0
         var count = 0
         let home = FS.home
+        let trash = home + "/.Trash/"
+        var lastProgress = Date.distantPast
 
         FileSizer.walk(rootPath, isCancelled: isCancelled) { ent in
             let level = Int(ent.pointee.fts_level)
@@ -180,12 +182,17 @@ enum StorageScanner {
                 } else {
                     owner.looseBytes += bytes
                 }
-                if bytes >= bigFileThreshold && info == FTS_F {
-                    big.append(BigFile(path: String(cString: ent.pointee.fts_path), size: bytes,
+                // What is already in the Trash would free nothing a second time.
+                if bytes >= bigFileThreshold && info == FTS_F, case let path = String(cString: ent.pointee.fts_path), !path.hasPrefix(trash) {
+                    big.append(BigFile(path: path, size: bytes,
                                        modified: Date(timeIntervalSince1970: TimeInterval(st.pointee.st_mtimespec.tv_sec)),
                                        accessed: Date(timeIntervalSince1970: TimeInterval(st.pointee.st_atimespec.tv_sec))))
                 }
-                if count % 4000 == 0 { progress(count, String(cString: ent.pointee.fts_path)) }
+                // At most 4 updates a second, however fast the disk.
+                if count % 4000 == 0, Date().timeIntervalSince(lastProgress) >= 0.25 {
+                    lastProgress = Date()
+                    progress(count, String(cString: ent.pointee.fts_path))
+                }
                 return true
             case FTS_DNR, FTS_ERR, FTS_NS:
                 unreadable += 1

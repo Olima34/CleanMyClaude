@@ -113,6 +113,7 @@ enum LauncherSystem {
             },
             AppCommand(id: "sys_eject", title: "Éjecter tous les disques", keywords: ["éjecter", "eject", "clé usb", "disque"],
                        icon: .symbol("eject"), group: .system) { _ in
+                guard !DemoData.isEnabled else { return .message(DemoData.refusal) }
                 let keys: [URLResourceKey] = [.volumeIsEjectableKey, .volumeIsRemovableKey]
                 let volumes = FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: keys, options: [.skipHiddenVolumes]) ?? []
                 let ejectable = volumes.filter { url in
@@ -129,6 +130,7 @@ enum LauncherSystem {
             },
             AppCommand(id: "sys_hide_others", title: "Masquer les autres apps", keywords: ["masquer", "hide", "cacher"],
                        icon: .symbol("eye.slash"), group: .system) { _ in
+                guard !DemoData.isEnabled else { return .message(DemoData.refusal) }
                 let front = NSWorkspace.shared.frontmostApplication
                 for app in NSWorkspace.shared.runningApplications
                 where app.activationPolicy == .regular && app != front && app != NSRunningApplication.current {
@@ -138,6 +140,7 @@ enum LauncherSystem {
             },
             AppCommand(id: "sys_hidden_files", title: "Afficher ou masquer les fichiers cachés", subtitle: "Dans le Finder",
                        keywords: ["fichiers cachés", "hidden", "invisibles", "finder"], icon: .symbol("eye"), group: .system) { _ in
+                guard !DemoData.isEnabled else { return .message(DemoData.refusal) }
                 let current = await tool("/usr/bin/defaults", ["read", "com.apple.finder", "AppleShowAllFiles"])
                 let on = ["1", "true", "yes"].contains(current.out.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
                 _ = await tool("/usr/bin/defaults", ["write", "com.apple.finder", "AppleShowAllFiles", "-bool", on ? "false" : "true"])
@@ -301,13 +304,22 @@ enum LauncherAppActions {
         ]
         for t in MaintenanceTask.all where t.available && !["ram", "dns"].contains(t.id) {
             list.append(AppCommand(id: "maint_\(t.id)", title: t.title, subtitle: "Maintenance" + (t.needsAdmin ? " · mot de passe" : ""),
-                                   keywords: ["maintenance", "réparer"], icon: .symbol(t.symbol, Theme.warn), group: .actions) { ctx in
+                                   keywords: ["maintenance", "réparer"], icon: .symbol(t.symbol, Theme.warn), group: .actions,
+                                   risk: maintenanceRisk(t)) { ctx in
                 await ctx.app.performance.run(t)
                 let r = ctx.app.performance.results[t.id]
                 return r?.ok == true ? .message("\(t.title) : terminé.") : .failed(r?.message ?? "Échec")
             })
         }
         return list
+    }
+
+    /// Relaunching the Dock or Quick Look loses nothing; the other tasks delete (simulators, snapshots), keep the Mac
+    /// busy (Spotlight, Launch Services) or interrupt something (a copy in the Finder): they ask first.
+    static func maintenanceRisk(_ t: MaintenanceTask) -> CommandRisk {
+        if ["dock", "quicklook"].contains(t.id) { return .safe }
+        if t.id == "finder" { return .confirm("Les fenêtres du Finder vont se fermer, et une copie en cours serait interrompue.") }
+        return .confirm(t.warning ?? t.detail)
     }
 }
 
@@ -340,11 +352,16 @@ enum LauncherDynamic {
         return out
     }
 
-    /// "volume 40"
-    private static func volume(_ q: String) -> [AppCommand] {
+    /// "volume 40", "volume 40 %" → 40.
+    static func volumeLevel(_ q: String) -> Int? {
         let lower = q.lowercased()
-        guard lower.hasPrefix("volume "), let n = Int(lower.dropFirst(7).trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "%", with: "")),
-              (0...100).contains(n) else { return [] }
+        guard lower.hasPrefix("volume "), let n = Int(lower.dropFirst(7).replacingOccurrences(of: "%", with: "").trimmingCharacters(in: .whitespaces)),
+              (0...100).contains(n) else { return nil }
+        return n
+    }
+
+    private static func volume(_ q: String) -> [AppCommand] {
+        guard let n = volumeLevel(q) else { return [] }
         return [AppCommand(id: "volume_set", title: "Régler le volume à \(n) %", icon: .symbol("speaker.wave.2"), group: .system, boost: 1500) { _ in
             let r = await Task.detached { Shell.appleScript("set volume output volume \(n)") }.value
             return r.ok ? .message("Volume : \(n) %") : .failed(r.err)
@@ -355,15 +372,16 @@ enum LauncherDynamic {
     private static func processes(_ q: String) -> [AppCommand] {
         let lower = q.lowercased()
         let verbs: [(String, Bool)] = [("quitter ", false), ("quit ", false), ("fermer ", false), ("forcer ", true), ("kill ", true)]
-        guard let (verb, force) = verbs.first(where: { lower.hasPrefix($0.0) }) else { return [] }
+        // The demo never lists (nor closes) the apps really open on this Mac.
+        guard !DemoData.isEnabled, let (verb, force) = verbs.first(where: { lower.hasPrefix($0.0) }) else { return [] }
         let name = String(q.dropFirst(verb.count))
         guard !name.isEmpty else { return [] }
         return NSWorkspace.shared.runningApplications
             .filter { $0.activationPolicy == .regular && $0 != NSRunningApplication.current }
             .compactMap { app -> AppCommand? in
                 guard let title = app.localizedName, let score = Fuzzy.score(name, in: title) else { return nil }
-                let pid = app.processIdentifier
-                return AppCommand(id: "quit_\(pid)", title: "\(force ? "Forcer à quitter" : "Quitter") \(title)",
+                // Stable per app (not the pid), so the usage memory keeps one line per app.
+                return AppCommand(id: processID(app.bundleIdentifier ?? title, force: force), title: "\(force ? "Forcer à quitter" : "Quitter") \(title)",
                                   icon: app.bundleURL.map { .file($0.path) } ?? .symbol("xmark.app"), group: .system,
                                   risk: force ? .confirm("Les documents non enregistrés de \(title) seront perdus.") : .safe,
                                   boost: 1200 + score / 10) { _ in
@@ -373,6 +391,12 @@ enum LauncherDynamic {
             }
     }
 
+    /// "quit_com_tinyspeck_slackmacgap", "kill_slack": letters, digits and "_" only, at most 64 characters.
+    static func processID(_ key: String, force: Bool) -> String {
+        let clean = Fuzzy.fold(key).unicodeScalars.map { $0.isASCII && CharacterSet.alphanumerics.contains($0) ? Character($0) : "_" }
+        return (force ? "kill_" : "quit_") + String(String(clean).prefix(59))
+    }
+
     /// ":smile" or "emoji cœur"
     private static func emoji(_ q: String) -> [AppCommand] {
         let lower = q.lowercased()
@@ -380,7 +404,7 @@ enum LauncherDynamic {
         if lower.hasPrefix(":") { term = String(lower.dropFirst()) } else if lower.hasPrefix("emoji ") { term = String(lower.dropFirst(6)) } else { return [] }
         guard term.count >= 2 else { return [] }
         return LauncherEmoji.search(term).prefix(24).enumerated().map { i, e in
-            AppCommand(id: "emoji_\(i)", title: e.char, subtitle: e.name.lowercased(), icon: .emoji(e.char), group: .emoji,
+            AppCommand(id: LauncherEmoji.commandID(e.char), title: e.char, subtitle: e.name.lowercased(), icon: .emoji(e.char), group: .emoji,
                        hint: "Copier", boost: 1000 - Double(i)) { _ in CommandRunner.copy(e.char) }
         }
     }
@@ -398,8 +422,8 @@ enum LauncherDynamic {
         ]
         let lower = q.lowercased()
         func command(_ name: String, _ base: String, _ term: String, _ symbol: String, boost: Double) -> AppCommand {
-            let encoded = term.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? term
-            return AppCommand(id: "web_\(name.lowercased().filter(\.isLetter))", title: "Rechercher « \(term) » sur \(name)",
+            let encoded = term.addingPercentEncoding(withAllowedCharacters: queryValueAllowed) ?? term
+            return AppCommand(id: "web_\(Fuzzy.fold(name).filter { $0.isASCII && $0.isLetter })", title: "Rechercher « \(term) » sur \(name)",
                               icon: .symbol(symbol, Theme.palette[1]), group: .web, hint: "Ouvrir", boost: boost) { _ in
                 if let url = URL(string: base + encoded) { NSWorkspace.shared.open(url) }
                 return .done
@@ -411,6 +435,14 @@ enum LauncherDynamic {
         }
         return q.count >= 2 ? [command("Google", engines[0].url, q, "magnifyingglass", boost: -400)] : []
     }
+
+    /// What may stay as is in the value of a query parameter: not "&", "+", "=", "?" or "#",
+    /// which would cut the search ("g AT&T" would look for "AT").
+    static let queryValueAllowed: CharacterSet = {
+        var set = CharacterSet.urlQueryAllowed
+        set.remove(charactersIn: "&+=?#")
+        return set
+    }()
 }
 
 // MARK: - Emoji
@@ -443,8 +475,20 @@ enum LauncherEmoji {
         "pluie": "rain", "neige": "snow", "balai": "broom", "poubelle": "wastebasket", "cerveau": "brain", "robot": "robot"
     ]
 
+    /// A whole word of the name first ("ok" → OK HAND SIGN), then a word that starts with it, then the rest
+    /// (COOKED RICE only contains "OK").
     static func search(_ term: String) -> [Item] {
         let t = (french[term] ?? term).uppercased()
-        return all.filter { $0.name.contains(t) }
+        var tiers: [[Item]] = [[], [], []]
+        for e in all where e.name.contains(t) {
+            let words = e.name.split(whereSeparator: { $0 == " " || $0 == "-" })
+            tiers[words.contains { $0 == t } ? 0 : (words.contains { $0.hasPrefix(t) } ? 1 : 2)].append(e)
+        }
+        return tiers.flatMap { $0 }
+    }
+
+    /// "emoji_1f600": the code points, stable whatever the rank in the results.
+    static func commandID(_ char: String) -> String {
+        "emoji_" + char.unicodeScalars.map { String($0.value, radix: 16) }.joined(separator: "_")
     }
 }

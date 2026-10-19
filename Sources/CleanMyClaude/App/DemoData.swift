@@ -670,7 +670,9 @@ enum DemoData {
         root.parent = nil
         root.finalize()
         let prefix = root.path == "/" ? "/" : root.path + "/"
-        return StorageScanResult(root: root, bigFiles: big.filter { $0.path.hasPrefix(prefix) }.sorted { $0.size > $1.size },
+        // Like the real scanner, what is already in the Trash is not a big file to clear.
+        return StorageScanResult(root: root, bigFiles: big.filter { $0.path.hasPrefix(prefix) && !$0.path.hasPrefix(home + "/.Trash/") }
+                                    .sorted { $0.size > $1.size },
                                  unreadable: 0, scannedFiles: max(1, root.files))
     }
 

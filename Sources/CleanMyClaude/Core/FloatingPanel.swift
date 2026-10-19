@@ -77,6 +77,8 @@ final class FloatingPanel: NSPanel {
 enum HUD {
     private static var panel: FloatingPanel?
     private static var hideWork: DispatchWorkItem?
+    /// Counts the messages shown: a fade that ends after a newer message must not hide it.
+    private static var shown = 0
 
     static func show(_ text: String, symbol: String = "checkmark.circle.fill") {
         guard !Snapshot.isActive else { return }
@@ -90,7 +92,8 @@ enum HUD {
         }()
         p.setContent(
             HStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.good)
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(symbol.hasPrefix("xmark") ? Theme.bad : symbol.hasPrefix("exclamationmark") ? Theme.warn : Theme.good)
                 Text(text).font(.ui(13.5, .medium)).foregroundStyle(Theme.text).lineLimit(2)
             }
             .padding(.horizontal, 18)
@@ -101,14 +104,22 @@ enum HUD {
         if let f = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame {
             p.setFrameOrigin(NSPoint(x: f.midX - 160, y: f.minY + f.height * 0.18))
         }
-        p.alphaValue = 1
+        shown += 1
+        let ticket = shown
+        // Through the animator, so that it also stops the fade of a previous message still running.
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.08
+            p.animator().alphaValue = 1
+        }
         p.orderFrontRegardless()
         hideWork?.cancel()
         let work = DispatchWorkItem {
             NSAnimationContext.runAnimationGroup({ ctx in
                 ctx.duration = 0.25
                 p.animator().alphaValue = 0
-            }, completionHandler: { p.orderOut(nil) })
+            }, completionHandler: {
+                MainActor.assumeIsolated { if ticket == shown { p.orderOut(nil) } }
+            })
         }
         hideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)

@@ -32,6 +32,7 @@ struct ClipboardBottomBar: View {
 
     var body: some View {
         let m = app.clipboard
+        let unpinned = m.items.filter { !$0.pinned }.count
         if m.settings.acknowledged && (!m.items.isEmpty || !m.settings.enabled) {
             ActionBar {
                 VStack(alignment: .leading, spacing: 2) {
@@ -44,12 +45,15 @@ struct ClipboardBottomBar: View {
                 Spacer()
                 Button(m.settings.enabled ? "Mettre en pause" : "Reprendre") { m.setEnabled(!m.settings.enabled) }
                     .buttonStyle(SoftButtonStyle(prominent: !m.settings.enabled))
-                if !m.items.isEmpty {
+                // Pinned items are never cleared: with only those, there is nothing to clear.
+                if unpinned > 0 {
                     Button("Tout effacer…") { confirm = true }
                         .buttonStyle(SoftButtonStyle(destructive: true))
                 }
             }
-            .confirmAction("Effacer l'historique ?", message: "Les \(Fmt.plural(m.items.filter { !$0.pinned }.count, "élément non épinglé sera effacé", "éléments non épinglés seront effacés")) de ce Mac, images comprises. Les épingles restent.",
+            .confirmAction("Effacer l'historique ?",
+                           message: unpinned == 1 ? "L'élément non épinglé sera effacé de ce Mac. Les épingles restent."
+                               : "Les \(Fmt.int(unpinned)) éléments non épinglés seront effacés de ce Mac, images comprises. Les épingles restent.",
                            button: "Effacer", isPresented: $confirm) {
                 m.clear()
             }
@@ -480,9 +484,9 @@ struct ClipboardSideColumn: View {
         @Bindable var m = app.clipboard
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
-                stat(Fmt.int(m.items.count), "éléments")
+                stat(Fmt.int(m.items.count), m.items.count > 1 ? "éléments" : "élément")
                 stat(Fmt.bytes(m.totalBytes), "sur ce Mac")
-                stat(Fmt.int(m.skipped), "ignorés")
+                stat(Fmt.int(m.skipped), m.skipped > 1 ? "ignorés" : "ignoré")
                     .help("Copies laissées de côté depuis le lancement : mots de passe, données temporaires, apps ignorées.")
             }
             Panel(title: "Réglages", symbol: "slider.horizontal.3", tint: Theme.palette[4]) {
@@ -582,7 +586,7 @@ struct ClipboardChip: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .background(PillShape().fill(selected ? Theme.palette[4] : Theme.bg))
-                .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border))
+                .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border, lineWidth: Theme.line))
                 .contentShape(PillShape())
         }
         .buttonStyle(.plain)

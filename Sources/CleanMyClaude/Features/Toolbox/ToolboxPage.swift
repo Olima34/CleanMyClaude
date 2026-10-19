@@ -38,9 +38,13 @@ struct ToolboxBottomBar: View {
 
     var body: some View {
         let m = app.toolbox
+        // Redrawn every minute, for "encore 42 min".
+        let _ = m.minuteTick
         if m.caffeineActive && m.tab != .caffeine {
             ActionBar {
-                Image(systemName: "cup.and.saucer.fill").font(.ui(15)).foregroundStyle(Theme.brand)
+                if Theme.icons != .hidden {
+                    Image(systemName: "cup.and.saucer.fill").font(.ui(15)).foregroundStyle(Theme.brand)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Caféine active").font(.serif(17)).foregroundStyle(Theme.text)
                     Text(m.caffeineEnd.map { "Ton Mac reste éveillé jusqu'à \(Fmt.clock($0)) (encore \(m.caffeineShortRemaining(Date())))" }
@@ -64,14 +68,16 @@ struct ToolboxCaffeinePill: View {
         let _ = m.minuteTick
         Button { m.toggleCaffeine() } label: {
             HStack(spacing: 6) {
-                Image(systemName: m.caffeineActive ? "cup.and.saucer.fill" : "cup.and.saucer").font(.ui(12, .semibold))
+                if Theme.icons != .hidden {
+                    Image(systemName: m.caffeineActive ? "cup.and.saucer.fill" : "cup.and.saucer").font(.ui(12, .semibold))
+                }
                 Text(m.caffeineActive ? "Caféine · \(m.caffeineShortRemaining(Date()))" : "Caféine").font(.ui(12, .semibold))
             }
             .foregroundStyle(m.caffeineActive ? Theme.onBrand : Theme.text2)
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
             .background(PillShape().fill(m.caffeineActive ? Theme.brand : Theme.card))
-            .overlay(PillShape().strokeBorder(m.caffeineActive ? Color.clear : Theme.border))
+            .overlay(PillShape().strokeBorder(m.caffeineActive ? Color.clear : Theme.border, lineWidth: Theme.line))
             .contentShape(PillShape())
         }
         .buttonStyle(.plain)
@@ -100,7 +106,7 @@ struct ToolboxColorsTab: View {
                                     Text(c.hex).font(.mono(22, .semibold))
                                     Text(c.rgbString).font(.mono(11.5))
                                 }
-                                .foregroundStyle(c.isLight ? Color.black.opacity(0.72) : Color.white.opacity(0.95))
+                                .foregroundStyle(Theme.ink(on: c.color))
                                 .padding(14)
                             }
                             .overlay(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
@@ -176,7 +182,7 @@ struct ToolboxColorsTab: View {
                                     .fill(h.color)
                                     .frame(height: 44)
                                     .overlay(RoundedRectangle(cornerRadius: Theme.r(9), style: .continuous)
-                                        .strokeBorder(h.hex == c.hex ? Theme.accent : Theme.border, lineWidth: h.hex == c.hex ? 2 : 1))
+                                        .strokeBorder(h.hex == c.hex ? Theme.accent : Theme.border, lineWidth: h.hex == c.hex ? 2 : Theme.line))
                                 Text(h.hex).font(.mono(10.5)).foregroundStyle(Theme.text2)
                             }
                             .contentShape(Rectangle())
@@ -557,7 +563,8 @@ struct ToolboxLoremPanel: View {
                     }
                 }
                 Spacer()
-                ToolboxStepper(value: $m.loremCount, range: 1...(m.loremUnit == .words ? 500 : 20))
+                // 200 words at most: the cap of `ToolboxText.lorem`.
+                ToolboxStepper(value: $m.loremCount, range: 1...(m.loremUnit == .words ? 200 : 20))
             }
             ToolboxEditor(text: .constant(text), height: 128, mono: false, editable: false)
             HStack(spacing: 8) {
@@ -656,9 +663,11 @@ struct ToolboxCaffeineTab: View {
                             let step = Date(timeIntervalSince1970: (ctx.date.timeIntervalSince1970 / 15).rounded(.down) * 15)
                             ProgressRing(progress: m.caffeineActive ? m.caffeineFraction(step) : 0, tint: Theme.brand, lineWidth: 9)
                             VStack(spacing: 4) {
-                                Image(systemName: m.caffeineActive ? "cup.and.saucer.fill" : "moon.zzz")
-                                    .font(.system(size: 22, weight: .medium))
-                                    .foregroundStyle(m.caffeineActive ? Theme.brand : Theme.text3)
+                                if Theme.icons != .hidden {
+                                    Image(systemName: m.caffeineActive ? "cup.and.saucer.fill" : "moon.zzz")
+                                        .font(.ui(22, .medium))
+                                        .foregroundStyle(m.caffeineActive ? Theme.brand : Theme.text3)
+                                }
                                 Text(countdown(m, ctx.date))
                                     .font(.serif(m.caffeineActive && m.caffeineEnd == nil ? 30 : 22))
                                     .foregroundStyle(Theme.text)
@@ -684,7 +693,7 @@ struct ToolboxCaffeineTab: View {
                                         .padding(.horizontal, 14)
                                         .padding(.vertical, 8)
                                         .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(on ? Theme.brand : Theme.bg))
-                                        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(on ? Color.clear : Theme.border))
+                                        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(on ? Color.clear : Theme.border, lineWidth: Theme.line))
                                         .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)

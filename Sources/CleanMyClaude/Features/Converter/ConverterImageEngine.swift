@@ -12,6 +12,16 @@ enum ConverterImageEngine {
         ConverterImageFormat.catalog.filter { $0.viaFFmpeg ? webp : writable.contains($0.uti) }
     }
 
+    /// What "même format" writes: the source's own format when this Mac can write it, JPEG otherwise.
+    static func sameFormat(uti: String?) -> ConverterImageFormat {
+        ConverterImageFormat.matching(uti: uti).flatMap { writable.contains($0.uti) ? $0 : nil } ?? .jpeg
+    }
+
+    /// The same, guessed from the file name (the interface decides from it whether the quality applies).
+    static func sameFormat(for url: URL) -> ConverterImageFormat {
+        sameFormat(uti: UTType(filenameExtension: url.pathExtension.lowercased())?.identifier)
+    }
+
     static func source(_ url: URL) throws -> CGImageSource {
         guard let src = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
               CGImageSourceGetCount(src) > 0 else { throw ConverterError.unreadable(url.lastPathComponent) }
@@ -55,11 +65,11 @@ enum ConverterImageEngine {
     }
 
     /// Re-encodes one image. `format` nil keeps the source format (or JPEG when it cannot be written).
-    static func convert(_ input: URL, format: ConverterImageFormat?, maxSide: Int, quality: Double, strip: Bool,
+    /// `strip`: nil keeps the metadata, `.gps` drops the position only, `.all` everything but what playback needs.
+    static func convert(_ input: URL, format: ConverterImageFormat?, maxSide: Int, quality: Double, strip: ConverterStripMode?,
                         suffix: String?, folder: URL?, control: ConverterControl) throws -> URL {
         let src = try source(input)
-        let sourceType = CGImageSourceGetType(src) as String?
-        let target = format ?? ConverterImageFormat.matching(uti: sourceType).flatMap { writable.contains($0.uti) ? $0 : nil } ?? .jpeg
+        let target = format ?? sameFormat(uti: CGImageSourceGetType(src) as String?)
         if target.viaFFmpeg {
             throw ConverterError.unsupported("Le WebP passe par ffmpeg.")
         }
@@ -79,7 +89,8 @@ enum ConverterImageEngine {
                 throw ConverterError.unreadable(input.lastPathComponent)
             }
             let original = (CGImageSourceCopyPropertiesAtIndex(src, index, nil) as? [CFString: Any]) ?? [:]
-            var props = strip ? essentials(original) : original
+            var props = strip == .all ? essentials(original) : original
+            if strip == .gps { props[kCGImagePropertyGPSDictionary] = nil }
             // The pixels are already upright.
             props[kCGImagePropertyOrientation] = 1
             if var tiff = props[kCGImagePropertyTIFFDictionary] as? [CFString: Any] {
@@ -127,8 +138,13 @@ enum ConverterImageEngine {
         }
         error?.release()
         ConverterOutputs.discard(out)
-        let format = ConverterImageFormat.matching(uti: type as String).flatMap { writable.contains($0.uti) ? $0 : nil } ?? .jpeg
-        let url = try convert(input, format: format, maxSide: 0, quality: 1, strip: true, suffix: suffix, folder: folder, control: control)
+        // Re-encoded, dropping only what the mode removes (the shooting date stays with "Seulement la localisation").
+        let url = try convert(input, format: sameFormat(uti: type as String), maxSide: 0, quality: 1, strip: mode, suffix: suffix,
+                              folder: folder, control: control)
+        if metadataLeft(url, mode: .gps) {
+            ConverterOutputs.discard(url)
+            throw ConverterError.failed("Je n'arrive pas à retirer la localisation de « \(input.lastPathComponent) ».")
+        }
         return (url, false)
     }
 

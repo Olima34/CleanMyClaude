@@ -76,12 +76,14 @@ struct ShortcutSettings: View {
 
 struct CleanupSettings: View {
     @AppStorage(Preferences.alwaysTrashKey) private var alwaysTrash = false
-    @State private var exclusions = Preferences.exclusions
+    // The demo shows none of this Mac's folders and changes none of its settings.
+    @State private var exclusions = DemoData.isEnabled ? [] : Preferences.exclusions
 
     var body: some View {
         Form {
             Section {
                 Toggle("Toujours passer par la Corbeille", isOn: $alwaysTrash)
+                    .disabled(DemoData.isEnabled)
                 Text("Par défaut, les caches et journaux sont supprimés directement (les apps les recréent). Avec ce réglage, tout part d'abord à la Corbeille.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -98,6 +100,7 @@ struct CleanupSettings: View {
                     }
                 }
                 Button("Ajouter un dossier…") { add() }
+                    .disabled(DemoData.isEnabled)
             }
             Section {
                 Button("Ouvrir le journal des suppressions") {
@@ -120,6 +123,7 @@ struct CleanupSettings: View {
     }
 
     private func remove(_ p: String) {
+        guard !DemoData.isEnabled else { return }
         exclusions.removeAll { $0 == p }
         Preferences.exclusions = exclusions
     }

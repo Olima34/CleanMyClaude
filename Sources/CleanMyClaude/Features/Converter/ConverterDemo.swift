@@ -30,7 +30,7 @@ enum ConverterDemo {
     private static func file(_ path: String, _ kind: ConverterKind, _ size: Double, _ detail: String?, pages: Int? = nil,
                              daysAgo: Double = 3) -> ConverterFile {
         ConverterFile(url: URL(fileURLWithPath: path), kind: kind, size: Int64(size * Double(mb)), date: now.addingTimeInterval(-daysAgo * 86400),
-                      detail: detail, pages: pages)
+                      detail: detail, pages: pages, inspected: true)
     }
 
     private static func job(_ model: ConverterModel, _ op: ConverterOperation, _ inputs: [String], kind: ConverterKind, title: String? = nil,

@@ -206,7 +206,7 @@ struct ConverterFilesPanel: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 9)
                 .background(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(targeted ? Theme.accent : Theme.border,
-                                                                             style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+                                                                             style: StrokeStyle(lineWidth: Theme.line, dash: [5, 4])))
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -634,15 +634,16 @@ struct ConverterQRPanel: View {
             Card(padding: 18) {
                 VStack(spacing: 14) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: Theme.r(12)).fill(Color.white)
+                        // A QR code needs a light margin to be scanned, whatever the theme: white under the code only.
+                        RoundedRectangle(cornerRadius: Theme.r(12)).fill(model.qrImage == nil ? Theme.bg.opacity(0.6) : Color.white)
                         if let image = model.qrImage {
                             Image(decorative: image, scale: 1).resizable().interpolation(.none).scaledToFit().padding(6)
                         } else {
                             VStack(spacing: 6) {
-                                Image(systemName: "qrcode").font(.system(size: 40, weight: .light))
+                                Image(systemName: "qrcode").font(.ui(40, .light))
                                 Text("Tape un texte").font(.ui(11.5))
                             }
-                            .foregroundStyle(Color.gray)
+                            .foregroundStyle(Theme.text3)
                         }
                     }
                     .frame(width: 220, height: 220)

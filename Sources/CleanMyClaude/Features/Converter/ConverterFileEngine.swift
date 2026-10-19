@@ -218,12 +218,33 @@ enum ConverterRename {
         }
     }
 
+    /// {date} and {heure} read each file's own date: renaming waits until it is known (else today's date would be used).
+    static func needsDates(_ rule: ConverterRenameRule) -> Bool {
+        let pattern = rule.pattern.lowercased()
+        return ["{date}", "{heure}", "{time}"].contains { pattern.contains($0) }
+    }
+
+    /// A file waiting under a hidden temporary name (its new name belongs to another file of the batch).
+    private typealias Parked = (temp: URL, original: URL, newName: String)
+
     /// Renames through `FileOps` (never over an existing file). Names that belong to another file of the batch
-    /// (swaps, case changes) go through a temporary name first.
+    /// (swaps, case changes) go through a temporary name first. A failure or a cancel puts everything back
+    /// (the renames already done undone, the hidden files under their old names) before it is reported.
     static func apply(_ items: [(url: URL, newName: String)], control: ConverterControl) throws -> [ConverterRenamePair] {
+        var done: [ConverterRenamePair] = []
+        var parked: [Parked] = []
+        do {
+            try rename(items, control: control, done: &done, parked: &parked)
+            return done
+        } catch {
+            rollBack(done: done, parked: parked)
+            throw error
+        }
+    }
+
+    private static func rename(_ items: [(url: URL, newName: String)], control: ConverterControl,
+                               done: inout [ConverterRenamePair], parked: inout [Parked]) throws {
         let sources = Set(items.map { $0.url.standardizedFileURL.path.lowercased() })
-        var pairs: [ConverterRenamePair] = []
-        var parked: [(temp: URL, original: URL, newName: String)] = []
         let total = Double(max(1, items.count))
         for (n, item) in items.enumerated() where item.newName != item.url.lastPathComponent {
             try control.check()
@@ -232,20 +253,30 @@ enum ConverterRename {
                 let temp = try FileOps.rename(item.url, to: ".cmc-\(UUID().uuidString.prefix(8))-\(item.url.lastPathComponent)")
                 parked.append((temp, item.url, item.newName))
             } else {
-                pairs.append(ConverterRenamePair(from: item.url, to: try FileOps.rename(item.url, to: item.newName)))
+                done.append(ConverterRenamePair(from: item.url, to: try FileOps.rename(item.url, to: item.newName)))
             }
             control.progress(Double(n + 1) / total * (parked.isEmpty ? 1 : 0.5))
         }
-        for (n, p) in parked.enumerated() {
-            do {
-                pairs.append(ConverterRenamePair(from: p.original, to: try FileOps.rename(p.temp, to: p.newName)))
-            } catch {
-                // Put the remaining parked files back under their old names before reporting.
-                for back in parked[n...] { _ = try? FileOps.rename(back.temp, to: back.original.lastPathComponent) }
-                throw error
-            }
-            control.progress(0.5 + Double(n + 1) / Double(parked.count) * 0.5)
+        let waiting = parked
+        for (n, p) in waiting.enumerated() {
+            done.append(ConverterRenamePair(from: p.original, to: try FileOps.rename(p.temp, to: p.newName)))
+            parked.removeFirst()
+            control.progress(0.5 + Double(n + 1) / Double(waiting.count) * 0.5)
         }
-        return pairs
+    }
+
+    /// The inverse renaming, through the same two steps (a swap already done goes back through a temporary name too).
+    private static func rollBack(done: [ConverterRenamePair], parked: [Parked]) {
+        let back = done.reversed().map { (url: $0.to, newName: $0.from.lastPathComponent) }
+            + parked.map { (url: $0.temp, newName: $0.original.lastPathComponent) }
+        guard !back.isEmpty else { return }
+        var undone: [ConverterRenamePair] = []
+        var stuck: [Parked] = []
+        do {
+            try rename(back, control: ConverterControl { _ in }, done: &undone, parked: &stuck)
+        } catch {
+            // Last resort: nothing stays hidden under a temporary name.
+            for p in stuck { _ = try? FileOps.rename(p.temp, to: p.newName) }
+        }
     }
 }

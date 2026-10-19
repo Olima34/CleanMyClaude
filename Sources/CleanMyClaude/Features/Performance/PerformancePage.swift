@@ -14,13 +14,15 @@ struct PerformancePage: View {
                 tab == .startup && app.startup.activeCount > 0 ? "\(app.startup.activeCount)" : nil
             })
             switch model.tab {
-            case .monitor: MonitorTab()
+            case .monitor:
+                // Processes are only sampled while their table is on screen.
+                MonitorTab()
+                    .onAppear { app.performance.startSampling() }
+                    .onDisappear { app.performance.stopSampling() }
             case .startup: StartupTab()
             case .maintenance: MaintenanceTab()
             }
         }
-        .onAppear { app.performance.startSampling() }
-        .onDisappear { app.performance.stopSampling() }
     }
 }
 
@@ -237,7 +239,8 @@ struct StartupTab: View {
                 }
             }
             if let msg = startup.message {
-                Callout(symbol: "info.circle", title: "Fait", text: msg)
+                Callout(symbol: startup.messageOK ? "checkmark.circle" : "exclamationmark.triangle", title: startup.messageOK ? "Fait" : "Pas tout à fait",
+                          text: msg, tint: startup.messageOK ? Theme.good : Theme.warn)
             }
             let items = startup.thirdParty.sorted { a, b in a.disabled != b.disabled ? !a.disabled : a.label < b.label }
             if items.isEmpty {
@@ -301,6 +304,7 @@ struct MaintenanceCard: View {
                     }
                     HStack(spacing: 10) {
                         Button {
+                            if let text = task.confirmation, !CommandRunner.confirm("\(task.title) ?", text, button: "Lancer") { return }
                             Task { await model.run(task) }
                         } label: {
                             HStack(spacing: 6) {

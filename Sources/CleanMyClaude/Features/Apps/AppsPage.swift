@@ -20,7 +20,8 @@ struct AppsPage: View {
             } else {
                 summary(model)
                 if let msg = model.message {
-                    Callout(symbol: "checkmark.circle", title: "Fait", text: msg, tint: Theme.good)
+                    Callout(symbol: model.messageOK ? "checkmark.circle" : "exclamationmark.triangle", title: model.messageOK ? "Fait" : "Pas tout à fait",
+                          text: msg, tint: model.messageOK ? Theme.good : Theme.warn)
                 }
                 HStack(spacing: 10) {
                     PillPicker(options: AppFilter.allCases, selection: $model.filter, label: { $0.title }, badge: { f in
@@ -242,7 +243,7 @@ struct UninstallSheet: View {
                     Task { await model.uninstall() }
                 } label: {
                     HStack(spacing: 6) {
-                        if model.isRemoving { ProgressView().controlSize(.small).scaleEffect(0.7).tint(.white) }
+                        if model.isRemoving { ProgressView().controlSize(.small).scaleEffect(0.7).tint(Theme.onBad) }
                         Text("Désinstaller")
                     }
                 }

@@ -49,6 +49,13 @@ struct TranslatorLanguage: Identifiable, Hashable {
         return all.first { $0.code == code }?.name ?? (Locale(identifier: "fr_FR").localizedString(forIdentifier: code)?.capitalized ?? code)
     }
 
+    /// The name with its article, for a sentence: "l'anglais", "l'hindi", "l'hébreu", "le japonais", "le hongrois" (h aspiré).
+    static func withArticle(_ code: String) -> String {
+        let name = named(code).lowercased()
+        let elided = ["hindi", "hébreu"].contains(name) || name.first.map { "aeiouàâäéèêëîïôöùûü".contains($0) } == true
+        return (elided ? "l'" : "le ") + name
+    }
+
     /// The language of a text, or nil when it is too short or too mixed to tell.
     static func detect(_ text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)

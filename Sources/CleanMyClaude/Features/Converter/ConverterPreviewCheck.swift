@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import CoreGraphics
+import ImageIO
 
 /// `--preview-check`: makes one small file of each kind in a temporary folder and runs the preview of every operation
 /// on it, for real (what the preview shows is what the conversion makes). Nothing outside that folder is touched.
@@ -36,6 +37,7 @@ enum ConverterPreviewCheck {
 
         var options = ConverterOptions()
         options.pdfPages = "1-2"
+        options.container = .mov // the sample is an MP4: "MOV ↔ MP4" must have something to do
         let ffmpeg = Shell.which("ffmpeg")
         let cases: [(ConverterOperation, [URL], ConverterKind)] = [
             (.imageConvert, [png], .image), (.imageResize, [png], .image), (.imageCompress, [png], .image), (.imageStrip, [png], .image),
@@ -74,10 +76,67 @@ enum ConverterPreviewCheck {
                 lines.append("✗ \(op.title) (\(inputs.first!.pathExtension)) : \(error.localizedDescription)")
             }
         }
+        // "MOV ↔ MP4" on an MP4 kept in MP4: the preview refuses, like the conversion (the excerpt is a .mov).
+        if FS.exists(video.path) {
+            var same = options
+            same.container = .mp4
+            let spec = ConverterEngine.Spec(operation: .videoContainer, inputs: [video], kinds: [.video], names: [], options: same,
+                                            folder: nil, ffmpeg: ffmpeg)
+            let folder = dir.appendingPathComponent("apercu-meme-format")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let made = try? await ConverterPreviewer.make(spec, folder: folder, control: ConverterControl(report: { _ in }), piece: (2, 4))
+            lines.append(made == nil ? "✓ MOV ↔ MP4 (mp4 → mp4) : refusé comme la conversion" : "✗ MOV ↔ MP4 (mp4 → mp4) : l'aperçu réussit, la conversion échouerait")
+        }
+        // Images → PDF: an opaque HEIC (decoded premultiplied) is still embedded as a JPEG, so the quality changes the size.
+        let heic = dir.appendingPathComponent("photo.heic")
+        writeHEIC(heic)
+        if FS.exists(heic.path) {
+            var sizes: [Int64] = []
+            for quality in [0.3, 1.0] {
+                var o = options
+                o.imageQuality = quality
+                let spec = ConverterEngine.Spec(operation: .imagesToPDF, inputs: [heic], kinds: [.image], names: [], options: o,
+                                                folder: nil, ffmpeg: ffmpeg)
+                let folder = dir.appendingPathComponent("apercu-heic-\(Int(quality * 100))")
+                try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let r = try? await ConverterPreviewer.make(spec, folder: folder, control: ConverterControl(report: { _ in }))
+                sizes.append(r?.outputSize ?? 0)
+            }
+            lines.append(sizes[0] > 0 && Double(sizes[0]) < Double(sizes[1]) * 0.8
+                         ? "✓ Images → PDF (heic opaque) : la qualité compte (\(Fmt.bytes(sizes[0])) à 30 %, \(Fmt.bytes(sizes[1])) à 100 %)"
+                         : "✗ Images → PDF (heic opaque) : la qualité ne change rien (\(sizes.map { Fmt.bytes($0) }))")
+        }
+        lines.append(renameRollBack(in: dir, cancel: false))
+        lines.append(renameRollBack(in: dir, cancel: true))
         // The originals must be untouched.
         let untouched = [png, text, md, pdf].allSatisfy { FS.exists($0.path) }
         lines.append(untouched ? "✓ originaux intacts" : "✗ un original a disparu")
         return lines
+    }
+
+    /// A batch rename stopped half-way (a locked file, or a cancel after the first file) puts every name back,
+    /// the hidden temporary names of a swap included.
+    private static func renameRollBack(in dir: URL, cancel: Bool) -> String {
+        let what = cancel ? "renommage annulé" : "renommage interrompu"
+        let folder = dir.appendingPathComponent(cancel ? "renommage-annule" : "renommage-interrompu")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let names = ["a.txt", "b.txt", "verrou.txt", "x.txt"]
+        for n in names { try? Data(n.utf8).write(to: folder.appendingPathComponent(n)) }
+        let locked = folder.appendingPathComponent("verrou.txt")
+        if !cancel { try? FileManager.default.setAttributes([.immutable: true], ofItemAtPath: locked.path) }
+        defer { try? FileManager.default.setAttributes([.immutable: false], ofItemAtPath: locked.path) }
+        // x is renamed directly, a and b swap through hidden names, the locked file fails last.
+        let items = [("x.txt", "x2.txt"), ("a.txt", "b.txt"), ("b.txt", "a.txt"), ("verrou.txt", "verrou2.txt")]
+            .map { (url: folder.appendingPathComponent($0.0), newName: $0.1) }
+        final class Box: @unchecked Sendable { var control: ConverterControl? }
+        let box = Box()
+        let control = ConverterControl { _ in if cancel { box.control?.cancel() } }
+        box.control = control
+        let failed = (try? ConverterRename.apply(items, control: control)) == nil
+        let left = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).sorted()
+        let swapUndone = (try? String(contentsOf: folder.appendingPathComponent("a.txt"), encoding: .utf8)) == "a.txt"
+        guard failed, left == names, swapUndone else { return "✗ \(what) : \(failed ? "" : "aucune erreur, ")reste \(left)" }
+        return "✓ \(what) : tous les noms sont revenus"
     }
 
     private static func writePNG(_ url: URL, text: String?) {
@@ -100,6 +159,26 @@ enum ConverterPreviewCheck {
         guard let image = ctx.makeImage(),
               let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
         try? data.write(to: url)
+    }
+
+    /// An opaque photo-like HEIC (a gradient: JPEG quality shows on it).
+    private static func writeHEIC(_ url: URL) {
+        let w = 800, h = 500
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue),
+              let gradient = CGGradient(colorsSpace: space, colors: [CGColor(red: 0.95, green: 0.7, blue: 0.4, alpha: 1),
+                                                                     CGColor(red: 0.3, green: 0.2, blue: 0.5, alpha: 1)] as CFArray,
+                                        locations: nil) else { return }
+        ctx.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: w, y: h), options: [])
+        for i in 0..<60 {
+            ctx.setFillColor(CGColor(red: CGFloat(i % 7) / 7, green: CGFloat(i % 5) / 5, blue: CGFloat(i % 3) / 3, alpha: 1))
+            ctx.fillEllipse(in: CGRect(x: (i * 97) % w, y: (i * 61) % h, width: 30 + i % 40, height: 30 + i % 25))
+        }
+        guard let image = ctx.makeImage(),
+              let dest = CGImageDestinationCreateWithURL(url as CFURL, "public.heic" as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, image, nil)
+        CGImageDestinationFinalize(dest)
     }
 
     private static func writePDF(_ url: URL, pages: Int) {

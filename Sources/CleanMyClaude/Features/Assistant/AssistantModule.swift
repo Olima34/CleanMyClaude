@@ -201,6 +201,8 @@ final class AssistantModel: AppModule {
     // MARK: Conversation
 
     func reset() {
+        // A reply arriving after the reset would land in the new conversation.
+        guard !isThinking else { return }
         entries = []
         history = []
         turns = []
@@ -231,22 +233,26 @@ final class AssistantModel: AppModule {
 
     func sendDraft() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return }
+        // The draft is kept while Claude is still answering: ↩ never loses a message.
+        guard !text.isEmpty, ask(text) else { return }
         draft = ""
-        ask(text)
     }
 
-    func ask(_ text: String) {
-        guard !isThinking else { return }
-        guard let app = app ?? AppContext.model else { return }
+    /// Sends a question; false when it cannot leave now (Claude is still answering).
+    @discardableResult
+    func ask(_ text: String) -> Bool {
+        guard !isThinking else { return false }
+        guard let app = app ?? AppContext.model else { return false }
         self.app = app
+        // Set right away, before the task starts: a second ↩ or click cannot send twice.
+        isThinking = true
         entries.append(AssistantEntry(kind: .user(text)))
         if provider == .subscription {
             Task { await converseWithClaudeCode(app: app, question: text) }
         } else {
-            history.append(["role": "user", "content": text])
-            Task { await converse(app: app) }
+            Task { await converse(app: app, question: text) }
         }
+        return true
     }
 
     /// One question through Claude Code: the earlier exchanges and (if allowed) the Mac's state go in the prompt,
@@ -314,14 +320,18 @@ final class AssistantModel: AppModule {
     }
 
     /// The tool loop: send, show text, run lookups or register proposals, send the results back, until Claude is done.
-    private func converse(app: AppModel) async {
+    private func converse(app: AppModel, question: String) async {
+        isThinking = true
+        defer { isThinking = false }
         guard let key = Keychain.get(AssistantClient.keyAccount) else {
             hasKey = false
             entries.append(AssistantEntry(kind: .notice(AssistantFailure.noKey.localizedDescription, isError: true)))
             return
         }
-        isThinking = true
-        defer { isThinking = false }
+        // Where this exchange starts: on an error or a refusal, everything from here goes (question, tool calls
+        // and results), so no tool_use is left without its result and the next question starts clean.
+        let start = history.count
+        history.append(["role": "user", "content": question])
         let model = modelChoice
         let tools = Self.tools(app: app, lookups: allowLookups)
         let system = Self.systemPrompt(app: app, lookups: allowLookups)
@@ -332,15 +342,14 @@ final class AssistantModel: AppModule {
                 reply = try await AssistantClient.send(body: body, apiKey: key, model: model)
             } catch {
                 entries.append(AssistantEntry(kind: .notice(error.localizedDescription, isError: true)))
-                // The last user turn stays unanswered: drop it so the next question starts clean.
-                if history.last?["role"] as? String == "user" { history.removeLast() }
+                history.removeSubrange(start...)
                 return
             }
             account(reply, model: model)
             if reply.stopReason == "refusal" {
                 let why = reply.refusalCategory.map { " (catégorie : \($0))" } ?? ""
                 entries.append(AssistantEntry(kind: .notice("Claude a décliné cette demande\(why). Reformule-la autrement.", isError: true)))
-                if history.last?["role"] as? String == "user" { history.removeLast() }
+                history.removeSubrange(start...)
                 return
             }
             // Append-only history: the assistant content goes back exactly as received.
@@ -348,6 +357,8 @@ final class AssistantModel: AppModule {
             for t in reply.texts { entries.append(AssistantEntry(kind: .assistant(t))) }
             if reply.stopReason == "max_tokens" {
                 entries.append(AssistantEntry(kind: .notice("La réponse a été coupée (trop longue).", isError: false)))
+                // Cut in the middle of a tool call: its tool_use would stay without a result.
+                if !reply.toolUses.isEmpty { history.removeSubrange(start...) }
             }
             guard reply.stopReason == "tool_use", !reply.toolUses.isEmpty else { return }
             // Every tool result goes back in a single user message.
@@ -503,10 +514,15 @@ final class AssistantModel: AppModule {
         }
     }
 
-    /// Runs a proposal the user clicked (risky commands still ask through `CommandRunner`).
+    /// Runs a proposal the user clicked. A risky command is confirmed here, through `CommandRunner.confirm`, so that
+    /// "Annuler" leaves the button in place; it is marked done only once confirmed.
     func execute(_ entry: AssistantEntry) {
-        guard case .proposal(let id, _, _) = entry.kind, let app = app ?? AppContext.model,
-              let command = ModuleRegistry.commands(app).first(where: { $0.id == id }) else { return }
+        guard case .proposal(let id, _, _) = entry.kind, !executed.contains(entry.id), let app = app ?? AppContext.model,
+              var command = ModuleRegistry.commands(app).first(where: { $0.id == id }) else { return }
+        if case .confirm(let message) = command.risk {
+            guard CommandRunner.confirm(command.title, message) else { return }
+            command.risk = .safe // already confirmed: `CommandRunner.execute` must not ask a second time
+        }
         executed.insert(entry.id)
         Task { await CommandRunner.execute(command, app: app) }
     }

@@ -329,7 +329,10 @@ private struct UpdatesAppsPanel: View {
         }
         let unchecked = apps.filter { $0.result == .unchecked }
         VStack(alignment: .leading, spacing: 10) {
-            if state.date != nil && available.isEmpty {
+            if case .failed(let message) = state {
+                Callout(symbol: "exclamationmark.triangle", title: message,
+                        text: "Aucune réponse n'est arrivée : vérifie ta connexion à Internet, puis clique sur « Vérifier ».", tint: Theme.warn)
+            } else if state.date != nil && available.isEmpty {
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark.seal.fill").foregroundStyle(Theme.good)
                     Text("Rien de nouveau : tout est à jour.").font(.ui(12.5)).foregroundStyle(Theme.text2)

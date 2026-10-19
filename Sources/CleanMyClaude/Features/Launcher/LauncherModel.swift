@@ -38,6 +38,8 @@ final class LauncherModel: AppModule {
     var assignMessage: String?
     var combo: KeyCombo?
     var hotKeyActive = false
+    /// Why the last shortcut typed on the page was refused (already used elsewhere in Clean My Claude).
+    var comboRefusal: String?
     var includeFiles = UserDefaults.standard.object(forKey: "launcher.files") as? Bool ?? true {
         didSet {
             guard !DemoData.isEnabled else { return }
@@ -62,6 +64,10 @@ final class LauncherModel: AppModule {
     @ObservationIgnored private var fileQuery: NSMetadataQuery?
     @ObservationIgnored private var fileObserver: NSObjectProtocol?
     @ObservationIgnored private var fileWork: DispatchWorkItem?
+    /// The query `fileResults` answer (a Spotlight answer must not stay under another query).
+    @ObservationIgnored private var fileResultsQuery = ""
+    /// Set while re-ranking after an asynchronous answer: the pending Spotlight search is left alone.
+    @ObservationIgnored private var keepFileSearch = false
     @ObservationIgnored let fileIndex = LauncherFileIndex()
     /// The demo's fictional files, searched like the real index.
     @ObservationIgnored private var demoFiles: LauncherFileIndex.Snapshot?
@@ -107,7 +113,13 @@ final class LauncherModel: AppModule {
         startIndexIfAllowed()
     }
 
+    /// Saves the panel's shortcut, unless another part of Clean My Claude already uses it.
     func setCombo(_ newCombo: KeyCombo?) {
+        comboRefusal = nil
+        if let newCombo, let other = (app ?? AppContext.model)?.hotkeys.owner(of: newCombo, except: .launcher) {
+            comboRefusal = "\(newCombo.display) est déjà utilisé par \(other) : choisis-en un autre."
+            return
+        }
         combo = newCombo
         hotKeyActive = HotKeyCenter.shared.change(Self.hotKeyID, to: newCombo) { [weak self] in self?.toggle() }
     }
@@ -155,7 +167,14 @@ final class LauncherModel: AppModule {
         var failures: [String] = []
         let calc: [(String, Double?)] = [
             ("2+2", 4), ("3*(4+1)", 15), ("2^10", 1024), ("1,5*2", 3), ("10/4", 2.5), ("20%", 0.2), ("sqrt(16)", 4),
-            ("-3+5", 2), ("2x3", 6), ("2++", nil), ("bonjour", nil), ("2024", nil), ("(1+2", nil), ("1/0", nil)
+            ("-3+5", 2), ("2x3", 6), ("2++", nil), ("bonjour", nil), ("2024", nil), ("(1+2", nil), ("1/0", nil),
+            // A percentage after + or − is a share of what comes before it.
+            ("1250*1,2 + 15%", 1725), ("50-20%", 40), ("100+10%", 110), ("(100+10%)*2", 220), ("10%*50", 5), ("100+10%+10%", 121),
+            // The minus sign binds after ^, as in mathematics.
+            ("-2^2", -4), ("2^-1", 0.5), ("2^3^2", 512), ("(-2)^2", 4),
+            // Spaces between groups of three digits (the calculator's own display) are thousands separators.
+            ("1 000*2", 2000), ("1 500,15*2", 3000.3), ("1\u{202F}000*2", 2000), ("1\u{00A0}234\u{00A0}567+1", 1234568),
+            ("2 3", nil), ("12 34*2", nil)
         ]
         for (input, expected) in calc {
             let got = LauncherCalculator.evaluate(input)
@@ -166,12 +185,54 @@ final class LauncherModel: AppModule {
             }
         }
         let units: [(String, Double)] = [("10 km en mi", 6.2137), ("100 °F en °C", 37.7778), ("5 Go en Mo", 5000),
-                                          ("1 Gio en Mo", 1073.7418), ("2 h en min", 120), ("3 jours en h", 72), ("8 Mb en MB", 1)]
+                                          ("1 Gio en Mo", 1073.7418), ("2 h en min", 120), ("3 jours en h", 72), ("8 Mb en MB", 1),
+                                          ("1 000 km en mi", 621.3712)]
         for (input, expected) in units {
             let got = LauncherUnits.convert(input)?.value
             if got == nil || abs(got! - expected) > 0.001 { failures.append("conversion « \(input) » = \(got.map { "\($0)" } ?? "rien")") }
         }
         if LauncherUnits.convert("10 km en kg") != nil { failures.append("conversion km → kg aurait dû être refusée") }
+        // French symbols, and the digits of a large result.
+        let hours = LauncherUnits.convert("2 h en min")
+        if hours?.from != "2 h" || hours?.to != "120 min" { failures.append("conversion : « \(hours.map { "\($0.from) = \($0.to)" } ?? "rien") » au lieu de « 2 h = 120 min »") }
+        let tera = LauncherUnits.convert("5 To en Go")
+        if tera?.from != "5 To" || tera?.to.hasSuffix(" Go") != true { failures.append("conversion : unités en anglais (\(tera?.to ?? "rien"))") }
+        if LauncherUnits.convert("1 kcal en kj")?.from != "1 kcal" { failures.append("conversion : symbole kcal") }
+        let big = LauncherCalculator.format(12_345_678_901 * 10)
+        if big.filter(\.isNumber) != "123456789010" { failures.append("calcul : « \(big) » tronqué") }
+        if LauncherCalculator.format(0.1 + 0.2) != "0,3" { failures.append("calcul : 0,1 + 0,2 affiché « \(LauncherCalculator.format(0.1 + 0.2)) »") }
+        for v in [1500.15, 1_234_567.5, 123_456_789_010] {
+            let back = LauncherCalculator.evaluate(LauncherCalculator.format(v) + "*1")
+            if back == nil || abs(back! - v) > 1e-6 { failures.append("calcul : « \(LauncherCalculator.format(v)) » n'est pas relu") }
+        }
+        for (city, expected) in [("new york", "New York"), ("le caire", "Le Caire"), ("pointe-à-pitre", "Pointe-à-Pitre")]
+        where LauncherWorldClock.title(city) != expected {
+            failures.append("heure : « \(LauncherWorldClock.title(city)) » au lieu de « \(expected) »")
+        }
+        if LauncherDynamic.volumeLevel("volume 40 %") != 40 || LauncherDynamic.volumeLevel("volume 30") != 30 || LauncherDynamic.volumeLevel("volume 140") != nil {
+            failures.append("volume : « volume 40 % » mal lu")
+        }
+        if "AT&T".addingPercentEncoding(withAllowedCharacters: LauncherDynamic.queryValueAllowed) != "AT%26T"
+            || "a+b=c?d#e".addingPercentEncoding(withAllowedCharacters: LauncherDynamic.queryValueAllowed) != "a%2Bb%3Dc%3Fd%23e" {
+            failures.append("recherche web : & + = ? # doivent être encodés")
+        }
+        for c in LauncherDynamic.results("wiki chat") + LauncherDynamic.results(":coeur") where !AppCommand.isValidID(c.id) {
+            failures.append("identifiant invalide : \(c.id)")
+        }
+        let hearts = LauncherDynamic.results(":coeur").map(\.id)
+        if Set(hearts).count != hearts.count { failures.append("emoji : identifiants en double") }
+        if !AppCommand.isValidID(LauncherDynamic.processID("com.tinyspeck.slackmacgap", force: true))
+            || LauncherDynamic.processID("Café Été", force: false) != "quit_cafe_ete" {
+            failures.append("quitter : identifiant stable invalide")
+        }
+        if let ok = LauncherEmoji.search("ok").first, !ok.name.split(separator: " ").contains("OK") {
+            failures.append("emoji : « :ok » propose d'abord \(ok.name)")
+        }
+        for t in MaintenanceTask.all {
+            let confirms: Bool
+            if case .confirm = LauncherAppActions.maintenanceRisk(t) { confirms = true } else { confirms = false }
+            if confirms == ["dock", "quicklook"].contains(t.id) { failures.append("maintenance : confirmation de « \(t.title) »") }
+        }
         if Fuzzy.score("reglages", in: "Réglages Système") == nil { failures.append("recherche sans accents") }
         if Fuzzy.score("vsc", in: "Visual Studio Code") == nil { failures.append("recherche par initiales") }
         if LauncherEmoji.search("coeur").isEmpty { failures.append("emoji introuvables") }
@@ -187,7 +248,9 @@ final class LauncherModel: AppModule {
         let indexable: [(String, Bool)] = [
             (h + "/Documents/Factures", true), (h + "/Library/Caches", false), (h + "/Developer/app/node_modules/x", false),
             (h + "/.config", false), (h + "/Developer/site/.git", false), (h + "/Pictures/Photos.photoslibrary/originals", false),
-            (h + "/Library/Mobile Documents/com~apple~CloudDocs/Notes", true), ("/private/tmp", false)
+            (h + "/Library/Mobile Documents/com~apple~CloudDocs/Notes", true), ("/private/tmp", false),
+            // A package is listed in its folder, never read (FSEvents reports it when its content changes).
+            (h + "/Developer/app/App.xcodeproj", false), (h + "/Documents/Rapport.pages", false), (h + "/Documents/Notes.rtfd", false)
         ]
         for (path, expected) in indexable where LauncherFileIndex.isIndexable(path, roots: roots, home: h) != expected {
             failures.append("index : « \(path) » \(expected ? "aurait dû être indexé" : "n'aurait pas dû l'être")")
@@ -196,7 +259,8 @@ final class LauncherModel: AppModule {
             (h + "/Documents/Factures", true), (h + "/Documents/Factures/EDF", true),
             (h + "/Documents/Factures/EDF/mars 2026.pdf", false), (h + "/Documents/Résumé.pdf", false),
             (h + "/Documents/Archives/vieux/très/loin/facture.pdf", false), (h + "/Desktop/facture.pdf", false),
-            (h + "/Documents/préfacture.txt", false), (h + "/Documents/Rapport annuel.pages", false)
+            (h + "/Documents/préfacture.txt", false), (h + "/Documents/Rapport annuel.pages", false),
+            (h + "/Documents/Administratif", true), (h + "/Documents/Administratif/Avis d'imposition 2026.pdf", false)
         ], home: h)
         func first(_ q: String) -> String? {
             LauncherFileIndex.search(q, in: snapshot, checkDates: false).first.map { ($0.path as NSString).lastPathComponent }
@@ -208,6 +272,9 @@ final class LauncherModel: AppModule {
         if first("resume") != "Résumé.pdf" { failures.append("index : recherche sans accents") }
         if first("edf mars") != "mars 2026.pdf" { failures.append("index : un mot peut viser le dossier (« edf mars »)") }
         if first("rapport annuel") != "Rapport annuel.pages" { failures.append("index : plusieurs mots") }
+        if first("administratif avis") != "Avis d'imposition 2026.pdf" {
+            failures.append("index : le mot le plus long peut viser le dossier (« administratif avis » → \(first("administratif avis") ?? "rien"))")
+        }
         if !LauncherFileIndex.search("zzz", in: snapshot, checkDates: false).isEmpty { failures.append("index : résultat inventé") }
         let order = LauncherFileIndex.search("fact", in: snapshot, checkDates: false).map(\.name)
         if let pre = order.firstIndex(of: "préfacture.txt"), let start = order.firstIndex(of: "Factures"), pre < start {
@@ -220,7 +287,8 @@ final class LauncherModel: AppModule {
     }
 
     func dump() -> [String] {
-        let apps = LauncherAppIndex.scan()
+        // The demo shows its made-up apps, never the ones installed on this Mac.
+        let apps = DemoData.isEnabled ? DemoData.apps().map { LauncherApp(name: $0.name, path: $0.path, keywords: []) } : LauncherAppIndex.scan()
         var lines: [String] = []
         if !DemoData.isEnabled {
             let index = LauncherFileIndex()
@@ -508,6 +576,7 @@ final class LauncherModel: AppModule {
         if q.isEmpty {
             sections = suggestions()
             fileResults = []
+            fileResultsQuery = ""
             fileQuery?.stop()
             return
         }
@@ -520,7 +589,14 @@ final class LauncherModel: AppModule {
             return
         }
         let instant = instantFiles(q)
-        if let instant { fileResults = instant }
+        if let instant {
+            fileResults = instant
+            fileResultsQuery = q
+        } else if fileResultsQuery != q {
+            // Spotlight answers later: until then, nothing rather than the files of the previous query.
+            fileResults = []
+            fileResultsQuery = q
+        }
         var scored: [(AppCommand, Double)] = []
         for c in catalog {
             if let s = Fuzzy.best(q, title: c.title, keywords: c.keywords + [c.subtitle ?? ""]) {
@@ -533,7 +609,12 @@ final class LauncherModel: AppModule {
         for c in fileResults { scored.append((c, c.boost + CommandRunner.frecency(c.id))) }
         scored.sort { $0.1 > $1.1 }
         sections = arrange(scored.map(\.0))
-        if instant == nil { scheduleFileSearch(q) } else { fileWork?.cancel(); fileQuery?.stop() }
+        if instant != nil {
+            fileWork?.cancel()
+            fileQuery?.stop()
+        } else if !keepFileSearch {
+            scheduleFileSearch(q)
+        }
     }
 
     /// Re-ranks after an asynchronous answer (files, translation) without moving the selection.
@@ -663,6 +744,7 @@ final class LauncherModel: AppModule {
                     found.append(self.fileCommand(path, isDir: isDir, boost: (content ? 600 : 300) - Double(i) * 5))
                 }
                 self.fileResults = found
+                self.fileResultsQuery = q
                 self.refreshKeepingSelection()
             }
         }
@@ -672,10 +754,9 @@ final class LauncherModel: AppModule {
 
     /// Re-ranks with the latest file results, without starting a new file search.
     private func refreshKeepingFiles() {
-        let work = fileWork
+        keepFileSearch = true
+        defer { keepFileSearch = false }
         refresh()
-        fileWork?.cancel()
-        fileWork = work
     }
 
     /// Stable id per path (FNV-1a), so that the files opened often come first next time.

@@ -239,6 +239,12 @@ final class NetworkModel: AppModule {
            let running = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL?.path == path }) {
             ok = running.terminate()
         } else if !p.isSystem {
+            // The PID comes from the last scan: if that process ended, the number may now belong to another program.
+            guard let exe = p.executable, NetworkPorts.executablePath(p.pid) == exe else {
+                ActionLog.write("PORT \(p.port) : arrêt de \(p.displayName) (pid \(p.pid)) annulé, le processus a changé")
+                HUD.show("\(p.displayName) n'est plus là : actualise la liste.", symbol: "xmark.octagon.fill")
+                return
+            }
             ok = kill(p.pid, SIGTERM) == 0
         }
         ActionLog.write("PORT \(p.port) : arrêt de \(p.displayName) (pid \(p.pid)) \(ok ? "demandé" : "refusé")")
@@ -254,6 +260,12 @@ final class NetworkModel: AppModule {
                 await scanPorts()
             }
         }
+    }
+
+    /// Copies for the page and the launcher; the demo never writes to the real clipboard.
+    static func copy(_ text: String) -> CommandOutcome {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return .message(DemoData.refusal) }
+        return CommandRunner.copy(text)
     }
 
     // MARK: AppModule
@@ -293,17 +305,18 @@ final class NetworkModel: AppModule {
                            ?? "Demandée à \(Self.publicIPService), puis copiée",
                        keywords: ["ip", "adresse ip", "ip publique", "public ip", "what is my ip"],
                        icon: .symbol("globe", Theme.palette[1]), group: .tools, hint: "Copier") { ctx in
+                guard !DemoData.isEnabled else { return .message(DemoData.refusal) }
                 guard let ip = await ctx.app.network.fetchPublicIP() else {
                     return .failed("\(Self.publicIPService) n'a pas répondu.")
                 }
-                return CommandRunner.copy(ip)
+                return Self.copy(ip)
             },
             AppCommand(id: "net_local_ip", title: "Mon adresse IP locale", subtitle: "Sur le réseau de la maison ou du bureau",
                        keywords: ["ip", "ip locale", "local ip", "adresse"], icon: .symbol("network", Theme.palette[1]), group: .tools,
                        assistantSafe: true, hint: "Copier") { ctx in
                 let a = DemoData.isEnabled ? NetworkDemo.addresses : NetworkLocal.read()
                 guard let ip = a.localIP else { return .failed("Aucune adresse : ce Mac n'est relié à aucun réseau.") }
-                return CommandRunner.copy(ip)
+                return Self.copy(ip)
             },
             AppCommand(id: "net_ports", title: "Ports ouverts", subtitle: "Les programmes qui attendent des connexions",
                        keywords: ["ports", "lsof", "écoute", "listen", "serveur"], icon: .symbol("door.left.hand.open", Theme.palette[1]),
@@ -333,17 +346,19 @@ final class NetworkModel: AppModule {
             addresses = NetworkLocal.read()
             addressesRead = Date()
         }
+        // "ipv6" asks for the IPv6 address first.
+        let v6 = words.contains("ipv6")
         var out: [AppCommand] = []
         for (n, i) in addresses.interfaces.prefix(3).enumerated() {
-            guard let ip = i.ipv4.first ?? i.ipv6.first else { continue }
+            guard let ip = i.address(preferringIPv6: v6) else { continue }
             out.append(AppCommand(id: "net_ip_\(n)", title: ip, subtitle: "IP locale · \(i.displayName) (\(i.bsdName))",
                                   icon: .symbol("network", Theme.palette[1]), group: .tools, hint: "Copier", boost: 420 - Double(n)) { _ in
-                CommandRunner.copy(ip)
+                Self.copy(ip)
             })
         }
         if let r = addresses.router {
             out.append(AppCommand(id: "net_ip_router", title: r, subtitle: "Routeur (ta box)", icon: .symbol("wifi.router", Theme.palette[1]),
-                                  group: .tools, hint: "Copier", boost: 380) { _ in CommandRunner.copy(r) })
+                                  group: .tools, hint: "Copier", boost: 380) { _ in Self.copy(r) })
         }
         return out
     }
@@ -367,6 +382,13 @@ final class NetworkModel: AppModule {
             f.append("Débit : une erreur passe pour un résultat")
         }
         if NetworkFormat.bits(1.25e9) != "1,2 Gbit/s" && NetworkFormat.bits(1.25e9) != "1,3 Gbit/s" { f.append("Débit : affichage en Gbit/s") }
+        for (bps, want) in [(999_600_000.0, "1 Gbit/s"), (999_400_000, "999 Mbit/s"), (999_600, "1 Mbit/s"), (999.6, "1 kbit/s")] {
+            let got = NetworkFormat.bits(bps)
+            if got != want { f.append("Débit : \(Int(bps)) bit/s affiché « \(got) » au lieu de « \(want) »") }
+        }
+        let dual = NetworkInterface(bsdName: "en0", displayName: "Wi-Fi", ipv4: ["10.0.1.42"], ipv6: ["2001:db8::42"])
+        if dual.address() != "10.0.1.42" || dual.address(preferringIPv6: true) != "2001:db8::42" { f.append("IP : « ipv6 » montre une IPv4") }
+        if DemoData.isEnabled, case .copied = Self.copy("10.0.1.42") { f.append("la démo a écrit dans le presse-papiers") }
 
         let lsof = "p991\ncrapportd\nLcamille\nf17\nn*:57495\nf18\nn*:57495\np67624\ncmysqld\nLcamille\nf17\nn127.0.0.1:3306\n" +
             "p500\ncnode\nLcamille\nf20\nn[::1]:5173\nf21\nn127.0.0.1:5173\np88\ncsshd\nLroot\nf3\nn[::]:22\n"

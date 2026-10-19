@@ -178,7 +178,7 @@ extension ThemePalette: Codable {
     /// Missing or broken colors (a theme pasted by hand) fall back on Atelier.
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Key.self)
-        let fallback = ThemeSpec.atelier.light
+        let fallback = decoder.codingPath.last?.stringValue == "dark" ? ThemeSpec.atelier.dark : ThemeSpec.atelier.light
         var values: [ThemeColorKey: ThemeColor] = [:]
         for k in ThemeColorKey.allCases {
             values[k] = (try? c.decodeIfPresent(ThemeColor.self, forKey: Key(k.rawValue))) ?? fallback[k]

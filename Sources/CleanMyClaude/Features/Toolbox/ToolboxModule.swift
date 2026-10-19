@@ -280,9 +280,11 @@ final class ToolboxModel: AppModule {
     func hash(_ urls: [URL]) {
         guard !DemoData.isEnabled, !Snapshot.isActive else { HUD.show(DemoData.refusal, symbol: "theatermasks"); return }
         for url in urls {
+            // A symbolic link is read through to its target: the size shown must be the target's.
+            let target = url.resolvingSymlinksInPath()
             var isDir: ObjCBool = false
-            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir)
-            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? 0
+            let exists = FileManager.default.fileExists(atPath: target.path, isDirectory: &isDir)
+            let size = (try? FileManager.default.attributesOfItem(atPath: target.path)[.size] as? Int64) ?? 0
             var job = ToolboxHashJob(name: url.lastPathComponent, path: url.path, size: size)
             if !exists || isDir.boolValue {
                 job.state = .failed

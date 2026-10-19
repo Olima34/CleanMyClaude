@@ -3,6 +3,8 @@ import Translation
 
 /// What Apple's on-device translation is asked to do.
 struct TranslatorRequest: Equatable {
+    /// Tells a request from a newer one with the same text (only the current one may change what is shown).
+    let id = UUID()
     var text: String
     var source: String?
     var target: String

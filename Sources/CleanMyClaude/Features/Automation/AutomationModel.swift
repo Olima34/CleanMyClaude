@@ -437,11 +437,11 @@ final class AutomationModel: AppModule {
             return (old.isEmpty ? RemovalReport() : AutomationTrash.empty(old), true)
         }.value
         busy.remove(.trash)
+        settings.trashLastRun = Date()
         guard readable else {
-            log(.trash, automatic: automatic, title: "Corbeille illisible", detail: "Accorde l'accès complet au disque pour que cette règle fonctionne.", failures: 1)
+            logFailure(.trash, automatic: automatic, title: "Corbeille illisible", detail: "Accorde l'accès complet au disque pour que cette règle fonctionne.")
             return .failed("La Corbeille est illisible sans l'accès complet au disque.")
         }
-        settings.trashLastRun = Date()
         await refreshPreview(.trash)
         app?.monitor.sampleDisk()
         if report.removed == 0 && report.failures.isEmpty {
@@ -472,11 +472,11 @@ final class AutomationModel: AppModule {
             return AutomationDownloads.execute(AutomationDownloads.plan(files, rules: rules, source: folder, now: Date()))
         }.value
         busy.remove(.downloads)
+        settings.downloadsLastRun = Date()
         guard let result else {
-            log(.downloads, automatic: automatic, title: "Dossier illisible", detail: "macOS refuse l'accès à \(FS.pretty(folder)).", failures: 1)
+            logFailure(.downloads, automatic: automatic, title: "Dossier illisible", detail: "macOS refuse l'accès à \(FS.pretty(folder)).")
             return .failed("Impossible de lire \(FS.pretty(folder)).")
         }
-        settings.downloadsLastRun = Date()
         await refreshPreview(.downloads)
         let done = result.moved + result.trashed
         // Quiet hours stay out of the journal: only runs that did something are kept.
@@ -550,6 +550,12 @@ final class AutomationModel: AppModule {
         journal.insert(AutomationLogEntry(date: Date(), kind: k, automatic: automatic, title: title, detail: detail,
                                           bytes: bytes, failures: failures, setting: setting), at: 0)
         if journal.count > 80 { journal.removeLast(journal.count - 80) }
+    }
+
+    /// A failure: the scheduler does not write it again while it is still the latest line of the journal.
+    private func logFailure(_ k: AutomationKind, automatic: Bool, title: String, detail: String) {
+        if automatic, let last = journal.first, last.kind == k, last.title == title, last.detail == detail { return }
+        log(k, automatic: automatic, title: title, detail: detail, failures: 1)
     }
 
     func clearJournal() { journal = [] }

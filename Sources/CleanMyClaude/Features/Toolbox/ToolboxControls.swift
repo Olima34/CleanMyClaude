@@ -85,7 +85,7 @@ struct ToolboxEditor: View {
         }
         .frame(height: height, alignment: .top)
         .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.bg))
-        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(tint?.opacity(0.5) ?? Theme.border))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(tint?.opacity(0.5) ?? Theme.border, lineWidth: Theme.line))
         .clipShape(RoundedRectangle(cornerRadius: Theme.r(9)))
     }
 }
@@ -167,10 +167,10 @@ struct ToolboxSlider: View {
                 PillShape().fill(Theme.track).frame(height: 5)
                 PillShape().fill(tint).frame(width: max(5, x), height: 5)
                 Circle()
-                    .fill(Color.white)
+                    .fill(Theme.cardRaised)
                     .frame(width: 16, height: 16)
                     .themedShadow(color: .black.opacity(0.25), radius: 1.5, y: 1)
-                    .overlay(Circle().strokeBorder(Theme.borderStrong, lineWidth: 0.5))
+                    .overlay(Circle().strokeBorder(Theme.borderStrong, lineWidth: 1))
                     .offset(x: x - 8)
             }
             .frame(maxHeight: .infinity)
@@ -229,7 +229,7 @@ struct ToolboxChip: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(PillShape().fill(selected ? Theme.accent : Theme.bg))
-                .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border))
+                .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border, lineWidth: Theme.line))
                 .contentShape(PillShape())
         }
         .buttonStyle(.plain)

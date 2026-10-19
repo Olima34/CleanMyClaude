@@ -65,11 +65,12 @@ enum UpdatesVersion {
         guard pa.count != pb.count else { return .orderedSame }
         let longerIsA = pa.count > pb.count
         let rest = (longerIsA ? pa : pb)[n...]
-        if rest.allSatisfy({ kind($0.first!) == .separator || $0.allSatisfy { $0 == "0" } }) {
+        // The first part that counts (neither a separator nor zeros) decides: letters mean a pre-release
+        // ("1.0b1", "1.0.0b1" and "1.0-beta" < "1.0"), a number a later version ("1.0.1" > "1.0"); none, the same version.
+        guard let first = rest.first(where: { kind($0.first!) != .separator && !$0.allSatisfy { $0 == "0" } }) else {
             return .orderedSame
         }
-        // Letters right after the common part mean a pre-release ("1.0b1" < "1.0"); anything else a later version.
-        let shorterWins = kind(rest.first!.first!) == .string
+        let shorterWins = kind(first.first!) == .string
         return longerIsA == shorterWins ? .orderedAscending : .orderedDescending
     }
 
