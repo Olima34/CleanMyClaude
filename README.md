@@ -24,7 +24,7 @@ Ouvre le **Terminal** et colle :
 curl -fsSL https://raw.githubusercontent.com/Olima34/CleanMyClaude/main/scripts/install.sh | bash
 ```
 
-L'app s'installe dans Applications et s'ouvre. Pour la mettre à jour, relance la même ligne.
+L'app s'installe dans Applications et s'ouvre. Ensuite, elle te prévient elle-même quand une nouvelle version sort, avec la liste de ce qui change, et se met à jour d'un clic.
 
 <details>
 <summary>Tu préfères télécharger le fichier toi-même ?</summary>
@@ -51,7 +51,7 @@ Et bien d'autres choses à découvrir dans l'app, avec cinq thèmes pour l'habil
 
 ## Sans mauvaise surprise
 
-Rien n'est supprimé sans ton accord, et ce qui compte passe d'abord par la Corbeille. Tes fichiers et ton activité restent sur ton Mac : rien n'en sort sans ton clic.
+Rien n'est supprimé sans ton accord, et ce qui compte passe d'abord par la Corbeille. Tes fichiers et ton activité restent sur ton Mac : rien n'en sort sans ton clic (seule exception, que tu peux couper : l'app demande à GitHub s'il existe une nouvelle version d'elle-même).
 
 ---
 

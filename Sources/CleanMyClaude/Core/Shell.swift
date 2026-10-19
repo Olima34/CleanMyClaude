@@ -146,6 +146,22 @@ enum Shell {
         p.terminate()
     }
 
+    /// Starts a tool without waiting for it nor reading its output: it keeps running after the app quits
+    /// (the relaunch after an update). Nothing in demo mode.
+    @discardableResult
+    static func launchDetached(_ path: String, _ args: [String] = []) -> Bool {
+        if DemoData.isEnabled { return false }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: path)
+        p.arguments = args
+        p.environment = environment
+        p.standardInput = FileHandle.nullDevice
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { return false }
+        return true
+    }
+
     /// Runs a command line through /bin/sh.
     static func sh(_ command: String, timeout: TimeInterval = 20) -> Output {
         run("/bin/sh", ["-c", command], timeout: timeout)

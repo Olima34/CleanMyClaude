@@ -16,6 +16,7 @@ struct UpdatesPage: View {
                 }
             }
             UpdatesSummary()
+            UpdatesSelfCard()
             UpdatesBrewPanel()
             TileRow {
                 UpdatesAppsPanel(kind: .sparkle)
@@ -23,7 +24,7 @@ struct UpdatesPage: View {
             }
             UpdatesMacOSPanel()
             Callout(symbol: "hand.raised", title: "Tu gardes la main",
-                    text: "Les flux des apps, l'App Store et les serveurs d'Apple ne sont interrogés que quand tu cliques sur « Vérifier ». Les apps Sparkle et l'App Store installent eux-mêmes leurs mises à jour : Clean My Claude t'y emmène, sans rien télécharger à leur place.",
+                    text: "Les flux des apps, l'App Store et les serveurs d'Apple ne sont interrogés que quand tu cliques sur « Vérifier ». Les apps Sparkle et l'App Store installent eux-mêmes leurs mises à jour : Clean My Claude t'y emmène, sans rien télécharger à leur place. Seule exception, que tu peux couper : Clean My Claude demande à GitHub s'il existe une nouvelle version de lui-même.",
                     tint: Theme.good)
         }
         .task { await m.loadInventory() }
@@ -537,7 +538,7 @@ struct UpdatesBottomBar: View {
 // MARK: - Small pieces
 
 /// "Vérifier", or a spinner while the source is being checked.
-private struct UpdatesCheckButton: View {
+struct UpdatesCheckButton: View {
     var state: UpdatesState
     var action: () -> Void
 

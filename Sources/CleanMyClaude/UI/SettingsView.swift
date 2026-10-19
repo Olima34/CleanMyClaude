@@ -4,7 +4,7 @@ import AppKit
 struct SettingsView: View {
     var body: some View {
         TabView {
-            GeneralSettings().frame(width: 520, height: 400).tabItem { Label("Général", systemImage: "gearshape") }
+            GeneralSettings().frame(width: 520, height: 520).tabItem { Label("Général", systemImage: "gearshape") }
             AppearanceSettings().frame(width: AppearanceSettings.width, height: 680).tabItem { Label("Apparence", systemImage: "paintpalette") }
             ShortcutSettings().frame(width: 520, height: 400).tabItem { Label("Raccourcis", systemImage: "keyboard") }
             PermissionsSettings().frame(width: 520, height: 400).tabItem { Label("Autorisations", systemImage: "lock.shield") }
@@ -19,6 +19,7 @@ struct GeneralSettings: View {
     @AppStorage(Preferences.menuMetricKey) private var metric: MenuMetric = .cpuMemory
     @AppStorage(Preferences.alertsKey) private var alerts = false
     @AppStorage(DockIconMode.key) private var dockIcon: DockIconMode = .never
+    @AppStorage(UpdatesSelfModel.autoKey) private var autoUpdate = true
 
     var body: some View {
         Form {
@@ -35,6 +36,26 @@ struct GeneralSettings: View {
                     .onChange(of: alerts) { _, on in if on { Alerts.requestPermission() } }
                     .disabled(!Alerts.available)
             }
+            Section {
+                Toggle("Rechercher les nouvelles versions de Clean My Claude", isOn: $autoUpdate)
+                    .disabled(DemoData.isEnabled || !app.updates.selfUpdate.canCheck)
+                HStack {
+                    Text(selfUpdateStatus)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(app.updates.selfUpdate.release == nil ? "Rechercher maintenant" : "Voir les nouveautés") {
+                        Task { await app.updates.selfUpdate.check() }
+                    }
+                    .disabled(app.updates.selfUpdate.state.isChecking || !app.updates.selfUpdate.canCheck)
+                }
+            } header: {
+                Text("Mises à jour de Clean My Claude")
+            } footer: {
+                Text("Au lancement puis toutes les 6 h, l'app demande à GitHub le numéro de sa dernière version publiée. C'est la seule connexion faite sans ton clic, et rien d'autre n'est envoyé. Une nouvelle version s'annonce dans un petit panneau : rien ne s'installe sans ton accord.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Section("Autorisations") {
                 HStack {
                     Label(app.fullDiskAccess ? "Accès complet au disque accordé" : "Accès complet au disque non accordé",
@@ -48,6 +69,16 @@ struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var selfUpdateStatus: String {
+        let m = app.updates.selfUpdate
+        if m.state.isChecking { return "Vérification…" }
+        if let r = m.release { return "Version \(r.version) disponible, tu as la \(m.build.label)" }
+        guard m.canCheck else { return "Version de développement" }
+        if case .failed(let message) = m.state { return message }
+        if let d = m.state.date { return "À jour : \(m.build.label), vérifié \(Fmt.relative(d))" }
+        return "Version \(m.build.label)"
     }
 }
 
@@ -137,8 +168,9 @@ struct AboutSettings: View {
                 PixelMascot(pixel: 5, broom: true)
             }
             Text("Clean My Claude").font(.serif(24))
-            Text("Version \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
+            Text("Version \(UpdatesSelfBuild.current.label)")
                 .font(.ui(12)).foregroundStyle(.secondary)
+                .textSelection(.enabled)
             Text("Un utilitaire d'entretien pour macOS, construit avec Claude. Libre, gratuit, et tout se passe en local.")
                 .font(.ui(12.5)).multilineTextAlignment(.center).foregroundStyle(.secondary)
                 .frame(maxWidth: 380)

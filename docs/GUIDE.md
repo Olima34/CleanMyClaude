@@ -134,7 +134,7 @@ Un nettoyeur qui supprime trop, c'est pire que pas de nettoyeur. Clean My Claude
 
 ### Rien ne sort sans ton clic
 
-Tes fichiers, ton historique de presse-papiers et l'état de ton Mac restent sur ton Mac. Les seules connexions partent quand tu cliques, et chacune dit ce qu'elle fait :
+Tes fichiers, ton historique de presse-papiers et l'état de ton Mac restent sur ton Mac. Les connexions partent quand tu cliques, et chacune dit ce qu'elle fait. Une seule exception, que tu peux couper : Clean My Claude demande à GitHub s'il existe une nouvelle version de lui-même (voir plus bas).
 
 | Quand | Vers qui | Quoi |
 | --- | --- | --- |
@@ -144,6 +144,8 @@ Tes fichiers, ton historique de presse-papiers et l'état de ton Mac restent sur
 | Une question à l'assistant | Anthropic, via ton abonnement Claude ou ta clé API | Ta question ; l'état du Mac (charge, espace, apps gourmandes) seulement si tu actives « Consulter l'état du Mac » |
 | « Traduire avec Claude » | Anthropic, via ton abonnement Claude ou ta clé API | Le texte à traduire (la traduction Apple, elle, reste sur ton Mac) |
 | Une recherche web dans le lanceur | Ton navigateur | Ce que tu as tapé, comme dans la barre d'adresse |
+| Au lancement, puis toutes les 6 h (désactivable) | GitHub (`api.github.com`) | Rien : l'app lit le numéro de sa dernière version publiée et, s'il est plus récent, la liste des changements |
+| « Mettre à jour » dans le panneau de nouvelle version | GitHub (`github.com`) | Rien : l'app télécharge l'archive publiée |
 
 ## La recherche de fichiers, en un millième de seconde
 
@@ -162,6 +164,20 @@ Le classement favorise le nom exact, puis le début du nom, puis le début d'un 
 
 Comme Raycast, Clean My Claude n'a pas d'icône dans le Dock : il vit dans la barre des menus et derrière `⌥Espace`. Il s'ouvre à l'ouverture de session sans afficher de fenêtre (réglable), et sa fenêtre se rouvre depuis l'étincelle de la barre des menus, le lanceur ou en relançant l'app. Les réglages permettent de garder l'icône dans le Dock, toujours ou seulement quand la fenêtre est ouverte. Au repos, fenêtre ouverte et tous les modules actifs : environ 1,7 % de processeur et 93 Mo de mémoire.
 
+## Mises à jour de Clean My Claude
+
+Au lancement, puis toutes les 6 h tant que l'app tourne en arrière-plan, Clean My Claude demande à GitHub le numéro de sa **dernière version publiée** (la dernière étiquette `vX.Y.Z` de la [page des versions](https://github.com/Olima34/CleanMyClaude/releases/latest)). S'il est plus récent que le tien, un petit panneau apparaît en haut à droite de l'écran, sans prendre le clavier : il liste **ce qui a changé**, c'est-à-dire les commits entre ta version et la nouvelle (les fusions sont laissées de côté, les points « - … » des messages deviennent des détails).
+
+<p align="center"><img src="screenshots/selfupdate-panel.png" alt="Le panneau de nouvelle version : ce qui change, puis Ignorer cette version, Plus tard et Mettre à jour" width="440"></p>
+
+- **Mettre à jour** télécharge `CleanMyClaude.zip` depuis la version publiée, vérifie son empreinte SHA-256 (celle que GitHub a calculée à la publication), l'ouvre, contrôle que c'est bien Clean My Claude dans la version annoncée et que sa signature est intacte. Rien n'est remplacé avant que tu cliques sur **Installer et relancer** : l'ancienne version part alors à la Corbeille, la nouvelle prend sa place et se rouvre. Le téléchargement s'annule à tout moment ; une erreur dit ce qui s'est passé et ce qui n'a pas changé.
+- **Plus tard** ferme le panneau : il revient au prochain lancement (pas dans les 24 h qui suivent tant que l'app reste ouverte).
+- **Ignorer cette version** : le panneau ne revient tout seul qu'à la version suivante. La page Mises à jour la montre toujours.
+- **Les autorisations de macOS.** La version publiée est signée « ad hoc » (pas de certificat de développeur Apple) : macOS peut redemander l'Accessibilité ou l'accès complet au disque après la mise à jour. Si ta copie est signée avec le certificat local de `scripts/setup_signing.sh`, la nouvelle version est re-signée avec lui et garde ses autorisations.
+- **Quand la mise à jour sur place est impossible** (app lancée depuis le code source, depuis une image disque, ou dans un dossier qui demande un mot de passe administrateur), le panneau le dit et propose la page de la version ou la commande d'installation à copier.
+
+La vérification automatique se coupe dans **Réglages › Général** ou sur la page **Mises à jour**, où « Vérifier » la relance à la main. Un commit poussé sur `main` sans étiquette n'est pas proposé : seules les versions publiées le sont.
+
 ## Compiler toi-même
 
 La version prête à l'emploi se télécharge depuis la [page des versions](https://github.com/Olima34/CleanMyClaude/releases/latest) (voir le [README](../README.md)). Pour compiler depuis le code :
@@ -174,9 +190,9 @@ cd CleanMyClaude
 ./scripts/build_app.sh
 ```
 
-Le script compile en release, vérifie les garde-fous, génère l'icône, assemble `Clean My Claude.app` et l'installe dans `~/Applications` (`--no-install` la laisse dans `build/`, `--zip` produit une archive, `--universal` compile pour Apple Silicon et Intel).
+Le script compile en release, vérifie les garde-fous, génère l'icône, assemble `Clean My Claude.app` et l'installe dans `~/Applications` (`--no-install` la laisse dans `build/`, `--zip` produit une archive, `--universal` compile pour Apple Silicon et Intel). Le numéro de version vient de `CMC_VERSION`, sinon de la dernière étiquette `vX.Y.Z` du dépôt ; le commit compilé est noté dans l'app (`CMCCommit`), qui s'en sert pour lister ce qu'une nouvelle version change et pour ne pas proposer une version plus ancienne que ce qu'elle contient.
 
-Publier une version : pousser une étiquette `vX.Y.Z` (`git tag v0.3.0 && git push origin v0.3.0`). Le workflow `Release` compile l'app universelle et la dépose sur la page des versions, où le bouton du README et `scripts/install.sh` vont la chercher.
+Publier une version : pousser une étiquette `vX.Y.Z` (`git tag v0.4.0 && git push origin v0.4.0`). Le workflow `Release` compile l'app universelle et la dépose sur la page des versions, où le bouton du README et `scripts/install.sh` vont la chercher, et où les apps déjà installées la trouvent au lancement ou dans les 6 h.
 
 ### Les autorisations
 
@@ -270,6 +286,8 @@ swift build
 .build/debug/CleanMyClaude --ask "Pourquoi mon Mac chauffe ?" --model haiku   # une question à l'assistant
 .build/debug/CleanMyClaude --translate "Merci pour ton aide" --to en --tone formal   # le traducteur, moteur Claude
 .build/debug/CleanMyClaude --dump --only launcher # construit l'index des fichiers et chronomètre quelques recherches
+.build/debug/CleanMyClaude --update-check --as-version 0.2.0   # ce que GitHub publie, comparé à une version au choix
+.build/debug/CleanMyClaude --update-install "build/essai/Clean My Claude.app"   # met à jour cette copie de bout en bout (sans relancer)
 .build/debug/CleanMyClaude --demo                 # lance l'app avec des données fictives, sans lire le disque
 ```
 
@@ -284,7 +302,7 @@ done
 for t in graphite phosphore sorbet minuit; do
   .build/debug/CleanMyClaude --snapshot /tmp/theme-$t --demo --page dashboard --theme $t && mv /tmp/theme-$t/dashboard.png docs/screenshots/theme-$t.png
 done
-rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-panel.png
+rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-panel.png   # selfupdate-panel.png reste : le guide l'affiche
 pngquant --quality 80-95 --force --ext .png docs/screenshots/*.png   # optionnel : divise le poids par quatre
 ```
 

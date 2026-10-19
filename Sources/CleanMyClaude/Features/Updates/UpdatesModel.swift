@@ -53,6 +53,9 @@ final class UpdatesModel: AppModule {
     var macOS: SecurityCheck?
     var macOSState: UpdatesState = .idle
 
+    /// Clean My Claude itself: the versions published on GitHub.
+    let selfUpdate = UpdatesSelfModel()
+
     @ObservationIgnored private let settings = JSONStore<UpdatesSettings>("updates", default: UpdatesSettings())
     @ObservationIgnored private var brewCancel: CancelFlag?
     /// Casks whose upgrade stopped on a password prompt: kept "à faire dans le Terminal" after the next check.
@@ -89,7 +92,10 @@ final class UpdatesModel: AppModule {
     var hasChecked: Bool { [brewState, sparkleState, storeState, macOSState].contains { $0.date != nil } }
     var isCheckingAnything: Bool { [brewState, sparkleState, storeState, macOSState].contains { $0.isChecking } }
 
-    var sidebarBadge: String? { totalAvailable > 0 ? "\(totalAvailable)" : nil }
+    var sidebarBadge: String? {
+        let n = totalAvailable + (selfUpdate.release != nil && !selfUpdate.isSkipped ? 1 : 0)
+        return n > 0 ? "\(n)" : nil
+    }
 
     // MARK: Inventory (local, no network)
 
@@ -127,11 +133,12 @@ final class UpdatesModel: AppModule {
     func checkAll() async {
         async let a: Void = checkBrew()
         async let d: Void = checkMacOS()
+        async let e: Void = selfUpdate.check(announce: false)
         // One fresh listing for both app sources.
         await loadInventory(force: true)
         async let b: Void = checkSparkle(reload: false)
         async let c: Void = checkStore(reload: false)
-        _ = await (a, b, c, d)
+        _ = await (a, b, c, d, e)
     }
 
     func checkBrew() async {
@@ -307,7 +314,21 @@ final class UpdatesModel: AppModule {
 
     // MARK: AppModule
 
+    /// Clean My Claude's own check: at launch, then every six hours (unless turned off).
+    func start(app: AppModel) {
+        selfUpdate.start(app: app)
+    }
+
+    func stop() {
+        selfUpdate.stop()
+    }
+
+    func applySnapshotTab(_ tab: String) {
+        selfUpdate.applySnapshotTab(tab)
+    }
+
     func loadDemo() {
+        selfUpdate.loadDemo()
         let now = Date()
         brewPath = "/opt/homebrew/bin/brew"
         brewPackages = [
@@ -396,6 +417,7 @@ final class UpdatesModel: AppModule {
                 return .done
             }
         ]
+        list += selfUpdate.commands()
         if brewPath != nil {
             let pending = brewUpgradable
             let detail = brewState.date == nil
@@ -461,7 +483,7 @@ final class UpdatesModel: AppModule {
     }
 
     func selfTest() -> [String] {
-        var f: [String] = []
+        var f = UpdatesSelfModel.selfTest()
         let order: [(String, String, ComparisonResult)] = [
             ("1.0", "1.1", .orderedAscending), ("1.10", "1.9", .orderedDescending), ("1.0", "1.0.0", .orderedSame),
             ("2.0.1", "2.0", .orderedDescending), ("1.0b1", "1.0", .orderedAscending), ("1.0a2", "1.0b1", .orderedAscending),
@@ -600,7 +622,7 @@ final class UpdatesModel: AppModule {
     }
 
     func dump() -> [String] {
-        var lines: [String] = []
+        var lines = selfUpdate.dump()
         let brew = brewPath
         lines.append("Homebrew : \(brew ?? "non installé")")
         if let brew, !DemoData.isEnabled {

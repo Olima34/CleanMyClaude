@@ -284,7 +284,7 @@ struct OnboardingView: View {
             VStack(alignment: .leading, spacing: 14) {
                 promise("hand.raised", "Rien sans ton accord", "J'analyse en lecture seule. Je ne supprime que ce que tu coches, après confirmation.")
                 promise("arrow.uturn.backward", "Le plus prudent d'abord", "Les caches se suppriment (les apps les recréent), tout le reste passe par la Corbeille. Un journal note chaque action.")
-                promise("lock", "Rien ne sort sans ton clic", "Tes données restent sur ton Mac. Les rares connexions (test de débit, recherche de mises à jour, Assistant Claude) partent seulement quand tu cliques. Le code est ouvert, sur GitHub.")
+                promise("lock", "Rien ne sort sans ton clic", "Tes données restent sur ton Mac. Les rares connexions (test de débit, mises à jour de tes apps, Assistant Claude) partent seulement quand tu cliques. Seule exception, que tu peux couper : je demande à GitHub s'il existe une nouvelle version de moi-même. Le code est ouvert, sur GitHub.")
             }
             .padding(18)
             .background(RoundedRectangle(cornerRadius: Theme.r(14)).fill(Theme.card))

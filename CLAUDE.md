@@ -10,13 +10,14 @@ swift build                                         # sans erreur ni avertisseme
 .build/debug/CleanMyClaude --selftest --demo       # le mode démo ne touche à rien
 .build/debug/CleanMyClaude --snapshot out/ --demo --page <page> [--tab <onglet>] [--theme graphite] [--scale 2]
 .build/debug/CleanMyClaude --dump --only <page>    # ce que le module voit, en texte
+.build/debug/CleanMyClaude --update-check --as-version 0.2.0   # la mise à jour de l'app contre le vrai GitHub
 ```
 
 Relis toujours la capture PNG de ta page. `./scripts/build_app.sh` installe l'app dans `~/Applications` : **ne le lance pas depuis une copie de travail parallèle** (toutes partagent la même app installée et les mêmes autorisations macOS).
 
 ## Architecture
 
-- `Core/` : services partagés. Toute suppression passe par `Remover` (`removeInternal` pour les fichiers de l'app dans `DataStore`, `discardOutput` pour une sortie à moitié écrite), toute écriture de fichier par `FileOps` (jamais d'écrasement, `makeDirectory` pour un dossier), tout accès réseau par `HTTP` (HTTPS, sur action de l'utilisateur), tout processus par `Shell` (`run`, `stream`, `which`, `runAsAdmin`). Commandes du lanceur : `Core/Commands.swift` (`CommandRunner.copy(_:concealed:)` pour un secret). Raccourcis globaux : `HotKeyCenter`. Panneaux flottants et messages furtifs : `FloatingPanel`, `HUD`. Persistance : `JSONStore` (dossier `DataStore`). Secrets : `Keychain`. Notifications : `Notifier`. Tâches périodiques : `Scheduler`. Autorisations : `AppPermission` + `PermissionCard` ; l'état de toutes et « Tout autoriser » : `PermissionCenter` (ajoute-y toute nouvelle autorisation).
+- `Core/` : services partagés. Toute suppression passe par `Remover` (`removeInternal` pour les fichiers de l'app dans `DataStore`, `discardOutput` pour une sortie à moitié écrite), toute écriture de fichier par `FileOps` (jamais d'écrasement, `makeDirectory` pour un dossier), tout accès réseau par `HTTP` (HTTPS, sur action de l'utilisateur ; seule exception, désactivable : la recherche des nouvelles versions de l'app, `Features/Updates/UpdatesSelf*`, au lancement puis toutes les 6 h), tout processus par `Shell` (`run`, `stream`, `which`, `runAsAdmin`). Commandes du lanceur : `Core/Commands.swift` (`CommandRunner.copy(_:concealed:)` pour un secret). Raccourcis globaux : `HotKeyCenter`. Panneaux flottants et messages furtifs : `FloatingPanel`, `HUD`. Persistance : `JSONStore` (dossier `DataStore`). Secrets : `Keychain`. Notifications : `Notifier`. Tâches périodiques : `Scheduler`. Autorisations : `AppPermission` + `PermissionCard` ; l'état de toutes et « Tout autoriser » : `PermissionCenter` (ajoute-y toute nouvelle autorisation).
 - `App/ModuleRegistry.swift` : le protocole `AppModule` et la liste des modules. Le lanceur, le mode démo, les autotests, les captures et le menu d'état passent par lui.
 - `Features/<Module>/` : un dossier par module (`Launcher`, `Hotkeys`, `Converter`, `Translator`, `Toolbox`, `Clipboard`, `Updates`, `Network`, `Windows`, `Automation`, `Assistant`), avec au minimum `<Module>Model` (`@Observable @MainActor`, conforme à `AppModule`), `<Module>Page` et `<Module>BottomBar`.
 

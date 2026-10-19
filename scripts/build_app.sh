@@ -2,7 +2,7 @@
 # Builds "Clean My Claude.app" (release) and installs it in ~/Applications.
 # Usage: ./scripts/build_app.sh [--no-install] [--zip] [--universal]
 #   --universal : Apple Silicon et Intel dans la même app (pour les versions publiées).
-#   CMC_VERSION=0.3.0 : numéro de version (sinon celui ci-dessous).
+#   CMC_VERSION=0.3.0 : numéro de version (sinon celui de la dernière étiquette vX.Y.Z, sinon celui ci-dessous).
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
@@ -12,7 +12,17 @@ EXEC="CleanMyClaude"
 DISPLAY_NAME="Clean My Claude"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$DISPLAY_NAME.app"
-VERSION="${CMC_VERSION:-0.3.0}"
+# The version: CMC_VERSION (the Release workflow passes its tag), else the latest vX.Y.Z tag of this checkout.
+VERSION="${CMC_VERSION:-}"
+if [[ -z "$VERSION" ]]; then
+  TAG="$(git -C "$ROOT" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
+  VERSION="${TAG#v}"
+fi
+VERSION="${VERSION:-0.3.0}"
+# The commit the app is built from: compared with GitHub, it tells which changes a new version brings.
+COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+COMMIT_KEY=""
+[[ -n "$COMMIT" ]] && COMMIT_KEY="<key>CMCCommit</key><string>$COMMIT</string>"
 INSTALL=1
 ZIP=0
 UNIVERSAL=0
@@ -24,7 +34,7 @@ for arg in "$@"; do
   esac
 done
 
-echo "→ Compilation (release)…"
+echo "→ Compilation (release) de la version $VERSION${COMMIT:+ (${COMMIT[1,7]})}…"
 ARCHS=()
 [[ $UNIVERSAL -eq 1 ]] && ARCHS=(--arch arm64 --arch x86_64)
 swift build -c release "${ARCHS[@]}"
@@ -64,6 +74,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>1</string>
+  $COMMIT_KEY
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleDevelopmentRegion</key><string>fr</string>
   <key>CFBundleLocalizations</key><array><string>fr</string><string>en</string></array>

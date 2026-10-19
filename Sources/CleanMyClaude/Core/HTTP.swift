@@ -67,4 +67,90 @@ enum HTTP {
         guard (200..<300).contains(http.statusCode) else { throw Failure.status(http.statusCode) }
         return (data, http)
     }
+
+    /// Downloads a big file (an app update) into `folder` under `name`, moved there by `FileOps` (never over another file).
+    /// `progress` gets the bytes received and expected (0 when unknown), at most four times a second.
+    /// Redirects must stay in HTTPS. Cancelling the calling task stops the transfer.
+    static func download(_ url: URL, into folder: URL, name: String,
+                         progress: @escaping @Sendable (_ received: Int64, _ expected: Int64) -> Void) async throws -> URL {
+        guard !DemoData.isEnabled else { throw Failure.demo }
+        guard url.scheme == "https" else { throw Failure.insecure }
+        ActionLog.write("RÉSEAU GET \(url.host ?? "?") (téléchargement)")
+        let delegate = DownloadDelegate(destination: folder.appendingPathComponent(name), progress: progress)
+        let c = URLSessionConfiguration.ephemeral
+        c.timeoutIntervalForRequest = 30
+        c.httpAdditionalHeaders = session.configuration.httpAdditionalHeaders
+        let downloads = URLSession(configuration: c, delegate: delegate, delegateQueue: nil)
+        defer { downloads.finishTasksAndInvalidate() }
+        let task = downloads.downloadTask(with: url)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                delegate.start(continuation)
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+        }
+    }
+
+    private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
+        private let destination: URL
+        private let progress: @Sendable (Int64, Int64) -> Void
+        private let lock = NSLock()
+        private var continuation: CheckedContinuation<URL, Error>?
+        private var saved: Result<URL, Error>?
+        private var lastReport = Date.distantPast
+
+        init(destination: URL, progress: @escaping @Sendable (Int64, Int64) -> Void) {
+            self.destination = destination
+            self.progress = progress
+        }
+
+        func start(_ c: CheckedContinuation<URL, Error>) {
+            lock.lock()
+            continuation = c
+            lock.unlock()
+        }
+
+        private func finish(_ result: Result<URL, Error>) {
+            lock.lock()
+            let c = continuation
+            continuation = nil
+            lock.unlock()
+            c?.resume(with: result)
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                        newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+            completionHandler(request.url?.scheme == "https" ? request : nil)
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
+                        totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+            let now = Date()
+            lock.lock()
+            let due = now.timeIntervalSince(lastReport) >= 0.25 || totalBytesWritten == totalBytesExpectedToWrite
+            if due { lastReport = now }
+            lock.unlock()
+            if due { progress(totalBytesWritten, max(0, totalBytesExpectedToWrite)) }
+        }
+
+        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+            // The temporary file goes away when this returns: it is moved right now.
+            if let http = downloadTask.response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                saved = .failure(Failure.status(http.statusCode))
+                return
+            }
+            do {
+                saved = .success(try FileOps.move(location, to: destination))
+            } catch {
+                saved = .failure(error)
+            }
+        }
+
+        func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+            if let error { return finish(.failure(error)) }
+            finish(saved ?? .failure(Failure.empty))
+        }
+    }
 }

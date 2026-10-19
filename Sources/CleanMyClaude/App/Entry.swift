@@ -77,6 +77,17 @@ enum Entry {
             }
             return
         }
+        if args.contains("--update-check") || args.contains("--update-install") {
+            // Clean My Claude's own update, from the command line (see UpdatesSelfCLI).
+            final class Done: @unchecked Sendable { var value = false }
+            let done = Done()
+            Task.detached {
+                await UpdatesSelfCLI.run()
+                done.value = true
+            }
+            while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return
+        }
         if args.contains("--dump") {
             MainActor.assumeIsolated { Diagnostics.run() }
             return
@@ -257,6 +268,10 @@ enum Snapshot {
         if everything || only == .dashboard {
             shots.append(("onboarding-panel", AnyView(OnboardingView())))
         }
+        if everything || only == .updates {
+            // Clean My Claude's own update panel (`--tab maj-telechargement`, `maj-prete`… for its other steps).
+            shots.append(("selfupdate-panel", AnyView(UpdatesSelfPanel())))
+        }
         if everything || only == .launcher {
             // The floating panel, as if the user had typed `--query` (default: a calculation).
             model.launcher.preview(Entry.value(after: "--query") ?? "1250*1,2", app: model)
@@ -274,7 +289,7 @@ enum Snapshot {
             let content = view
                 .environment(model)
                 .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "onboarding-panel": 520,
-                               "appearance-panel": AppearanceSettings.width][name] ?? 1180)
+                               "appearance-panel": AppearanceSettings.width, "selfupdate-panel": UpdatesSelfPanel.width][name] ?? 1180)
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)
