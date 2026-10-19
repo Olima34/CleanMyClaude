@@ -3,7 +3,7 @@ import AppKit
 import UserNotifications
 
 enum MenuMetric: String, CaseIterable, Identifiable {
-    case icon, cpu, memory, cpuMemory, network, disk
+    case icon, cpu, memory, cpuMemory, network, disk, temperature
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum MenuMetric: String, CaseIterable, Identifiable {
         case .cpuMemory: return "Processeur et mémoire"
         case .network: return "Débit réseau"
         case .disk: return "Espace libre"
+        case .temperature: return "Température du processeur"
         }
     }
 }

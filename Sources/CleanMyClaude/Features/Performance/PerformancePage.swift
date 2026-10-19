@@ -8,17 +8,31 @@ struct PerformancePage: View {
         @Bindable var model = app.performance
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "bolt", title: "Optimisation et performances",
-                     subtitle: "Ce qui occupe ton processeur et ta mémoire en ce moment, ce qui démarre avec ton Mac, et les petites réparations qui débloquent tout.",
+                     subtitle: "Toute la puissance pour ce que tu fais, un Mac plus frais, et la preuve en chiffres : Boost, capteurs, benchmark, fluidité, démarrage et réparations.",
                      tint: Theme.warn, seed: 45)
             PillPicker(options: PerformanceTab.allCases, selection: $model.tab, label: { $0.title }, badge: { tab in
-                tab == .startup && app.startup.activeCount > 0 ? "\(app.startup.activeCount)" : nil
+                switch tab {
+                case .startup: return app.startup.activeCount > 0 ? "\(app.startup.activeCount)" : nil
+                case .boost: return model.boost.demotions.isEmpty ? nil : "\(model.boost.demotions.count)"
+                case .bench: return model.bench.isRunning ? "…" : nil
+                default: return nil
+                }
             })
             switch model.tab {
+            case .boost: PerformanceBoostTab()
             case .monitor:
-                // Processes are only sampled while their table is on screen.
+                // Processes and sensors are only sampled while their tab is on screen.
                 MonitorTab()
-                    .onAppear { app.performance.startSampling() }
-                    .onDisappear { app.performance.stopSampling() }
+                    .onAppear {
+                        app.performance.startSampling()
+                        app.performance.sensors.show(.monitor, true)
+                    }
+                    .onDisappear {
+                        app.performance.stopSampling()
+                        app.performance.sensors.show(.monitor, false)
+                    }
+            case .bench: PerformanceBenchTab()
+            case .tweaks: PerformanceTweaksTab()
             case .startup: StartupTab()
             case .maintenance: MaintenanceTab()
             }
@@ -43,10 +57,17 @@ struct MonitorTab: View {
                 GaugeCard(title: "Mémoire d'échange", value: m.swapTotal > 0 ? Double(m.swapUsed) / Double(m.swapTotal) : 0,
                           text: Fmt.bytes(m.swapUsed), tint: m.swapUsed > m.memTotal / 4 ? Theme.warn : Theme.palette[1],
                           detail: m.swapUsed > 0 ? "macOS déborde sur le disque quand la mémoire manque" : "Aucun débordement sur le disque")
-                GaugeCard(title: "Température", value: thermalValue(m.thermal), text: m.thermalLabel,
-                          tint: m.thermal == .nominal ? Theme.good : Theme.warn,
-                          detail: "Allumé depuis \(Fmt.duration(m.uptime))")
+                if let t = app.performance.sensors.current.chipTemp {
+                    GaugeCard(title: "Température", value: min(1, t / 110), text: "\(Fmt.int(t))°",
+                              tint: PerformanceStyle.temperature(t),
+                              detail: "Processeur · \(m.thermalLabel.lowercased()) pour macOS\nAllumé depuis \(Fmt.duration(m.uptime))")
+                } else {
+                    GaugeCard(title: "Température", value: thermalValue(m.thermal), text: m.thermalLabel,
+                              tint: m.thermal == .nominal ? Theme.good : Theme.warn,
+                              detail: "Allumé depuis \(Fmt.duration(m.uptime))")
+                }
             }
+            PerformanceSensorsRow()
             HStack(alignment: .top, spacing: 14) {
                 Panel(title: "Processeur", subtitle: "Les deux dernières minutes", symbol: "cpu") {
                     HistoryChart(values: m.cpuHistory.map { $0 * 100 }, tint: Theme.accent, unit: "%", maxY: 100)

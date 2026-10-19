@@ -12,6 +12,7 @@ extension MenuMetric {
         case .cpuMemory: return "\(Int((m.cpu * 100).rounded()))% · \(Int((m.memFraction * 100).rounded()))%"
         case .network: return "↓\(Fmt.speed(m.netIn)) ↑\(Fmt.speed(m.netOut))"
         case .disk: return Fmt.bytes(m.diskFree)
+        case .temperature: return PerformanceSensorReader.shared.quickTemperature().map { "\(Int($0.rounded()))°" } ?? "—"
         }
     }
 }
