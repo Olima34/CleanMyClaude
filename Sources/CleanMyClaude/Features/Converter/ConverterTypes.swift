@@ -244,7 +244,7 @@ enum ConverterOperation: String, CaseIterable, Identifiable, Sendable {
     /// One sentence under the options' title.
     var explanation: String {
         switch self {
-        case .imageConvert: return "Un nouveau fichier à côté de chaque image, dans le format choisi. L'original ne bouge pas."
+        case .imageConvert: return "Un nouveau fichier pour chaque image, dans le format choisi. L'original ne bouge pas."
         case .imageResize: return "Réduit le côté le plus long. Les images déjà plus petites gardent leur taille."
         case .imageCompress: return "Allège les photos en réglant la qualité. Pratique avant un envoi par mail."
         case .imageStrip: return "Retire la position GPS (et si tu veux, l'appareil, la date…) sans recompresser l'image."
@@ -258,10 +258,10 @@ enum ConverterOperation: String, CaseIterable, Identifiable, Sendable {
         case .pdfSplit: return "Garde les pages choisies dans un nouveau PDF, ou une page par fichier."
         case .pdfRotate: return "Fait pivoter toutes les pages, ou seulement celles que tu indiques."
         case .pdfCompress: return "Recompresse les images du PDF. Je ne garde le résultat que s'il est vraiment plus léger."
-        case .pdfToImages: return "Une image par page, rangées dans un nouveau dossier à côté du PDF."
+        case .pdfToImages: return "Une image par page, rangées dans un nouveau dossier."
         case .documentConvert: return "Word, OpenDocument, RTF, HTML, texte brut ou PDF. Le Markdown devient une jolie page."
         case .archiveZip: return "Une archive ZIP que tout le monde peut ouvrir, Windows compris."
-        case .archiveExtract: return "Dans un nouveau dossier à côté de l'archive : rien n'est jamais écrasé."
+        case .archiveExtract: return "Dans un nouveau dossier : rien n'est jamais écrasé."
         case .rename: return "Compose le nouveau nom avec des étiquettes et vérifie l'aperçu avant de valider."
         case .ocr: return "Reconnaît le texte des photos, captures et PDF scannés, en français et en anglais."
         case .qrRead: return "Lit les QR codes et codes-barres d'une image ou d'un PDF."

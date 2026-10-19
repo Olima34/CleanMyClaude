@@ -7,6 +7,8 @@ import UniformTypeIdentifiers
 struct LauncherPreview: View {
     var path: String
     @State private var info = LauncherFileInfo()
+    /// The file Quick Look shows: follows `path` once the selection rests for a moment (sweeping the list stays fluid).
+    @State private var shown: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -14,7 +16,7 @@ struct LauncherPreview: View {
                 if Snapshot.isActive || DemoData.isEnabled {
                     LauncherDemoPreview(path: path)
                 } else {
-                    LauncherQuickLook(url: URL(fileURLWithPath: path))
+                    LauncherQuickLook(url: URL(fileURLWithPath: shown ?? path))
                 }
             }
             .frame(maxWidth: .infinity)
@@ -39,6 +41,9 @@ struct LauncherPreview: View {
         }
         .padding(14)
         .task(id: path) {
+            if shown != nil { try? await Task.sleep(nanoseconds: 110_000_000) }
+            guard !Task.isCancelled else { return }
+            shown = path
             info = LauncherFileInfo.read(path)
             guard info.size == "…" else { return }
             // A package (an app): its content is added up in the background.

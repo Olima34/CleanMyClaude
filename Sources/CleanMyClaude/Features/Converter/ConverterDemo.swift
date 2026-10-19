@@ -4,12 +4,14 @@ import Foundation
 extension ConverterModel {
     func loadDemo() {
         ConverterDemo.fill(self, scene: .images)
+        previewer.loadDemo(self)
     }
 
     /// `--snapshot --demo --page converter --tab <scene>`: images (default), video, pdf, documents, rename, ocr, qr, empty.
     func applySnapshotTab(_ tab: String) {
         guard DemoData.isEnabled, let scene = ConverterDemo.Scene(rawValue: tab) else { return }
         ConverterDemo.fill(self, scene: scene)
+        previewer.loadDemo(self)
     }
 }
 

@@ -31,6 +31,16 @@ enum Entry {
             }
             return
         }
+        if args.contains("--preview-check") {
+            final class Done: @unchecked Sendable { var value = false }
+            let done = Done()
+            Task.detached {
+                for line in await ConverterPreviewCheck.run() { print(line) }
+                done.value = true
+            }
+            while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return
+        }
         if args.contains("--languages") {
             // What Apple's on-device translation has on this Mac, from French (the same check as the app).
             final class Done: @unchecked Sendable { var value = false }

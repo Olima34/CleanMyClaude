@@ -8,9 +8,17 @@ import AVFoundation
 final class ConverterModel: AppModule {
     /// Files handed over by the Finder service ("Convertir avec Clean My Claude"), a Dock drop or the launcher.
     var pendingFiles: [URL] = []
-    var files: [ConverterFile] = []
-    var operation: ConverterOperation?
-    var options = ConverterOptions()
+    var files: [ConverterFile] = [] {
+        didSet { previewer.schedule(self) }
+    }
+    var operation: ConverterOperation? {
+        didSet { if operation != oldValue { previewer.fileIndex = 0 }; previewer.schedule(self) }
+    }
+    var options = ConverterOptions() {
+        didSet { previewer.schedule(self) }
+    }
+    /// The real result of the chosen operation, computed on one file before anything is saved.
+    let previewer = ConverterPreviewer()
     /// Where results are saved: Téléchargements by default, next to the originals, or a chosen folder.
     var destination: ConverterDestination = ConverterDestination.saved() {
         didSet { if !DemoData.isEnabled { destination.save() } }
@@ -76,7 +84,13 @@ final class ConverterModel: AppModule {
         files.removeAll { $0.id == file.id }
     }
 
+    /// The scratch files of the previews go when the app quits.
+    func stop() {
+        previewer.cleanUp()
+    }
+
     func clearFiles() {
+        previewer.cleanUp()
         files.removeAll()
         pendingFiles.removeAll()
         message = nil

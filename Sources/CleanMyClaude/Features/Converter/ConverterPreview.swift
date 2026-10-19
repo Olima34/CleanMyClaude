@@ -176,7 +176,17 @@ final class ConverterPreviewer {
             }
         }
         try control.check()
-        let output = try await ConverterEngine.run(run, control: control)
+        let output: ConverterOutput
+        do {
+            output = try await ConverterEngine.run(run, control: control)
+        } catch {
+            // A message about the excerpt names the user's file instead.
+            if run.inputs != spec.inputs, let clip = run.inputs.first,
+               case let e as LocalizedError = error, let text = e.errorDescription, text.contains(clip.lastPathComponent) {
+                throw ConverterError.failed(text.replacingOccurrences(of: clip.lastPathComponent, with: spec.inputs[0].lastPathComponent))
+            }
+            throw error
+        }
         result.outputs = output.files
         result.outputSize = output.size
         result.note = output.note
@@ -254,13 +264,37 @@ final class ConverterPreviewer {
 
     func loadDemo(_ model: ConverterModel) {
         guard let op = model.operation, let file = model.targets(for: op).first else { return }
-        var r = ConverterPreviewResult(operation: op, sources: [file.url], demo: true)
-        r.sourceSize = file.size
+        let all = op.isBatch ? model.targets(for: op) : [file]
+        var r = ConverterPreviewResult(operation: op, sources: all.map(\.url), demo: true)
+        r.sourceSize = all.reduce(0) { $0 + $1.size }
         r.sourceDetail = file.detail
-        r.outputs = [URL(fileURLWithPath: FS.home + "/Downloads/" + file.url.deletingPathExtension().lastPathComponent + ".jpg")]
-        r.outputSize = Int64(Double(file.size) * 0.43)
-        r.outputDetail = file.detail.map { $0.replacingOccurrences(of: "HEIC", with: "JPEG") }
-        r.note = "Sans le GPS : la position de la photo n'est plus dans le fichier."
+        let ext: String
+        switch op.family {
+        case .images: ext = "jpg"
+        case .videos: ext = "mp4"
+        case .pdf: ext = "pdf"
+        default: ext = file.url.pathExtension
+        }
+        r.outputs = [URL(fileURLWithPath: FS.home + "/Downloads/" + file.url.deletingPathExtension().lastPathComponent + "." + ext)]
+        switch op.family {
+        case .images:
+            r.outputSize = Int64(Double(file.size) * 0.43)
+            r.outputDetail = file.detail
+            r.note = model.options.stripOnConvert ? "Sans le GPS : la position de la photo n'est plus dans le fichier." : nil
+        case .videos:
+            r.excerptSeconds = 4
+            r.outputSize = Int64(Double(file.size) * 0.012)
+            r.estimatedSize = Int64(Double(file.size) * 0.21)
+            r.outputDetail = "HEVC · 1 920 × 1 080"
+        case .pdf where op == .pdfMerge:
+            r.outputSize = Int64(Double(r.sourceSize) * 0.97)
+            r.outputDetail = Fmt.plural(all.reduce(0) { $0 + ($1.pages ?? 0) }, "page", "pages")
+        case .pdf:
+            r.outputSize = Int64(Double(file.size) * 0.2)
+            r.outputDetail = "4 pages"
+        default:
+            r.outputSize = Int64(Double(file.size) * 0.8)
+        }
         state = .ready(r)
     }
 }

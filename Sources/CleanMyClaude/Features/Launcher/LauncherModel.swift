@@ -456,7 +456,7 @@ final class LauncherModel: AppModule {
 
     /// A row under the pointer: selected when the pointer moved, not when the list scrolled under it.
     func hover(_ index: Int) {
-        guard Date().timeIntervalSince(lastScroll) > 0.35, selection != index else { return }
+        guard selection != index, Date().timeIntervalSince(lastScroll) > 0.15 else { return }
         scrollToSelection = false
         selection = index
     }

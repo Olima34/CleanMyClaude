@@ -4,6 +4,17 @@ import AVFoundation
 /// `--selftest`: pure checks (names, matrix, page ranges, rename patterns, presets, Markdown, QR round trip). Writes nothing.
 extension ConverterModel {
     func selfTest() -> [String] {
+        var previewFailures: [String] = []
+        if ConverterPreviewer.parseListing("a.txt\n__MACOSX/x\ndossier/\ndossier/b.txt\n.DS_Store\n") != ["a.txt", "dossier/", "dossier/b.txt"] {
+            previewFailures.append("aperçu : liste d'une archive")
+        }
+        if ConverterPreviewer.sizeLine(from: 1_000_000, to: 430_000) != "\(Fmt.bytes(1_000_000)) → \(Fmt.bytes(430_000)) (−57 %)" {
+            previewFailures.append("aperçu : ligne de taille (\(ConverterPreviewer.sizeLine(from: 1_000_000, to: 430_000)))")
+        }
+        if ConverterPreviewer.previews(.rename) || ConverterPreviewer.previews(.qrGenerate) || !ConverterPreviewer.previews(.pdfSplit) {
+            previewFailures.append("aperçu : opérations couvertes")
+        }
+        if ConverterDestination.saved() == .beside, DemoData.isEnabled { previewFailures.append("destination : Téléchargements par défaut en démo") }
         var failures: [String] = []
         func expect(_ condition: Bool, _ what: @autoclosure () -> String) {
             if !condition { failures.append(what()) }
@@ -133,6 +144,6 @@ extension ConverterModel {
             failures.append("QR code non créé")
         }
         expect(ConverterVision.qrImage("") == nil, "QR code d'un texte vide")
-        return failures
+        return failures + previewFailures
     }
 }

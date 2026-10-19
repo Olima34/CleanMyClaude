@@ -30,6 +30,8 @@ struct ConverterPage: View {
                 }
                 if model.operation == .rename {
                     ConverterRenamePreviewPanel()
+                } else if let op = model.operation, ConverterPreviewer.previews(op) {
+                    ConverterPreviewPanel()
                 }
             }
             if !model.jobs.isEmpty {

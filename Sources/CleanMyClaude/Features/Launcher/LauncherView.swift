@@ -101,7 +101,11 @@ struct LauncherView: View {
                     LauncherRow(command: item, selected: index == model.selection, hotkey: app.hotkeys.combo(for: item)?.display)
                         .id(index)
                         .onTapGesture { model.selection = index; model.runSelected() }
-                        .onHover { if $0 { model.hover(index) } }
+                        // Every movement of the pointer (not only entering a row): after a trackpad scroll,
+                        // the row under the pointer is selected as soon as the mouse moves again.
+                        .onContinuousHover { phase in
+                            if case .active = phase { model.hover(index) }
+                        }
                 }
             }
         }
