@@ -108,6 +108,7 @@ final class TranslatorModel: AppModule {
                             result: "La livraison devrait arriver jeudi.", from: "de", to: "fr", engine: .apple)
         ]
         launcherCache["en|bonjour tout le monde"] = "Hello everyone"
+        launcherCache["en|Bonjour"] = "Hello"
     }
 
     func applySnapshotTab(_ tab: String) {
@@ -128,18 +129,14 @@ final class TranslatorModel: AppModule {
 
     func results(for query: String, app: AppModel) -> [AppCommand] {
         guard let parsed = TranslatorLanguage.parseLauncher(query) else {
-            // Any sentence typed or pasted: translating it comes first, ↩ opens the translator with it, already translated.
-            guard let language = TranslatorLanguage.sentenceLanguage(query) else { return [] }
+            // Whatever is typed or pasted, its translation shows right in the list: first for a sentence, and first anyway
+            // when nothing else matches (it is placed just under the apps, files and commands that do).
             let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            let target = TranslatorLanguage.effectiveTarget(targetCode, detected: language)
-            let shown = text.count > 60 ? String(text.prefix(57)) + "…" : text
-            return [AppCommand(id: "trad_sentence", title: "Traduire « \(shown) »",
-                               subtitle: "\(TranslatorLanguage.named(language)) détecté → \(TranslatorLanguage.named(target)) · ↩ traduit ici",
-                               keywords: [], icon: .symbol("character.bubble", Theme.palette[1]), group: .translation,
-                               hint: "Traduire", boost: 1200, staysInLauncher: true) { ctx in
-                ctx.app.launcher.showTranslator(text: text)
-                return .done
-            }]
+            guard TranslatorLanguage.looksLikeText(text) else { return [] }
+            let sentence = TranslatorLanguage.sentenceLanguage(text)
+            guard let language = sentence ?? TranslatorLanguage.bestGuess(text, preferring: installedCodes) else { return [] }
+            return [inlineTranslation(text, source: language, target: TranslatorLanguage.effectiveTarget(targetCode, detected: language),
+                                      boost: sentence != nil ? 1200 : 0)]
         }
         let detected = TranslatorLanguage.bestGuess(parsed.text, preferring: installedCodes)
         let target = TranslatorLanguage.effectiveTarget(parsed.target ?? targetCode, detected: detected)
@@ -166,6 +163,26 @@ final class TranslatorModel: AppModule {
             return .done
         })
         return out
+    }
+
+    /// The translation itself as a launcher row: ↩ copies it, ⌘↩ opens the translator with the text.
+    private func inlineTranslation(_ text: String, source: String, target: String, boost: Double) -> AppCommand {
+        let key = target + "|" + text
+        let done = launcherCache[key]
+        if done == nil, TranslatorAvailability.isAvailable { askLauncher(text, source: source, target: target, key: key) }
+        let shown = text.count > 50 ? String(text.prefix(47)) + "…" : text
+        let route = "\(TranslatorLanguage.named(source)) → \(TranslatorLanguage.named(target))"
+        return AppCommand(id: "trad_inline", title: done ?? launcherNotes[key] ?? "Traduction…",
+                          subtitle: "« \(shown) » · \(route) · ⌘↩ ouvre le traducteur",
+                          icon: .symbol("character.bubble", Theme.palette[1]), group: .translation,
+                          hint: done != nil ? "Copier" : "Traduire", boost: boost, staysInLauncher: true) { ctx in
+            if let done, !ctx.alternate {
+                ctx.app.launcher.hide()
+                return CommandRunner.copy(done)
+            }
+            ctx.app.launcher.showTranslator(text: text, target: target)
+            return .done
+        }
     }
 
     func selfTest() -> [String] {
@@ -374,7 +391,10 @@ final class TranslatorModel: AppModule {
         switch channel {
         case .launcher:
             let key = request.target + "|" + request.text
-            if let result { launcherCache[key] = result }
+            if let result {
+                if launcherCache.count > 300 { launcherCache.removeAll() } // typed words pile up: a fresh start now and then
+                launcherCache[key] = result
+            }
             launcherAsked = nil
             app?.launcher.refreshKeepingSelection()
         case .page, .panel:
