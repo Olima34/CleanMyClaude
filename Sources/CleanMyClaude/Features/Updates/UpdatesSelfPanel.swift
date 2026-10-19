@@ -158,7 +158,13 @@ struct UpdatesSelfPanel: View {
     private func step(_ m: UpdatesSelfModel, _ r: UpdatesSelfRelease) -> some View {
         switch m.step {
         case .idle:
-            Text("Je télécharge la version publiée sur GitHub\(r.size > 0 ? " (\(Fmt.bytes(r.size)))" : ""), je vérifie son empreinte et sa signature, puis tu choisis quand relancer. L'ancienne version part à la Corbeille.")
+            if let note = m.placeNote {
+                Text(note)
+                    .font(.ui(11.5))
+                    .foregroundStyle(Theme.text2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Je télécharge la version publiée sur GitHub\(r.size > 0 ? " (\(Fmt.bytes(r.size)))" : ""), je vérifie son empreinte et sa signature, puis tu choisis quand relancer.\(m.placeNote == nil ? " L'ancienne version part à la Corbeille." : "")")
                 .font(.ui(11.5))
                 .foregroundStyle(Theme.text3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -245,7 +251,7 @@ struct UpdatesSelfPanel: View {
                 }
                 Text("Prête à installer").font(.ui(13, .semibold)).foregroundStyle(Theme.text)
             }
-            Text("Clean My Claude se ferme quelques secondes puis se rouvre en version \(r.version) ; l'ancienne part à la Corbeille. Une tâche en cours (conversion, mise à jour Homebrew) serait interrompue.")
+            Text(m.readyNote(r.version))
                 .font(.ui(11.5))
                 .foregroundStyle(Theme.text2)
                 .fixedSize(horizontal: false, vertical: true)

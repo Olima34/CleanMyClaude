@@ -11,6 +11,9 @@ struct UpdatesSelfSaved: Codable {
     var skipped: String?
     /// The version this copy replaced, written just before the relaunch: the new copy says it is up to date.
     var updatedFrom: String?
+    /// Written when the new version went to Applications instead of the copy the user opened: whether that copy opened
+    /// at login, so that the new one takes over its login item.
+    var loginItemAfterMove: Bool?
 }
 
 /// Clean My Claude's own updates: a check at launch and every six hours (unless turned off), the panel that shows
@@ -61,8 +64,13 @@ final class UpdatesSelfModel {
     var skipped: String?
     /// The download and installation of `release`.
     var step: Step = .idle
-    /// Why this copy cannot replace itself (source build, read-only folder…), or nil.
-    var blocker: String?
+    /// Where the new version goes: in place of this copy, or in Applications when it was opened straight from its archive.
+    var place: UpdatesSelfPlace = .inPlace("")
+    /// Why this copy cannot update itself (source build, folder that needs a password…), or nil.
+    var blocker: String? {
+        if case .blocked(let why) = place { return why }
+        return nil
+    }
     /// How the version ready to install is signed: whether macOS keeps the permissions.
     var continuity: UpdatesSelfSigning.Continuity = .adhoc
     /// The new version is being re-signed with the local certificate (`UpdatesSelfSigning`).
@@ -82,7 +90,7 @@ final class UpdatesSelfModel {
     @ObservationIgnored private var publishedContinuity: UpdatesSelfSigning.Continuity = .adhoc
     /// "Plus tard": the background checks of this session stay quiet for a day; the next launch shows it again.
     @ObservationIgnored private var snoozedUntil: Date?
-    @ObservationIgnored private var demoBlocker: String?
+    @ObservationIgnored private var demoPlace: UpdatesSelfPlace?
     /// An automatic check that failed (no network yet at login, typically) tries once more a little later.
     @ObservationIgnored private var retry: DispatchWorkItem?
     @ObservationIgnored private var retrying = false
@@ -100,7 +108,7 @@ final class UpdatesSelfModel {
             if let link = r.signatureURL, !UpdatesSelfGitHub.isTrustedDownload(link) { r.signatureURL = nil }
             release = r
         }
-        refreshBlocker()
+        refreshPlace()
     }
 
     var canCheck: Bool { build.version != nil }
@@ -206,7 +214,7 @@ final class UpdatesSelfModel {
     /// the window comes to the front, opened if it was closed (the app may only live in the menu bar).
     func showPanel() {
         guard !Snapshot.isActive else { return }
-        refreshBlocker()
+        refreshPlace()
         panelVisible = true
         AppContext.showMainWindow()
     }
@@ -236,8 +244,29 @@ final class UpdatesSelfModel {
         save()
     }
 
-    func refreshBlocker() {
-        blocker = DemoData.isEnabled ? demoBlocker : UpdatesSelfInstaller.currentBlocker()
+    func refreshPlace() {
+        place = DemoData.isEnabled ? demoPlace ?? .inPlace("/Applications/Clean My Claude.app") : UpdatesSelfInstaller.currentPlace()
+    }
+
+    /// When the new version goes to Applications rather than in place of this copy: said before downloading.
+    var placeNote: String? {
+        guard case .applications(let target, let leftover) = place else { return nil }
+        let folder = UpdatesSelfInstaller.folderLabel((target as NSString).deletingLastPathComponent)
+        var note = "Tu as ouvert Clean My Claude sans l'installer : la nouvelle version va dans « \(folder) », d'où tu l'ouvriras désormais et d'où elle se mettra à jour toute seule."
+        if let leftover {
+            note += " La copie de « \(UpdatesSelfInstaller.folderLabel((leftover as NSString).deletingLastPathComponent)) » part à la Corbeille."
+        }
+        return note
+    }
+
+    /// What "Installer et relancer" does, said once the version is ready.
+    func readyNote(_ version: String) -> String {
+        guard case .applications(let target, let leftover) = place else {
+            return "Clean My Claude se ferme quelques secondes puis se rouvre en version \(version) ; l'ancienne part à la Corbeille. Une tâche en cours (conversion, mise à jour Homebrew) serait interrompue."
+        }
+        let folder = UpdatesSelfInstaller.folderLabel((target as NSString).deletingLastPathComponent)
+        let old = leftover.map { " ; la copie de « \(UpdatesSelfInstaller.folderLabel(($0 as NSString).deletingLastPathComponent)) » part à la Corbeille" } ?? ""
+        return "Clean My Claude se ferme quelques secondes puis se rouvre en version \(version), installé dans « \(folder) »\(old). Une tâche en cours (conversion, mise à jour Homebrew) serait interrompue."
     }
 
     func openReleasePage() {
@@ -260,7 +289,7 @@ final class UpdatesSelfModel {
     func startUpdate(resign: Bool = true) {
         guard let r = release, !step.isBusy else { return }
         guard !DemoData.isEnabled else { return HUD.show(DemoData.refusal) }
-        refreshBlocker()
+        refreshPlace()
         guard blocker == nil else { return }
         guard let link = r.downloadURL else {
             step = .failed("Cette version n'a pas encore d'archive prête à installer : réessaie dans quelques minutes, ou passe par la page de la version.")
@@ -403,17 +432,26 @@ final class UpdatesSelfModel {
     func installAndRelaunch() {
         guard step == .ready, let staged = stagedApp else { return }
         guard !DemoData.isEnabled else { return HUD.show(DemoData.refusal) }
+        refreshPlace()
         let current = URL(fileURLWithPath: build.bundlePath)
+        let place = self.place
         let from = build.version
         step = .installing
         Task {
             let result = await Task.detached(priority: .userInitiated) {
-                Result { try UpdatesSelfInstaller.replace(current, with: staged) }
+                Result { () throws -> URL in
+                    if case .applications(let target, let leftover) = place {
+                        return try UpdatesSelfInstaller.install(staged, at: URL(fileURLWithPath: target),
+                                                                leftover: leftover.map { URL(fileURLWithPath: $0) })
+                    }
+                    return try UpdatesSelfInstaller.replace(current, with: staged)
+                }
             }.value
             switch result {
             case .success(let installed):
                 store.value.updatedFrom = from
                 store.value.release = nil
+                if case .applications = place { store.value.loginItemAfterMove = LoginItem.isEnabled }
                 store.flush()
                 ActionLog.write("MISE À JOUR installée : \(installed.path)")
                 if UpdatesSelfInstaller.relaunch(installed) {
@@ -435,6 +473,14 @@ final class UpdatesSelfModel {
 
     /// The first launch after an update says so.
     private func welcomeAfterUpdate() {
+        if let login = store.value.loginItemAfterMove {
+            store.value.loginItemAfterMove = nil
+            // The login item still opened the copy the user had opened (now in the Trash): it opens this one instead.
+            if login {
+                LoginItem.set(false)
+                LoginItem.set(true)
+            }
+        }
         guard let from = store.value.updatedFrom else { return }
         store.value.updatedFrom = nil
         guard let v = build.version, v != from else { return }
@@ -480,7 +526,7 @@ extension UpdatesSelfModel {
         latestSeen = "0.4.0"
         lastCheck = now.addingTimeInterval(-12 * 60)
         state = .done(now.addingTimeInterval(-12 * 60))
-        refreshBlocker()
+        refreshPlace()
     }
 
     /// `--snapshot --demo --page updates --tab maj-…`: the panel at each step.
@@ -504,8 +550,16 @@ extension UpdatesSelfModel {
             continuity = .firstRelease
         case "maj-erreur": step = .failed(UpdatesSelfGitHub.message(for: URLError(.notConnectedToInternet)))
         case "maj-impossible":
-            demoBlocker = UpdatesSelfInstaller.blocker(bundlePath: "/Applications/Clean My Claude.app", readOnly: false, writable: false)
-            refreshBlocker()
+            demoPlace = UpdatesSelfInstaller.place(bundlePath: "/Applications/Clean My Claude.app", readOnly: false, writable: false)
+            refreshPlace()
+        case "maj-applications", "maj-applications-prete":
+            // Opened from the folder its archive was unpacked in, on the Desktop of the fictional Mac.
+            demoPlace = .applications(target: "/Applications/Clean My Claude.app", leftover: "/Users/camille/Desktop/Clean My Claude.app")
+            refreshPlace()
+            if tab == "maj-applications-prete" {
+                step = .ready
+                continuity = .kept
+            }
         case "maj-ajour":
             release = nil
         default: break
@@ -545,6 +599,7 @@ extension UpdatesSelfModel {
             for c in r.changes.prefix(5) { lines.append("    • \(c.title.topic.map { "\($0) : " } ?? "")\(c.title.text)") }
         }
         if let b = blocker { lines.append("  Mise à jour sur place impossible : \(b)") }
+        if let n = placeNote { lines.append("  Installation : \(n)") }
         if !DemoData.isEnabled { lines += UpdatesSelfSigning.describe(bundle: build.isBundle ? build.bundlePath : nil).map { "  " + $0 } }
         lines.append("  (GitHub n'est interrogé que par l'app en marche, jamais par --dump)")
         return lines
@@ -675,12 +730,35 @@ extension UpdatesSelfModel {
             f.append("Mise à jour de l'app : sa propre version proposée à une copie compilée sans étiquette")
         }
 
-        // Where the app can replace itself.
-        if UpdatesSelfInstaller.blocker(bundlePath: FS.home + "/Applications/Clean My Claude.app", readOnly: false, writable: true) != nil
-            || UpdatesSelfInstaller.blocker(bundlePath: "/Users/x/Dev/.build/debug/CleanMyClaude", readOnly: false, writable: true) == nil
-            || UpdatesSelfInstaller.blocker(bundlePath: "/private/var/folders/x/AppTranslocation/y/d/Clean My Claude.app", readOnly: true, writable: false) == nil
-            || UpdatesSelfInstaller.blocker(bundlePath: "/Applications/Clean My Claude.app", readOnly: false, writable: false) == nil {
+        // Where the new version goes.
+        let home = "/Users/x", app = "Clean My Claude.app"
+        let opened = "/private/var/folders/x/AppTranslocation/y/d/" + app, desktop = home + "/Desktop/" + app
+        func place(_ path: String, readOnly: Bool = false, writable: Bool = true, original: String? = nil,
+                   userCopy: Bool = false, systemWritable: Bool = true) -> UpdatesSelfPlace {
+            UpdatesSelfInstaller.place(bundlePath: path, readOnly: readOnly, writable: writable, original: original, home: home,
+                                       userCopy: userCopy, systemWritable: systemWritable)
+        }
+        if place(home + "/Applications/" + app) != .inPlace(home + "/Applications/" + app)
+            || place("/Applications/" + app, writable: false) == .inPlace("/Applications/" + app)
+            || place("/Users/x/Dev/.build/debug/CleanMyClaude") == .inPlace("/Users/x/Dev/.build/debug/CleanMyClaude") {
             f.append("Mise à jour de l'app : emplacements remplaçables mal repérés")
+        }
+        // Opened from the folder of its archive: to Applications, and the copy the user opened to the Trash.
+        if place(opened, readOnly: true, writable: false, original: desktop) != .applications(target: "/Applications/" + app, leftover: desktop)
+            || place(opened, readOnly: true, original: desktop, userCopy: true) != .applications(target: home + "/Applications/" + app, leftover: desktop)
+            || place(opened, readOnly: true, original: desktop, systemWritable: false) != .applications(target: home + "/Applications/" + app, leftover: desktop)
+            || place(opened, readOnly: true, original: "/Applications/" + app) != .applications(target: "/Applications/" + app, leftover: nil)
+            || place("/Volumes/Clean My Claude/" + app, readOnly: true, writable: false) != .applications(target: "/Applications/" + app, leftover: nil) {
+            f.append("Mise à jour de l'app : copie ouverte depuis son archive ou une image disque mal installée")
+        }
+        if UpdatesSelfInstaller.folderLabel(home + "/Desktop", home: home) != "Bureau"
+            || UpdatesSelfInstaller.folderLabel(home + "/Applications", home: home) != "~/Applications"
+            || UpdatesSelfInstaller.folderLabel("/Users/y/Downloads", home: home) != "Téléchargements"
+            || UpdatesSelfInstaller.folderLabel(home + "/Projets/Desktop", home: home) == "Bureau" {
+            f.append("Mise à jour de l'app : dossier de la copie ouverte mal nommé")
+        }
+        if UpdatesSelfInstaller.originalPath(ofTranslocated: home + "/Applications/" + app) != nil {
+            f.append("Mise à jour de l'app : copie ordinaire prise pour une copie provisoire")
         }
         let good: [String: Any] = ["CFBundleIdentifier": UpdatesSelfInstaller.bundleID, "CFBundleShortVersionString": "0.4.0", "LSMinimumSystemVersion": "14.0"]
         if UpdatesSelfInstaller.validate(info: good, expectedVersion: "v0.4.0", macOS: "15.4.0") != nil { f.append("Mise à jour de l'app : archive valide refusée") }

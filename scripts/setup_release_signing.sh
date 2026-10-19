@@ -75,7 +75,7 @@ if [[ ! "$HASH" =~ '^[0-9A-F]{40}$' ]]; then
   exit 1
 fi
 
-echo "→ Envoi au secret $SECRET de l'environnement « $ENVIRONMENT » de $REPO…"
+echo "→ Envoi au secret $SECRET de l'environnement « $ENVIRONMENT » de ${REPO}…"
 # Read by gh on its standard input: never on a command line, which any program can list.
 print -r -- "$CERT"$'\n'"$KEY" | gh secret set "$SECRET" --env "$ENVIRONMENT" --repo "$REPO"
 unset KEY

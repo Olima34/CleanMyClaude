@@ -318,6 +318,18 @@ enum UpdatesSelfGitHub {
     }
 }
 
+/// Where a new version of the app goes.
+enum UpdatesSelfPlace: Equatable {
+    /// In place of the running copy (the old one goes to the Trash).
+    case inPlace(String)
+    /// In an Applications folder (`target`), when the running copy cannot be replaced: opened straight from its archive
+    /// (macOS runs it from a provisional read-only folder) or from a disk image. `leftover`: the copy the user opened,
+    /// put in the Trash afterwards (nil for a disk image, or when it is `target` itself).
+    case applications(target: String, leftover: String?)
+    /// Not from the app (source build, folder that needs an administrator password): why.
+    case blocked(String)
+}
+
 /// Replacing this copy of the app by the downloaded one.
 enum UpdatesSelfInstaller {
     static let bundleID = "io.github.olima34.cleanmyclaude"
@@ -327,7 +339,7 @@ enum UpdatesSelfInstaller {
 
     enum Failure: LocalizedError {
         case digest, noDigest, untrusted, unsigned, badSignature, unpack(String), invalid(String), signature(String), localSign(String),
-             signingPassword, trash(String), move(String, String)
+             signingPassword, trash(String), move(String, String), install(String, String)
 
         var errorDescription: String? {
             switch self {
@@ -355,36 +367,71 @@ enum UpdatesSelfInstaller {
                 return "Je n'ai pas pu mettre l'ancienne version à la Corbeille (\(why)) : rien n'a changé."
             case .move(let why, let folder):
                 return "L'ancienne version est dans la Corbeille, mais la nouvelle n'a pas pu prendre sa place (\(why)). Remets l'ancienne depuis la Corbeille (clic droit › Remettre), ou glisse la nouvelle depuis « \(folder) »."
+            case .install(let why, let folder):
+                return "La nouvelle version n'a pas pu s'installer dans « \(folder) » (\(why)) : rien n'a changé. Réessaie, ou télécharge-la depuis la page de la version."
             }
         }
     }
 
-    /// Why this copy cannot replace itself, or nil when it can.
-    /// `readOnly`: on a disk image or a locked volume; `writable`: its folder and itself can be changed without a password.
-    static func blocker(bundlePath: String, readOnly: Bool, writable: Bool) -> String? {
+    /// Where the new version goes. `readOnly`: on a disk image or a locked volume; `writable`: its folder and itself can be
+    /// changed without a password; `original`: where the copy macOS runs from a provisional folder really is;
+    /// `userCopy`: ~/Applications already holds Clean My Claude; `systemWritable`: /Applications changes without a password.
+    static func place(bundlePath: String, readOnly: Bool, writable: Bool, original: String? = nil, home: String = FS.home,
+                      userCopy: Bool = false, systemWritable: Bool = true) -> UpdatesSelfPlace {
         guard bundlePath.hasSuffix(".app") else {
-            return "Tu lances Clean My Claude depuis le code source : mets-le à jour avec git pull, puis ./scripts/build_app.sh."
+            return .blocked("Tu lances Clean My Claude depuis le code source : mets-le à jour avec git pull, puis ./scripts/build_app.sh.")
         }
-        if bundlePath.contains("/AppTranslocation/") {
-            return "macOS fait tourner l'app depuis un emplacement provisoire en lecture seule. Glisse-la dans ton dossier Applications, rouvre-la, puis réessaie."
-        }
-        if readOnly {
-            return "L'app tourne depuis une image disque ou un volume en lecture seule. Copie-la dans ton dossier Applications, rouvre-la, puis réessaie."
+        let translocated = bundlePath.contains("/AppTranslocation/")
+        if translocated || readOnly {
+            // Opened straight from its archive (macOS then runs it from a provisional read-only folder) or from a disk
+            // image: the new version goes to Applications, like scripts/install.sh, and updates itself from there next time.
+            let folder = userCopy || !systemWritable ? home + "/Applications" : "/Applications"
+            let target = folder + "/" + appName
+            return .applications(target: target, leftover: translocated && original != target ? original : nil)
         }
         guard writable else {
             let folder = FS.pretty((bundlePath as NSString).deletingLastPathComponent)
-            return "Le dossier « \(folder) » ne se modifie qu'avec un mot de passe administrateur : je ne peux pas y remplacer l'app moi-même. Lance la commande d'installation dans le Terminal, ou télécharge la version depuis GitHub."
+            return .blocked("Le dossier « \(folder) » ne se modifie qu'avec un mot de passe administrateur : je ne peux pas y remplacer l'app moi-même. Lance la commande d'installation dans le Terminal, ou télécharge la version depuis GitHub.")
         }
-        return nil
+        return .inPlace(bundlePath)
     }
 
-    static func currentBlocker() -> String? {
+    static func currentPlace() -> UpdatesSelfPlace {
         let path = Bundle.main.bundlePath
         let url = URL(fileURLWithPath: path)
         let readOnly = (try? url.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly ?? false
         let fm = FileManager.default
-        return blocker(bundlePath: path, readOnly: readOnly,
-                       writable: fm.isWritableFile(atPath: url.deletingLastPathComponent().path) && fm.isWritableFile(atPath: path))
+        return place(bundlePath: path, readOnly: readOnly,
+                     writable: fm.isWritableFile(atPath: url.deletingLastPathComponent().path) && fm.isWritableFile(atPath: path),
+                     original: originalPath(ofTranslocated: path),
+                     userCopy: fm.fileExists(atPath: FS.home + "/Applications/" + appName),
+                     systemWritable: fm.isWritableFile(atPath: "/Applications"))
+    }
+
+    /// A copy macOS runs from a provisional folder (App Translocation) really lives elsewhere: on the Desktop, in
+    /// Downloads… Asked to Security.framework (`SecTranslocateCreateOriginalPathForURL`, left out of the public headers,
+    /// hence looked up by name); nil for any other copy.
+    static func originalPath(ofTranslocated path: String) -> String? {
+        guard path.contains("/AppTranslocation/"),
+              let security = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY),
+              let symbol = dlsym(security, "SecTranslocateCreateOriginalPathForURL") else { return nil }
+        typealias Original = @convention(c) (CFURL, UnsafeMutablePointer<Unmanaged<CFError>?>?) -> Unmanaged<CFURL>?
+        let original = unsafeBitCast(symbol, to: Original.self)
+        guard let url = original(URL(fileURLWithPath: path) as CFURL, nil)?.takeRetainedValue() else { return nil }
+        return (url as URL).standardizedFileURL.path
+    }
+
+    /// "Applications", "~/Applications" for the user's own, "Bureau" or "Téléchargements" for those of a user (in French,
+    /// like the rest of the app, whatever the language of the Mac); any other folder as a path.
+    static func folderLabel(_ folder: String, home: String = FS.home) -> String {
+        if folder == "/Applications" { return "Applications" }
+        if folder == home + "/Applications" { return "~/Applications" }
+        let parent = (folder as NSString).deletingLastPathComponent
+        let names = ["Desktop": "Bureau", "Downloads": "Téléchargements", "Documents": "Documents"]
+        if parent.hasPrefix("/Users/"), parent.split(separator: "/").count == 2, let name = names[(folder as NSString).lastPathComponent] {
+            return name
+        }
+        return FS.pretty(folder)
     }
 
     /// SHA-256 of a file, read by chunks.
@@ -458,10 +505,39 @@ enum UpdatesSelfInstaller {
         } catch {
             throw Failure.move(error.localizedDescription, FS.pretty(staged.deletingLastPathComponent().path))
         }
-        // The Finder service and the cleanmyclaude:// links of the new version, right away (like build_app.sh).
-        _ = Shell.run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
-                      ["-f", installed.path], timeout: 30)
+        register(installed)
         return installed
+    }
+
+    /// Installs the new version at `target`, in an Applications folder, when the running copy cannot be replaced
+    /// (`UpdatesSelfPlace.applications`): an older copy there goes to the Trash first; the copy the user opened
+    /// (`leftover`, on the Desktop or in Downloads) follows once the new one is in place. Not on the main thread.
+    static func install(_ staged: URL, at target: URL, leftover: URL?) throws -> URL {
+        let installed: URL
+        if FileManager.default.fileExists(atPath: target.path) {
+            installed = try replace(target, with: staged)
+        } else {
+            do {
+                installed = try FileOps.move(staged, to: target)
+            } catch {
+                throw Failure.install(error.localizedDescription, folderLabel(target.deletingLastPathComponent().path))
+            }
+            register(installed)
+        }
+        // Best effort: the new version is in place already; opened again, the old copy would only offer this update again.
+        if let leftover, FileManager.default.fileExists(atPath: leftover.path) {
+            let report = Remover.remove([RemovalEntry(path: leftover.path, size: FileSizer.size(of: leftover.path))], mode: .trash)
+            if report.removed == 0 {
+                ActionLog.write("MISE À JOUR : l'ancienne copie reste à \(leftover.path) (\(report.failures.first?.reason ?? "introuvable"))")
+            }
+        }
+        return installed
+    }
+
+    /// The Finder service and the cleanmyclaude:// links of the new version, right away (like build_app.sh).
+    private static func register(_ app: URL) {
+        _ = Shell.run("/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+                      ["-f", app.path], timeout: 30)
     }
 
     /// Opens `app` once this process has quit (a small shell script outlives it). False if it could not start.

@@ -55,11 +55,17 @@ enum UpdatesSelfCLI {
 
         let readOnly = (try? target.resourceValues(forKeys: [.volumeIsReadOnlyKey]))?.volumeIsReadOnly ?? false
         let fm = FileManager.default
-        if let blocker = UpdatesSelfInstaller.blocker(bundlePath: target.path, readOnly: readOnly,
-                                                      writable: fm.isWritableFile(atPath: target.deletingLastPathComponent().path)
-                                                          && fm.isWritableFile(atPath: target.path)) {
-            print("✗ \(blocker)")
+        switch UpdatesSelfInstaller.place(bundlePath: target.path, readOnly: readOnly,
+                                          writable: fm.isWritableFile(atPath: target.deletingLastPathComponent().path)
+                                              && fm.isWritableFile(atPath: target.path)) {
+        case .blocked(let why):
+            print("✗ \(why)")
             return
+        case .applications:
+            print("✗ Cette copie ne se remplace pas sur place (image disque, volume en lecture seule) : ouverte, l'app installerait la nouvelle version dans Applications. Essaie sur une copie dans un dossier modifiable.")
+            return
+        case .inPlace:
+            break
         }
         guard let link = r.downloadURL else {
             print("✗ Cette version n'a pas d'archive à installer.")

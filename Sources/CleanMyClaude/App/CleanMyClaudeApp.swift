@@ -99,8 +99,9 @@ enum LoginItem {
     }
 
     static func applyDefaultOnce() {
+        // Not for a copy macOS runs from a provisional folder (opened straight from its archive): that path goes away.
         guard !DemoData.isEnabled, !UserDefaults.standard.bool(forKey: defaultAppliedKey),
-              Bundle.main.bundlePath.hasSuffix(".app") else { return }
+              Bundle.main.bundlePath.hasSuffix(".app"), !Bundle.main.bundlePath.contains("/AppTranslocation/") else { return }
         UserDefaults.standard.set(true, forKey: defaultAppliedKey)
         if !isEnabled { set(true) }
     }

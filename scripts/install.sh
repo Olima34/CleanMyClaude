@@ -76,7 +76,7 @@ if [[ -n "$PUBLIC_KEY" ]]; then
     fi
     echo "→ Signature vérifiée."
   else
-    echo "→ Signature non vérifiée : il faudrait OpenSSL 3 (brew install openssl). L'app vérifiera elle-même ses prochaines mises à jour."
+    echo "→ Signature Ed25519 non vérifiée ici (le openssl de macOS ne la connaît pas ; OpenSSL 3 de Homebrew, si. L'archive vient bien de GitHub en HTTPS). L'app vérifie elle-même ses prochaines mises à jour."
   fi
 fi
 
@@ -92,7 +92,8 @@ if [[ -z "$TEST_DIR" ]]; then
   sleep 1
 fi
 
-echo "→ Installation dans $DEST…"
+# Braces before "…": the bash of macOS (3.2) would read its first byte as part of the name in a UTF-8 locale.
+echo "→ Installation dans ${DEST}…"
 mkdir -p "$DEST"
 rm -rf "${DEST:?}/$APP"
 ditto "$TMP/$APP" "$DEST/$APP"
