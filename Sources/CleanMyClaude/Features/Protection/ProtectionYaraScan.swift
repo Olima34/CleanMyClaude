@@ -339,7 +339,8 @@ private final class ProtectionYaraFile {
             switch iterable {
             case .range(let lo, let hi):
                 guard let l = eval(lo, rule: r, current: current).int, let h = eval(hi, rule: r, current: current).int else { return .undef }
-                if h < l { values = [] } else if h - l >= Self.maxLoop { return .undef } else { values = Array(l...h) }
+                let span = h.subtractingReportingOverflow(l)
+                if h < l { values = [] } else if span.overflow || span.partialValue >= Self.maxLoop { return .undef } else { values = Array(l...h) }
             case .list(let items):
                 for item in items {
                     guard let v = eval(item, rule: r, current: current).int else { return .undef }
@@ -356,7 +357,7 @@ private final class ProtectionYaraFile {
             return .int(evaluate(rule: i) ? 1 : 0)
         case .hash(let algo, let off, let size):
             guard let o = eval(off, rule: r, current: current).int, let s = eval(size, rule: r, current: current).int,
-                  o >= 0, s >= 0, o + s <= Int64(n) else { return .undef }
+                  o >= 0, s >= 0, o <= Int64(n), s <= Int64(n) - o else { return .undef }
             return .str(hash(algo, Int(o), Int(s)))
         }
     }
@@ -411,8 +412,12 @@ private final class ProtectionYaraFile {
         case "+": return .int(x &+ y)
         case "-": return .int(x &- y)
         case "*": return .int(x &* y)
-        case "\\": return y == 0 ? .undef : .int(x / y)
-        case "%": return y == 0 ? .undef : .int(x % y)
+        case "\\":
+            let r = x.dividedReportingOverflow(by: y)
+            return y == 0 || r.overflow ? .undef : .int(r.partialValue)
+        case "%":
+            let r = x.remainderReportingOverflow(dividingBy: y)
+            return y == 0 || r.overflow ? .undef : .int(r.partialValue)
         case "&": return .int(x & y)
         case "|": return .int(x | y)
         case "^": return .int(x ^ y)

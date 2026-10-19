@@ -11,6 +11,7 @@ struct ThreatsTab: View {
             } else {
                 ThreatScanChoice()
             }
+            FileCheckCard()
             if let m = model.threatMessage {
                 Callout(symbol: m.ok ? "checkmark.shield" : "exclamationmark.triangle", title: m.ok ? "C'est fait" : "Pas tout à fait",
                         text: m.text, tint: m.ok ? Theme.good : Theme.warn)
@@ -72,6 +73,49 @@ struct ThreatScanChoice: View {
                      detail: sig?.date.map { "Mises à jour par Apple \(Fmt.relative($0))" } ?? "Introuvables", tint: Theme.good)
             StatTile(symbol: "clock", value: model.scanSummary.map { Fmt.relative($0.date) } ?? "Jamais", label: "Dernière analyse",
                      detail: model.scanSummary.map { "\(Fmt.int($0.files)) fichiers · \($0.threats == 0 ? "rien trouvé" : Fmt.plural($0.threats, "menace", "menaces"))" } ?? "Lance une première analyse")
+        }
+    }
+}
+
+/// Drop a download (an app, an installer, a script) to check it before opening it.
+struct FileCheckCard: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let model = app.protection
+        HStack(alignment: .top, spacing: 14) {
+            DropZone(title: "Vérifier avant d'ouvrir", subtitle: "Glisse ici une app, un installeur ou un script",
+                     symbol: "checkmark.shield", allowsFolders: true) { urls in
+                Task { await model.inspect(urls) }
+            }
+            .frame(width: 380, height: 150)
+            Card(padding: 16) {
+                if model.isInspecting {
+                    HStack(spacing: 10) {
+                        ProgressView().controlSize(.small)
+                        Text("J'examine son code avec les signatures d'Apple…").font(.ui(12.5)).foregroundStyle(Theme.text2)
+                    }
+                } else if let v = model.verdict {
+                    HStack(alignment: .top, spacing: 12) {
+                        if v.path.hasSuffix(".app") { FileIcon(path: v.path, size: 36) } else { IconBadge(symbol: "doc", tint: v.status.color, size: 36) }
+                        VStack(alignment: .leading, spacing: 5) {
+                            HStack(spacing: 6) {
+                                Text(v.name).font(.ui(13, .semibold)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                                StatusBadge(status: v.status, text: v.status == .ok ? "Rien à signaler" : nil)
+                            }
+                            Text(v.title).font(.ui(12.5, .medium)).foregroundStyle(v.status == .ok ? Theme.text : v.status.color)
+                            Text(v.detail).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Un doute sur un téléchargement ?").font(.ui(13, .semibold)).foregroundStyle(Theme.text)
+                        Text("Je passe tout son code aux signatures antimalware d'Apple, je regarde qui l'a signé, si Apple l'a notarisé, et d'où il vient. Rien n'est ouvert ni envoyé.")
+                            .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+            .frame(height: 150)
         }
     }
 }

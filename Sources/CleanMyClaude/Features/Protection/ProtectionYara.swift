@@ -449,7 +449,7 @@ struct ProtectionYaraParser {
         func number() throws -> Int {
             var n = 0, digits = 0
             while i < raw.count, raw[i] >= UInt8(ascii: "0"), raw[i] <= UInt8(ascii: "9") {
-                n = n * 10 + Int(raw[i] - UInt8(ascii: "0"))
+                n = min(n * 10 + Int(raw[i] - UInt8(ascii: "0")), 1 << 30)
                 digits += 1
                 i += 1
             }

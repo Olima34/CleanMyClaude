@@ -167,6 +167,17 @@ struct ProtectionThreat: Identifiable, Codable, Hashable {
     var title: String { kind.title }
 }
 
+/// What the check of one file the user dropped says.
+struct ProtectionFileVerdict: Equatable {
+    var path: String
+    var name: String
+    var status: Status
+    var title: String
+    var detail: String
+    var files: Int
+    var threat: ProtectionThreat?
+}
+
 struct ProtectionScanSummary: Codable, Equatable {
     var date: Date
     var deep: Bool
@@ -491,6 +502,90 @@ enum ProtectionThreatScanner {
                                     detail: "À chaque Terminal ouvert, cette ligne s'exécute : \(first.prefix(160)). Retire-la de ~/\(name).",
                                     path: path, removable: [])
         }
+    }
+
+    // MARK: One file
+
+    /// Everything that can be said about one file or app before opening it: Apple's signatures on all its code,
+    /// who signed it, whether Apple notarized it, where it was downloaded from. Must not run on the main thread.
+    static func inspect(_ raw: String) -> ProtectionFileVerdict {
+        // A link (Homebrew's bin folder) is checked through what it points to.
+        let path = ((raw as NSString).standardizingPath as NSString).resolvingSymlinksInPath
+        let name = (raw as NSString).lastPathComponent
+        if DemoData.isEnabled {
+            return ProtectionFileVerdict(path: path, name: name, status: .ok, title: "Rien à signaler", detail: DemoData.refusal, files: 0)
+        }
+        var files: [String] = []
+        if FS.isDirectory(path) {
+            var found = Set<String>()
+            walk(path, depth: 8, wholeBundles: true, isCancelled: { false }, into: &found)
+            if path.hasSuffix(".app") { found.formUnion(bundleExecutables(path)) }
+            files = found.sorted()
+        } else {
+            files = [path]
+        }
+        var hits: [ProtectionSignatureHit] = []
+        if let sig = ProtectionSignatures.load() {
+            for f in files.prefix(5_000) { hits += ProtectionSignatureScanner.scan(f, with: sig) }
+        }
+        let origin = downloadOrigin(path)
+        let from = origin.map { " Téléchargé depuis \($0)." } ?? ""
+        if let hit = hits.first {
+            return ProtectionFileVerdict(path: path, name: name, status: .bad, title: "Logiciel malveillant reconnu : \(hit.detection)",
+                                         detail: "Les signatures d'Apple le reconnaissent. Ne l'ouvre pas, mets-le à la Corbeille.\(from)",
+                                         files: files.count, threat: ProtectionThreat(kind: .signature, severity: Status.bad.rawValue, name: hit.detection,
+                                                                                       detail: "Vérifié à ta demande : les signatures d'Apple le reconnaissent.",
+                                                                                       path: path, removable: [container(of: path)]))
+        }
+        let isCode = path.hasSuffix(".app") || ProtectionSignatureScanner.probe(path)?.kind == .macho
+        let sig = Signature.check(path)
+        guard isCode else {
+            return ProtectionFileVerdict(path: path, name: name, status: .ok, title: "Aucune menace connue",
+                                         detail: "\(Fmt.plural(files.count, "fichier analysé", "fichiers analysés")) avec les signatures d'Apple.\(from)", files: files.count)
+        }
+        switch sig {
+        case .invalid:
+            return ProtectionFileVerdict(path: path, name: name, status: .warn, title: "Signature abîmée",
+                                         detail: "Le contenu a été modifié après la signature : copie piratée, infectée ou corrompue. Télécharge-la depuis le site officiel.\(from)", files: files.count)
+        case .unsigned, .adhoc, .personal:
+            return ProtectionFileVerdict(path: path, name: name, status: .warn, title: sig == .unsigned ? "Non signée" : "Signée localement, pas par un développeur identifié",
+                                         detail: "Aucune signature connue, mais personne ne répond de ce programme : venu d'Internet, macOS refuse de l'ouvrir. Normal pour un outil compilé sur ce Mac (Homebrew, développement) ; sinon, ne force son ouverture que si tu fais confiance à sa source.\(from)",
+                                         files: files.count)
+        case .developerID(let who):
+            let notarized = isNotarized(path)
+            return ProtectionFileVerdict(path: path, name: name, status: notarized ? .ok : .warn,
+                                         title: notarized ? "Aucune menace connue · signée par \(who), notarisée par Apple" : "Signée par \(who), mais pas notarisée",
+                                         detail: notarized ? "Apple a vérifié ce programme avant sa publication, et ses signatures ne le reconnaissent pas.\(from)"
+                                                           : "Apple n'a pas vérifié cette version : prudence si elle ne vient pas du site de \(who).\(from)",
+                                         files: files.count)
+        case .apple, .appStore:
+            return ProtectionFileVerdict(path: path, name: name, status: .ok, title: "Aucune menace connue · \(sig.label)",
+                                         detail: "Signée par Apple ou distribuée par l'App Store.\(from)", files: files.count)
+        case .missing, .unknown:
+            return ProtectionFileVerdict(path: path, name: name, status: .ok, title: "Aucune menace connue",
+                                         detail: "\(Fmt.plural(files.count, "fichier analysé", "fichiers analysés")) avec les signatures d'Apple.\(from)", files: files.count)
+        }
+    }
+
+    /// Notarized by Apple (the "notarized" code requirement).
+    static func isNotarized(_ path: String) -> Bool {
+        var code: SecStaticCode?
+        var req: SecRequirement?
+        guard SecStaticCodeCreateWithPath(URL(fileURLWithPath: path) as CFURL, [], &code) == errSecSuccess, let code,
+              SecRequirementCreateWithString("notarized" as CFString, [], &req) == errSecSuccess else { return false }
+        return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSDoNotValidateResources), req) == errSecSuccess
+    }
+
+    /// The site a file came from, as macOS noted it when it was downloaded.
+    static func downloadOrigin(_ path: String) -> String? {
+        let attr = "com.apple.metadata:kMDItemWhereFroms"
+        let size = getxattr(path, attr, nil, 0, 0, XATTR_NOFOLLOW)
+        guard size > 0 else { return nil }
+        var data = Data(count: size)
+        let read = data.withUnsafeMutableBytes { getxattr(path, attr, $0.baseAddress, size, 0, XATTR_NOFOLLOW) }
+        guard read == size, let list = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String],
+              let first = list.first, let host = URL(string: first)?.host else { return nil }
+        return host
     }
 
     // MARK: Removal

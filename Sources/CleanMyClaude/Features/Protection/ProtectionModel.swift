@@ -257,6 +257,23 @@ final class ProtectionModel: AppModule {
 
     func cancelScan() { scanFlag?.cancel() }
 
+    var verdict: ProtectionFileVerdict?
+    var isInspecting = false
+
+    /// A file or an app the user dropped, checked before being opened.
+    func inspect(_ urls: [URL]) async {
+        guard let url = urls.first, !isInspecting else { return }
+        isInspecting = true
+        verdict = nil
+        let result = await Task.detached(priority: .userInitiated) { ProtectionThreatScanner.inspect(url.path) }.value
+        verdict = result
+        isInspecting = false
+        if let t = result.threat, !threats.contains(where: { $0.id == t.id }) {
+            threats.insert(t, at: 0)
+            threatSelection.insert(t.id)
+        }
+    }
+
     var selectedThreats: [ProtectionThreat] { visibleThreats.filter { threatSelection.contains($0.id) && !$0.removable.isEmpty } }
 
     func toggle(_ t: ProtectionThreat) {

@@ -26,12 +26,15 @@ enum LaunchDomain: String, CaseIterable {
 
 enum SignatureKind: Hashable {
     case apple, appStore, developerID(String), adhoc, unsigned, invalid, missing, unknown
+    /// Signed with a certificate Apple did not issue (self-made, or from another authority): nobody vouches for it.
+    case personal(String)
 
     var label: String {
         switch self {
         case .apple: return "Apple"
         case .appStore: return "App Store"
         case .developerID(let name): return name
+        case .personal(let name): return "Certificat personnel (\(name))"
         case .adhoc: return "Signature locale"
         case .unsigned: return "Non signé"
         case .invalid: return "Signature invalide"
@@ -289,6 +292,12 @@ enum Signature {
         let summary = SecCertificateCopySubjectSummary(leaf) as String? ?? ""
         if summary.hasPrefix("Apple Mac OS Application Signing") || summary.hasPrefix("Apple iPhone OS Application Signing") {
             return .appStore
+        }
+        // A Developer ID certificate is issued by Apple: anything else is a certificate someone made for themselves.
+        var generic: SecRequirement?
+        guard SecRequirementCreateWithString("anchor apple generic" as CFString, [], &generic) == errSecSuccess,
+              SecStaticCodeCheckValidity(code, flags, generic) == errSecSuccess else {
+            return .personal(summary.isEmpty ? "?" : summary)
         }
         // "Developer ID Application: Company (TEAMID)" → "Company"
         var name = summary.replacingOccurrences(of: "Developer ID Application: ", with: "")

@@ -21,6 +21,11 @@ enum ProtectionCLI {
             for m in failures { print("  ✗ \(m)") }
             for m in missed.prefix(30) { print("  manquée : \(m)") }
         }
+        if let i = args.firstIndex(of: "--inspect"), i + 1 < args.count {
+            let v = ProtectionThreatScanner.inspect(FS.expand(args[i + 1]))
+            print("\(v.status.label) · \(v.title) — \(v.detail) (\(v.files) fichiers)")
+            return
+        }
         if args.contains("--threats") || args.contains("--threats-deep") {
             let deep = args.contains("--threats-deep")
             let t0 = Date()
