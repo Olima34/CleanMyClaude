@@ -1,0 +1,37 @@
+name: Release
+
+# Pushing a tag like v0.3.0 publishes a ready-to-use app (Apple Silicon and Intel) on the Releases page.
+# The README's download button and scripts/install.sh always fetch the latest one.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the universal app
+        run: CMC_VERSION="${GITHUB_REF_NAME#v}" ./scripts/build_app.sh --no-install --zip --universal
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cat > notes.md <<'NOTES'
+          **Installer en une ligne** (Terminal) :
+
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/Olima34/CleanMyClaude/main/scripts/install.sh | bash
+          ```
+
+          Ou télécharge **CleanMyClaude.zip** ci-dessous, glisse l'app dans Applications, puis au premier lancement :
+          Réglages Système › Confidentialité et sécurité › « Ouvrir quand même ».
+
+          macOS 14 Sonoma ou plus récent, Apple Silicon et Intel.
+          NOTES
+          gh release create "$GITHUB_REF_NAME" build/CleanMyClaude.zip \
+            --title "Clean My Claude ${GITHUB_REF_NAME#v}" \
+            --notes-file notes.md

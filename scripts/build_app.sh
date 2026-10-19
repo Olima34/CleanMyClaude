@@ -1,6 +1,8 @@
 #!/bin/zsh
 # Builds "Clean My Claude.app" (release) and installs it in ~/Applications.
-# Usage: ./scripts/build_app.sh [--no-install] [--zip]
+# Usage: ./scripts/build_app.sh [--no-install] [--zip] [--universal]
+#   --universal : Apple Silicon et Intel dans la même app (pour les versions publiées).
+#   CMC_VERSION=0.3.0 : numéro de version (sinon celui ci-dessous).
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
@@ -10,22 +12,27 @@ EXEC="CleanMyClaude"
 DISPLAY_NAME="Clean My Claude"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$DISPLAY_NAME.app"
-VERSION="0.2.0"
+VERSION="${CMC_VERSION:-0.3.0}"
 INSTALL=1
 ZIP=0
+UNIVERSAL=0
 for arg in "$@"; do
   case "$arg" in
     --no-install) INSTALL=0 ;;
     --zip) ZIP=1 ;;
+    --universal) UNIVERSAL=1 ;;
   esac
 done
 
 echo "→ Compilation (release)…"
-swift build -c release
+ARCHS=()
+[[ $UNIVERSAL -eq 1 ]] && ARCHS=(--arch arm64 --arch x86_64)
+swift build -c release "${ARCHS[@]}"
+BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)/$EXEC"
 
 echo "→ Vérification des garde-fous…"
-"$ROOT/.build/release/$EXEC" --selftest
-"$ROOT/.build/release/$EXEC" --selftest --demo
+"$BIN" --selftest
+"$BIN" --selftest --demo
 
 echo "→ Icône…"
 ICON_WORK="$BUILD_DIR/icon"
@@ -42,7 +49,7 @@ iconutil -c icns "$ICON_WORK/AppIcon.iconset" -o "$ICON_WORK/AppIcon.icns"
 echo "→ Assemblage de $DISPLAY_NAME.app…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$ROOT/.build/release/$EXEC" "$APP/Contents/MacOS/$EXEC"
+cp "$BIN" "$APP/Contents/MacOS/$EXEC"
 cp "$ICON_WORK/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
