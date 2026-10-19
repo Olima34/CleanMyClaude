@@ -5,7 +5,7 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, cleanup, protection, performance, battery, updates, apps, storage
-    case converter, translator, toolbox, clipboard, network
+    case converter, translator, toolbox, clipboard, network, adblock
     case launcher, hotkeys, windows, automation
     case assistant, menubar
 
@@ -27,6 +27,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .toolbox: return "Boîte à outils"
         case .clipboard: return "Presse-papiers"
         case .network: return "Réseau"
+        case .adblock: return "Bloqueur de pub"
         case .launcher: return "Lanceur"
         case .windows: return "Fenêtres"
         case .automation: return "Automatisations"
@@ -51,6 +52,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .toolbox: return "wrench.and.screwdriver"
         case .clipboard: return "doc.on.clipboard"
         case .network: return "network"
+        case .adblock: return "hand.raised"
         case .launcher: return "command"
         case .windows: return "rectangle.split.2x1"
         case .automation: return "clock.arrow.2.circlepath"
@@ -63,7 +65,7 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage]),
-        ("Outils", [.converter, .translator, .toolbox, .clipboard, .network]),
+        ("Outils", [.converter, .translator, .toolbox, .clipboard, .network, .adblock]),
         ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
@@ -118,6 +120,7 @@ final class AppModel {
     let translator = TranslatorModel()
     let hotkeys = HotkeysModel()
     let battery = BatteryModel()
+    let adblock = AdBlockModel()
     var history = DemoData.isEnabled ? DemoData.history : CleanupHistory.load()
     var fullDiskAccess = Permissions.hasFullDiskAccess
     var showOnboarding = !DemoData.isEnabled && !UserDefaults.standard.bool(forKey: Preferences.onboardedKey)

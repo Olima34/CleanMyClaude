@@ -115,6 +115,18 @@ enum Entry {
             while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
             return
         }
+        if let i = args.firstIndex(of: "--adblock") {
+            // The ad blocker from the command line: measure it, check a domain, write its profile (see AdBlockCLI).
+            final class Done: @unchecked Sendable { var value = false }
+            let done = Done()
+            let rest = Array(args[(i + 1)...])
+            Task.detached {
+                await AdBlockCLI.run(rest)
+                done.value = true
+            }
+            while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return
+        }
         if let i = args.firstIndex(of: "--xprotect") {
             ProtectionCLI.run(Array(args[(i + 1)...]))
             return
