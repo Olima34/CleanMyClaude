@@ -1,6 +1,23 @@
 import SwiftUI
 
-/// The small floating panel that announces a new version of Clean My Claude, lists what changed,
+/// The panel in the middle of the main window, the app dimmed behind it: until the user answers, nothing else in the
+/// window answers clicks or the keyboard (Esc closes it, like "Plus tard").
+struct UpdatesSelfModal: View {
+    var body: some View {
+        ZStack {
+            // The only fixed color: a veil that darkens whatever theme is behind it.
+            Color.black.opacity(0.35)
+                .contentShape(Rectangle())
+                .onTapGesture {}
+            UpdatesSelfPanel()
+                .themedShadow(color: .black.opacity(0.35), radius: 30, y: 12)
+                .transition(.scale(scale: 0.97).combined(with: .opacity))
+        }
+        .ignoresSafeArea()
+    }
+}
+
+/// The panel that announces a new version of Clean My Claude, lists what changed,
 /// and follows the download and installation when the user asks for it.
 struct UpdatesSelfPanel: View {
     static let width: CGFloat = 440
@@ -45,6 +62,7 @@ struct UpdatesSelfPanel: View {
                             .contentShape(PillShape())
                     }
                     .buttonStyle(.plain)
+                    .keyboardShortcut(.cancelAction)
                     .help(m.step.isBusy ? "Masquer : le téléchargement continue" : "Plus tard")
                 }
                 .frame(minHeight: 26)

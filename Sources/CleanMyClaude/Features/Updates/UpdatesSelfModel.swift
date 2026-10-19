@@ -56,8 +56,6 @@ final class UpdatesSelfModel {
     var panelVisible = false
 
     @ObservationIgnored private let store = JSONStore<UpdatesSelfSaved>("selfupdate", default: UpdatesSelfSaved())
-    @ObservationIgnored private weak var app: AppModel?
-    @ObservationIgnored private var panel: FloatingPanel?
     @ObservationIgnored private var work: Task<Void, Never>?
     @ObservationIgnored private var cancel: CancelFlag?
     @ObservationIgnored private var stagedFolder: URL?
@@ -86,7 +84,6 @@ final class UpdatesSelfModel {
     // MARK: Lifecycle
 
     func start(app: AppModel) {
-        self.app = app
         welcomeAfterUpdate()
         // What an earlier download left (an update abandoned or installed).
         Remover.removeInternal(DataStore.url(UpdatesSelfInstaller.folderName).path)
@@ -144,7 +141,7 @@ final class UpdatesSelfModel {
             state = .done(now)
             save()
             if let r = release {
-                if tell || (auto && remind(r)) { showPanel(focus: tell) }
+                if tell || (auto && remind(r)) { showPanel() }
             } else if tell {
                 HUD.show("Clean My Claude est à jour (\(build.version ?? "?"))")
             }
@@ -180,48 +177,25 @@ final class UpdatesSelfModel {
 
     // MARK: Panel
 
-    /// `focus`: the panel takes the keyboard (the user opened it). A panel that appears by itself does not,
-    /// so that what the user is typing elsewhere never lands in it.
-    func showPanel(focus: Bool = true) {
-        guard !Snapshot.isActive, let app = app ?? AppContext.model else { return }
+    /// Shows the panel in the middle of the main window, the app dimmed behind it (`UpdatesSelfModal`):
+    /// the window comes to the front, opened if it was closed (the app may only live in the menu bar).
+    func showPanel() {
+        guard !Snapshot.isActive else { return }
         refreshBlocker()
-        let p = panel ?? makePanel()
-        if !p.isVisible {
-            p.setContent(UpdatesSelfPanel().environment(app))
-            // Top right, where notifications appear, on the screen that has the mouse.
-            let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main
-            if let f = screen?.visibleFrame {
-                p.setFrameOrigin(NSPoint(x: f.maxX - p.frame.width - 14, y: f.maxY - p.frame.height - 10))
-            }
-        }
-        if focus { p.makeKeyAndOrderFront(nil) } else { p.orderFrontRegardless() }
         panelVisible = true
+        AppContext.showMainWindow()
     }
 
+    /// Closed without answering ("Plus tard", ✕ or Esc). A download goes on: the panel comes back when it is ready.
     func closePanel() {
-        panel?.close()
-    }
-
-    private func makePanel() -> FloatingPanel {
-        let p = FloatingPanel(size: NSSize(width: UpdatesSelfPanel.width, height: UpdatesSelfPanel.height))
-        // It stays until the user answers, even when another app takes the keyboard.
-        p.closesOnResignKey = false
-        p.onClose = { [weak self] in
-            MainActor.assumeIsolated { self?.panelClosed() }
-        }
-        panel = p
-        return p
-    }
-
-    private func panelClosed() {
+        guard panelVisible else { return }
         panelVisible = false
-        // Closed without answering ("Plus tard", ✕ or Esc). A download goes on: the panel comes back when it is ready.
         if !step.isBusy && step != .ready { snoozedUntil = Date().addingTimeInterval(24 * 3600) }
     }
 
     func later() {
-        snoozedUntil = Date().addingTimeInterval(24 * 3600)
         closePanel()
+        snoozedUntil = Date().addingTimeInterval(24 * 3600)
     }
 
     /// "Ignorer cette version": no panel by itself until a newer one comes out (the Mises à jour page still shows it).
@@ -301,7 +275,7 @@ final class UpdatesSelfModel {
             signedLocally = prepared.signedLocally
             step = .ready
             ActionLog.write("MISE À JOUR \(r.version) téléchargée et vérifiée : \(prepared.app.path)")
-            if !panelVisible { showPanel(focus: false) }
+            if !panelVisible { showPanel() }
         } catch {
             if flag.isCancelled || error is CancellationError {
                 step = .idle

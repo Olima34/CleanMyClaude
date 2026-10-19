@@ -271,6 +271,15 @@ enum Snapshot {
         if everything || only == .updates {
             // Clean My Claude's own update panel (`--tab maj-telechargement`, `maj-prete`… for its other steps).
             shots.append(("selfupdate-panel", AnyView(UpdatesSelfPanel())))
+            // And as the user sees it: in the middle of the window, the page dimmed behind it.
+            shots.append(("selfupdate-window-panel", AnyView(
+                PageView(page: .updates)
+                    .padding(32)
+                    .frame(width: 1180, height: 760, alignment: .top)
+                    .clipped()
+                    .background(Theme.bg)
+                    .overlay { UpdatesSelfModal() }
+            )))
         }
         if everything || only == .launcher {
             // The floating panel, as if the user had typed `--query` (default: a calculation).
@@ -289,7 +298,7 @@ enum Snapshot {
             let content = view
                 .environment(model)
                 .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "onboarding-panel": 520,
-                               "appearance-panel": AppearanceSettings.width, "selfupdate-panel": UpdatesSelfPanel.width][name] ?? 1180)
+                               "appearance-panel": AppearanceSettings.width, "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180][name] ?? 1180)
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)

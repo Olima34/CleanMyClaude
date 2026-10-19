@@ -24,6 +24,15 @@ struct RootView: View {
                 Color.clear
             }
         }
+        // A new version of the app: the panel in the middle, nothing behind it answers until the user does.
+        .disabled(app.updates.selfUpdate.panelVisible)
+        .allowsHitTesting(!app.updates.selfUpdate.panelVisible)
+        .overlay {
+            if app.mainWindowOpen && app.updates.selfUpdate.panelVisible {
+                UpdatesSelfModal()
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: app.updates.selfUpdate.panelVisible)
         .ignoresSafeArea()
         .background(Theme.bg)
         .tint(Theme.accent)

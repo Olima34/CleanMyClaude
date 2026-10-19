@@ -166,12 +166,12 @@ Comme Raycast, Clean My Claude n'a pas d'icône dans le Dock : il vit dans la ba
 
 ## Mises à jour de Clean My Claude
 
-Au lancement, puis toutes les 6 h tant que l'app tourne en arrière-plan, Clean My Claude demande à GitHub le numéro de sa **dernière version publiée** (la dernière étiquette `vX.Y.Z` de la [page des versions](https://github.com/Olima34/CleanMyClaude/releases/latest)). S'il est plus récent que le tien, un petit panneau apparaît en haut à droite de l'écran, sans prendre le clavier : il liste **ce qui a changé**, c'est-à-dire les commits entre ta version et la nouvelle (les fusions sont laissées de côté, les points « - … » des messages deviennent des détails).
+Au lancement, puis toutes les 6 h tant que l'app tourne en arrière-plan, Clean My Claude demande à GitHub le numéro de sa **dernière version publiée** (la dernière étiquette `vX.Y.Z` de la [page des versions](https://github.com/Olima34/CleanMyClaude/releases/latest)). S'il est plus récent que le tien, la fenêtre de Clean My Claude s'ouvre avec un panneau en son centre, l'app légèrement assombrie derrière : tant que tu n'y as pas répondu (ou fermé avec Échap), le reste de la fenêtre ne réagit plus. Le panneau liste **ce qui a changé**, c'est-à-dire les commits entre ta version et la nouvelle (les fusions sont laissées de côté, les points « - … » des messages deviennent des détails).
 
-<p align="center"><img src="screenshots/selfupdate-panel.png" alt="Le panneau de nouvelle version : ce qui change, puis Ignorer cette version, Plus tard et Mettre à jour" width="440"></p>
+<p align="center"><img src="screenshots/selfupdate-window-panel.png" alt="La fenêtre de Clean My Claude assombrie, avec au centre le panneau de nouvelle version : ce qui change, puis Ignorer cette version, Plus tard et Mettre à jour" width="760"></p>
 
 - **Mettre à jour** télécharge `CleanMyClaude.zip` depuis la version publiée, vérifie son empreinte SHA-256 (celle que GitHub a calculée à la publication), l'ouvre, contrôle que c'est bien Clean My Claude dans la version annoncée et que sa signature est intacte. Rien n'est remplacé avant que tu cliques sur **Installer et relancer** : l'ancienne version part alors à la Corbeille, la nouvelle prend sa place et se rouvre. Le téléchargement s'annule à tout moment ; une erreur dit ce qui s'est passé et ce qui n'a pas changé.
-- **Plus tard** ferme le panneau : il revient au prochain lancement (pas dans les 24 h qui suivent tant que l'app reste ouverte).
+- **Plus tard** (ou ✕, ou Échap) ferme le panneau : il revient au prochain lancement (pas dans les 24 h qui suivent tant que l'app reste ouverte). Pendant un téléchargement, le fermer le masque seulement : il revient quand la nouvelle version est prête.
 - **Ignorer cette version** : le panneau ne revient tout seul qu'à la version suivante. La page Mises à jour la montre toujours.
 - **Les autorisations de macOS.** La version publiée est signée « ad hoc » (pas de certificat de développeur Apple) : macOS peut redemander l'Accessibilité ou l'accès complet au disque après la mise à jour. Si ta copie est signée avec le certificat local de `scripts/setup_signing.sh`, la nouvelle version est re-signée avec lui et garde ses autorisations.
 - **Quand la mise à jour sur place est impossible** (app lancée depuis le code source, depuis une image disque, ou dans un dossier qui demande un mot de passe administrateur), le panneau le dit et propose la page de la version ou la commande d'installation à copier.
@@ -302,7 +302,7 @@ done
 for t in graphite phosphore sorbet minuit; do
   .build/debug/CleanMyClaude --snapshot /tmp/theme-$t --demo --page dashboard --theme $t && mv /tmp/theme-$t/dashboard.png docs/screenshots/theme-$t.png
 done
-rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-panel.png   # selfupdate-panel.png reste : le guide l'affiche
+rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-panel.png docs/screenshots/selfupdate-panel.png
 pngquant --quality 80-95 --force --ext .png docs/screenshots/*.png   # optionnel : divise le poids par quatre
 ```
 
