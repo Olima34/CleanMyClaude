@@ -24,6 +24,8 @@ struct UpdatesSelfPanel: View {
     static let height: CGFloat = 600
 
     @Environment(AppModel.self) private var app
+    /// The password of the signing keychain: kept only until "Signer".
+    @State private var signingPassword = ""
 
     var body: some View {
         let m = app.updates.selfUpdate
@@ -130,7 +132,7 @@ struct UpdatesSelfPanel: View {
     @ViewBuilder
     private func footer(_ m: UpdatesSelfModel, _ r: UpdatesSelfRelease) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            if let blocker = m.blocker, !m.step.isBusy, m.step != .ready {
+            if let blocker = m.blocker, !m.step.isBusy, !m.step.awaitsUser {
                 Callout(symbol: "hand.raised", title: "Mise à jour sur place impossible", text: blocker, tint: Theme.warn)
                 HStack(spacing: 8) {
                     skipButton(m)
@@ -189,7 +191,49 @@ struct UpdatesSelfPanel: View {
         case .verifying:
             HStack(spacing: 8) {
                 UpdatesSpinner()
-                Text("Vérification de l'empreinte et de la signature…").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                Text(m.signing ? "Signature avec ton certificat local…" : "Vérification de l'empreinte et de la signature…")
+                    .font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                Spacer()
+                if !m.signing {
+                    Button("Annuler") { m.cancelUpdate() }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                }
+            }
+        case .password(let problem):
+            HStack(spacing: 8) {
+                if Theme.icons != .hidden {
+                    Image(systemName: "key.fill").font(.ui(13, .semibold)).foregroundStyle(Theme.accent)
+                }
+                Text("Vérifiée : reste à la signer").font(.ui(13, .semibold)).foregroundStyle(Theme.text)
+            }
+            Text("Pour que macOS garde tes autorisations, je la signe avec ton certificat local « \(UpdatesSelfSigning.name) ». Saisis le mot de passe de son trousseau, celui choisi avec setup_signing.sh : il est déverrouillé le temps de signer, puis reverrouillé.")
+                .font(.ui(11.5))
+                .foregroundStyle(Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                if Snapshot.isActive {
+                    Text(problem == nil ? "Mot de passe du trousseau de signature" : "••••••••")
+                        .font(.ui(12.5)).foregroundStyle(Theme.text3)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(7)
+                        .background(RoundedRectangle(cornerRadius: Theme.r(7), style: .continuous).fill(Theme.card))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.r(7), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
+                } else {
+                    SecureField("Mot de passe du trousseau de signature", text: $signingPassword)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { sign(m) }
+                }
+                Button("Signer") { sign(m) }
+                    .buttonStyle(SoftButtonStyle(prominent: true))
+                    .disabled(signingPassword.isEmpty && !Snapshot.isActive)
+            }
+            if let problem {
+                Text(problem).font(.ui(11.5)).foregroundStyle(Theme.bad).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: 8) {
+                Button("Installer sans re-signer") { m.skipSigning() }
+                    .buttonStyle(SoftButtonStyle(small: true))
+                    .help("Garde la signature publiée : macOS te redemandera l'Accessibilité et l'accès complet au disque.")
                 Spacer()
                 Button("Annuler") { m.cancelUpdate() }
                     .buttonStyle(SoftButtonStyle(small: true))
@@ -205,9 +249,7 @@ struct UpdatesSelfPanel: View {
                 .font(.ui(11.5))
                 .foregroundStyle(Theme.text2)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(m.signedLocally
-                 ? "Signée avec ton certificat local : macOS garde les autorisations déjà accordées."
-                 : "La version publiée n'est pas signée par un développeur reconnu d'Apple : macOS te redemandera peut-être certaines autorisations (Accessibilité, accès complet au disque).")
+            Text(continuityNote(m.continuity))
                 .font(.ui(11))
                 .foregroundStyle(Theme.text3)
                 .fixedSize(horizontal: false, vertical: true)
@@ -226,8 +268,14 @@ struct UpdatesSelfPanel: View {
         case .failed(let message):
             Callout(symbol: "exclamationmark.triangle", title: "La mise à jour n'a pas abouti", text: message, tint: Theme.warn)
             HStack(spacing: 8) {
-                Button("Voir sur GitHub") { m.openReleasePage() }
-                    .buttonStyle(SoftButtonStyle(small: true))
+                if m.signingRefused {
+                    Button("Installer sans re-signer") { m.startUpdate(resign: false) }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                        .help("Garde la signature publiée : macOS te redemandera l'Accessibilité et l'accès complet au disque.")
+                } else {
+                    Button("Voir sur GitHub") { m.openReleasePage() }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                }
                 Spacer()
                 Button("Plus tard") { m.later() }
                     .buttonStyle(SoftButtonStyle())
@@ -235,6 +283,21 @@ struct UpdatesSelfPanel: View {
                     .buttonStyle(SoftButtonStyle(prominent: true))
             }
         }
+    }
+
+    private func continuityNote(_ c: UpdatesSelfSigning.Continuity) -> String {
+        switch c {
+        case .local: return "Signée avec ton certificat local : macOS garde les autorisations déjà accordées."
+        case .kept: return "Signée par Clean My Claude, comme ta copie : macOS garde les autorisations et l'accès au trousseau déjà accordés."
+        case .firstRelease: return "Elle est signée par Clean My Claude, ta copie ne l'était pas encore : macOS te redemandera une dernière fois certaines autorisations (Accessibilité, accès complet au disque) et l'accès au trousseau, puis les gardera aux mises à jour suivantes."
+        case .adhoc: return "La version publiée n'est pas signée par un développeur reconnu d'Apple : macOS te redemandera peut-être certaines autorisations (Accessibilité, accès complet au disque)."
+        }
+    }
+
+    private func sign(_ m: UpdatesSelfModel) {
+        guard !signingPassword.isEmpty else { return }
+        m.signStaged(password: signingPassword)
+        signingPassword = ""
     }
 
     private func skipButton(_ m: UpdatesSelfModel) -> some View {
@@ -369,6 +432,8 @@ struct UpdatesSelfCard: View {
             case .verifying, .installing:
                 UpdatesSpinner()
                 Button("Afficher") { m.showPanel() }.buttonStyle(SoftButtonStyle(small: true))
+            case .password:
+                Button("Signer et installer") { m.showPanel() }.buttonStyle(SoftButtonStyle(prominent: true, small: true))
             case .ready:
                 Button("Installer et relancer") { m.showPanel() }.buttonStyle(SoftButtonStyle(prominent: true, small: true))
             case .idle, .failed:

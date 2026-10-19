@@ -87,15 +87,41 @@ enum UpdatesSelfCLI {
             let signature = try await UpdatesSelfSignature.fetch(for: r)
             print("→ Vérification : empreinte comparée à celle de GitHub, "
                   + (UpdatesSelfSignature.publicKey == nil ? "signature Ed25519 pas encore exigée" : "signature Ed25519") + ", contenu, signature de l'app")
-            let prepared = try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, signature: signature, currentBundle: target.path,
-                                                            isCancelled: { false })
-            print("  " + (prepared.signedLocally ? "Re-signée avec le certificat local de la copie remplacée" : "Signature publiée gardée (ad hoc)"))
+            let app = try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, signature: signature, isCancelled: { false })
+            // `--signing-keychain <fichier>`: a throwaway signing keychain, for the tests.
+            let keychain = Entry.value(after: "--signing-keychain").map { FS.expand($0) } ?? UpdatesSelfSigning.keychainPath
+            let current = UpdatesSelfSigning.signer(of: target.path), published = UpdatesSelfSigning.signer(of: app.path)
+            if let identity = UpdatesSelfSigning.identity(current: current, published: published, keychain: keychain) {
+                print("→ Re-signature avec le certificat local \(identity.hash.prefix(8))…" + (identity.keychain == nil ? " (trousseau de session)" : ""))
+                let password = identity.keychain == nil ? nil : askPassword()
+                switch UpdatesSelfSigning.sign(app, with: identity, password: password) {
+                case .signed: print("  Re-signée : elle garde l'exigence désignée de la copie remplacée")
+                case .wrongPassword: throw UpdatesSelfInstaller.Failure.signingPassword
+                case .failed(let why): throw UpdatesSelfInstaller.Failure.localSign(why)
+                }
+            } else {
+                switch UpdatesSelfSigning.continuity(current: current, published: published) {
+                case .kept: print("  Signature publiée gardée : même certificat que la copie remplacée (\(published.leaf?.prefix(8) ?? "?")…)")
+                case .firstRelease: print("  Signature publiée gardée : certificat de publication \(published.leaf?.prefix(8) ?? "?")…, nouveau pour cette copie")
+                case .adhoc, .local: print("  Signature publiée gardée (ad hoc)")
+                }
+            }
             print("→ Remplacement : l'ancienne copie part à la Corbeille")
-            let installed = try UpdatesSelfInstaller.replace(target, with: prepared.app)
+            let installed = try UpdatesSelfInstaller.replace(target, with: app)
             let info = NSDictionary(contentsOf: installed.appendingPathComponent("Contents/Info.plist")) as? [String: Any]
             print("✓ \(installed.path) est maintenant en version \(info?["CFBundleShortVersionString"] as? String ?? "?")")
         } catch {
             print("✗ \(UpdatesSelfGitHub.message(for: error))")
         }
+    }
+
+    /// The password of the signing keychain, typed in the Terminal without echo (or read on the standard input).
+    private static func askPassword() -> String? {
+        var buffer = [CChar](repeating: 0, count: 512)
+        defer { buffer.withUnsafeMutableBufferPointer { _ = memset_s($0.baseAddress, $0.count, 0, $0.count) } }
+        guard let typed = readpassphrase("  Mot de passe du trousseau de signature (celui choisi avec setup_signing.sh) : ", &buffer, buffer.count, 0) else {
+            return nil
+        }
+        return String(cString: typed)
     }
 }

@@ -29,7 +29,8 @@ jobs:
 
   publish:
     needs: build
-    runs-on: ubuntu-latest
+    # macOS: codesign signs the app.
+    runs-on: macos-15
     # The signing key, like in build.yml: this job compiles and runs nothing from the repository before signing.
     environment: release
     permissions:
@@ -44,6 +45,71 @@ jobs:
         with:
           name: CleanMyClaude
           path: build
+      # The same steps as in build.yml.
+      # One certificate signs every version: macOS ties the permissions (Full Disk Access, Accessibility…) and the app's
+      # keychain items to it, so an update keeps them. Self-signed, made once by scripts/setup_release_signing.sh, its key
+      # only in the secret CMC_CODESIGN_IDENTITY. Before the archive is signed, which covers the app signed here.
+      - name: Sign the app
+        env:
+          CMC_CODESIGN_IDENTITY: ${{ secrets.CMC_CODESIGN_IDENTITY }}
+        run: |
+          set -euo pipefail
+          ZIP="$PWD/build/CleanMyClaude.zip"
+          SOURCE=Sources/CleanMyClaude/Features/Updates/UpdatesSelfSigning.swift
+          cert_in() { sed -nE 's/^ *static let releaseCertificate: String\? = "([0-9A-F]{40})".*/\1/p'; }
+          # The certificate (SHA-1) the installed copies are signed with: that of the previous version.
+          PREVIOUS="$(git tag --merged HEAD --no-contains HEAD --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p || true)"
+          TRUSTED="$([[ -n "$PREVIOUS" ]] && git show "$PREVIOUS:$SOURCE" 2>/dev/null | cert_in || true)"
+          # The one this version is signed with.
+          NEXT="$(cert_in < "$SOURCE")"
+          if [[ -z "$NEXT" ]]; then
+            if [[ -n "$TRUSTED" ]]; then
+              echo "::error::Plus de certificat de publication dans $SOURCE : les copies installées perdraient leurs autorisations."
+              exit 1
+            fi
+            echo "::warning::Pas encore de certificat de publication : version signée ad hoc, macOS redemandera les autorisations après la mise à jour."
+            exit 0
+          fi
+          if [[ -z "$CMC_CODESIGN_IDENTITY" ]]; then
+            echo "::error::Secret CMC_CODESIGN_IDENTITY absent : lance ./scripts/setup_release_signing.sh. Rien n'est publié."
+            exit 1
+          fi
+          WORK="$RUNNER_TEMP/codesign"
+          KEYCHAIN="$WORK/release.keychain-db"
+          mkdir -p "$WORK"
+          trap 'security delete-keychain "$KEYCHAIN" 2>/dev/null || true; rm -rf "$WORK"' EXIT
+          (umask 077 && printf '%s\n' "$CMC_CODESIGN_IDENTITY" > "$WORK/identity.pem")
+          HASH="$(/usr/bin/openssl x509 -in "$WORK/identity.pem" -noout -fingerprint -sha1 | sed -e 's/.*=//' -e 's/://g' | tr a-f A-F)"
+          if [[ "$HASH" != "$NEXT" ]]; then
+            echo "::error::CMC_CODESIGN_IDENTITY n'est pas le certificat nommé dans $SOURCE ($NEXT) : rien n'est publié."
+            exit 1
+          fi
+          if [[ -n "$TRUSTED" && "$TRUSTED" != "$NEXT" ]]; then
+            echo "::warning::Cette version change de certificat ($TRUSTED → $NEXT) : macOS redemandera une fois les autorisations."
+          fi
+          # A keychain of this job's own, deleted at the end, where codesign reaches the key without any window.
+          PASS="$(/usr/bin/openssl rand -hex 24)"
+          (umask 077 && /usr/bin/openssl pkcs12 -export -in "$WORK/identity.pem" -inkey "$WORK/identity.pem" -name "Clean My Claude" \
+             -passout "pass:$PASS" -out "$WORK/identity.p12")
+          rm -f "$WORK/identity.pem"
+          security create-keychain -p "$PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 900 "$KEYCHAIN"
+          security unlock-keychain -p "$PASS" "$KEYCHAIN"
+          security import "$WORK/identity.p12" -k "$KEYCHAIN" -P "$PASS" -f pkcs12 -x -T /usr/bin/codesign >/dev/null
+          rm -f "$WORK/identity.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$PASS" "$KEYCHAIN" >/dev/null
+          # The hardened runtime and the entitlements given by build_app.sh are kept.
+          ditto -x -k "$ZIP" "$WORK/app"
+          APP="$WORK/app/Clean My Claude.app"
+          codesign --force --deep --preserve-metadata=entitlements,flags,runtime --keychain "$KEYCHAIN" --sign "$HASH" "$APP"
+          codesign --verify --deep --strict "$APP"
+          if ! codesign -d -r- "$APP" 2>&1 | grep -qi "certificate leaf = H\"$HASH\""; then
+            echo "::error::L'app signée ne désigne pas le certificat $HASH : rien n'est publié."
+            exit 1
+          fi
+          rm -f "$ZIP"
+          (cd "$WORK/app" && ditto -c -k --keepParent "Clean My Claude.app" "$ZIP")
+          echo "App signée par le certificat $HASH"
       # The same step as in build.yml.
       - name: Sign the archive
         env:

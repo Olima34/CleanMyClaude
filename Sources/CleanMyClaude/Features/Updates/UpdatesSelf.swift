@@ -327,7 +327,7 @@ enum UpdatesSelfInstaller {
 
     enum Failure: LocalizedError {
         case digest, noDigest, untrusted, unsigned, badSignature, unpack(String), invalid(String), signature(String), localSign(String),
-             trash(String), move(String, String)
+             signingPassword, trash(String), move(String, String)
 
         var errorDescription: String? {
             switch self {
@@ -348,7 +348,9 @@ enum UpdatesSelfInstaller {
             case .signature(let why):
                 return "La signature de l'app téléchargée est abîmée\(why.isEmpty ? "" : " (\(why))") : je ne l'installe pas."
             case .localSign(let why):
-                return "Je n'ai pas pu signer la nouvelle version avec ton certificat local\(why.isEmpty ? "" : " (\(why))") : rien n'a été installé. Déverrouille ton trousseau puis réessaie, ou installe-la avec la commande du Terminal."
+                return "Je n'ai pas pu re-signer la nouvelle version avec ton certificat local\(why.isEmpty ? "" : " (\(why))") : rien n'a été installé. Réessaie, ou installe-la sans re-signer : macOS te redemandera alors l'Accessibilité et l'accès complet au disque."
+            case .signingPassword:
+                return "Mot de passe du trousseau de signature refusé : la nouvelle version n'a pas été re-signée, rien n'a été installé. Réessaie avec le mot de passe choisi avec setup_signing.sh, ou installe la version sans re-signer : macOS te redemandera alors l'Accessibilité et l'accès complet au disque."
             case .trash(let why):
                 return "Je n'ai pas pu mettre l'ancienne version à la Corbeille (\(why)) : rien n'a changé."
             case .move(let why, let folder):
@@ -415,19 +417,12 @@ enum UpdatesSelfInstaller {
         return String(text[r].dropFirst(prefix.count).dropLast()).uppercased()
     }
 
-    /// The identity that signed `bundle` when it is a local certificate this Mac still has ("Clean My Claude Dev",
-    /// made by scripts/setup_signing.sh): signed the same way, the update keeps the permissions macOS gave the app.
-    static func localSigningIdentity(of bundle: String) -> String? {
-        guard let leaf = leafHash(fromRequirement: Shell.run("/usr/bin/codesign", ["-d", "-r-", bundle]).all) else { return nil }
-        let identities = Shell.run("/usr/bin/security", ["find-identity", "-p", "codesigning"]).out.uppercased()
-        return identities.contains(leaf) ? leaf : nil
-    }
-
     /// Checks the downloaded archive, unpacks it next to itself and checks the app inside. Runs tools: not on the main thread.
-    /// Returns the app, ready to take the place of `currentBundle`, and whether it was signed with the local identity.
+    /// Returns the app with its published signature (ad hoc); `UpdatesSelfSigning` then re-signs it with the local
+    /// certificate, if any, before it takes the place of the current copy.
     /// `signature`: the archive's Ed25519 signature (`UpdatesSelfSignature.fetch`), required once the public key is set.
-    static func prepare(zip: URL, folder: URL, release: UpdatesSelfRelease, signature: Data?, currentBundle: String,
-                        isCancelled: () -> Bool) throws -> (app: URL, signedLocally: Bool) {
+    static func prepare(zip: URL, folder: URL, release: UpdatesSelfRelease, signature: Data?,
+                        isCancelled: () -> Bool) throws -> URL {
         // The fingerprint GitHub computed when the archive was published: never optional.
         guard let expected = release.digest else { throw Failure.noDigest }
         guard sha256(of: zip) == expected else { throw Failure.digest }
@@ -448,17 +443,7 @@ enum UpdatesSelfInstaller {
         _ = Shell.run("/usr/bin/xattr", ["-dr", "com.apple.quarantine", app.path], timeout: 60)
         let intact = Shell.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path], timeout: 120)
         guard intact.ok else { throw Failure.signature(intact.err.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        // The published app is signed ad hoc: re-signed with the local identity of this copy, if any, macOS keeps its permissions.
-        var signedLocally = false
-        if let identity = localSigningIdentity(of: currentBundle) {
-            // The hardened runtime and the entitlements of the published app are kept.
-            let sign = Shell.run("/usr/bin/codesign", ["--force", "--deep", "--preserve-metadata=entitlements,flags,runtime",
-                                                       "--sign", identity, app.path], timeout: 120)
-            signedLocally = sign.ok && Shell.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path], timeout: 120).ok
-            // A half-signed app is never installed.
-            if !signedLocally { throw Failure.localSign(sign.err.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        }
-        return (app, signedLocally)
+        return app
     }
 
     /// Puts the running app in the Trash and the new one at its place. Not on the main thread (the Trash may go through the Finder).

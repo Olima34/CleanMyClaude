@@ -118,11 +118,23 @@ PLIST
 
 # Signature. With a stable identity, macOS keeps the permissions (Full Disk Access, Accessibility, folders…)
 # from one rebuild to the next. In order: CMC_SIGN_IDENTITY if set, else the local certificate made by
-# scripts/setup_signing.sh ("Clean My Claude Dev"), else ad hoc (macOS then forgets the permissions at every rebuild).
+# scripts/setup_signing.sh ("Clean My Claude Dev", in its own locked keychain), else the same certificate made by an
+# earlier version of that script in the session keychain, else ad hoc (macOS then forgets the permissions at every rebuild).
 IDENTITY="${CMC_SIGN_IDENTITY:-}"
+SIGN_KEYCHAIN="${CMC_SIGNING_KEYCHAIN:-$HOME/Library/Keychains/cleanmyclaude-signing.keychain-db}"
+KEYCHAIN_ARGS=()
+# The SHA-1 of the local certificate (it is self-signed, hence "not trusted": codesign accepts it by its hash).
+local_identity() { security find-identity -p codesigning "$@" 2>/dev/null | awk '/"Clean My Claude Dev"/ {print $2; exit}'; }
+if [[ -z "$IDENTITY" && -f "$SIGN_KEYCHAIN" ]]; then
+  IDENTITY="$(local_identity "$SIGN_KEYCHAIN")"
+  [[ -n "$IDENTITY" ]] && KEYCHAIN_ARGS=(--keychain "$SIGN_KEYCHAIN")
+fi
 if [[ -z "$IDENTITY" ]]; then
-  # The SHA-1 of the local certificate (it is self-signed, hence "not trusted": codesign accepts it by its hash).
-  IDENTITY="$(security find-identity -p codesigning 2>/dev/null | awk '/"Clean My Claude Dev"/ {print $2; exit}')"
+  IDENTITY="$(local_identity)"
+  if [[ -n "$IDENTITY" ]]; then
+    echo "  ⚠︎ Le certificat « Clean My Claude Dev » est dans ton trousseau de session : n'importe quel programme peut"
+    echo "    signer avec lui sans te demander. Relance ./scripts/setup_signing.sh pour le ranger dans un trousseau à part."
+  fi
 fi
 # Hardened runtime: macOS refuses any library injected through DYLD_* variables or code patched in memory, so no other
 # program borrows the permissions the user gave the app. Apple Events (Finder, System Events) stay allowed by entitlement.
@@ -138,7 +150,26 @@ cat > "$ENTITLEMENTS" <<'ENT'
 ENT
 if [[ -n "$IDENTITY" ]]; then
   echo "→ Signature stable (les autorisations de macOS sont conservées)…"
-  codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
+  if (( ${#KEYCHAIN_ARGS} )); then
+    # Locked again right after signing, and whatever happens (Ctrl-C, failure): codesign can sign without a window
+    # only while it is unlocked.
+    trap 'security lock-keychain "$SIGN_KEYCHAIN" 2>/dev/null || true' EXIT
+    echo "  Mot de passe du trousseau de signature (celui choisi avec setup_signing.sh) :"
+    # Typed in the Terminal without echo (three tries), otherwise read on the standard input. Never on the command line,
+    # which any program can list, and never through macOS's own window, which does not show in every context.
+    tries=0
+    until security unlock-keychain "$SIGN_KEYCHAIN"; do
+      [[ -t 0 ]] && (( ++tries < 3 )) && continue
+      echo "✗ Trousseau de signature resté verrouillé : l'app n'est ni signée ni installée." >&2
+      echo "  Lance ./scripts/build_app.sh dans un Terminal pour saisir son mot de passe." >&2
+      exit 1
+    done
+  fi
+  if ! codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" "${KEYCHAIN_ARGS[@]}" --sign "$IDENTITY" "$APP"; then
+    echo "✗ Signature impossible : l'app n'est pas installée." >&2
+    exit 1
+  fi
+  (( ${#KEYCHAIN_ARGS} )) && security lock-keychain "$SIGN_KEYCHAIN"
 else
   codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP" >/dev/null 2>&1 || true
   echo "  Astuce : lance une fois ./scripts/setup_signing.sh pour ne plus redonner les autorisations après chaque compilation."

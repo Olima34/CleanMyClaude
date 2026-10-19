@@ -22,6 +22,9 @@ final class UpdatesSelfModel {
         case idle
         case downloading(received: Int64, expected: Int64)
         case verifying
+        /// Verified; the password of the signing keychain is asked to re-sign it with the local certificate
+        /// (the text: why the last one did not work).
+        case password(String?)
         case ready
         case installing
         case failed(String)
@@ -29,6 +32,14 @@ final class UpdatesSelfModel {
         var isBusy: Bool {
             switch self {
             case .downloading, .verifying, .installing: return true
+            default: return false
+            }
+        }
+
+        /// Downloaded and verified, waiting for the user: a password, or "Installer et relancer".
+        var awaitsUser: Bool {
+            switch self {
+            case .password, .ready: return true
             default: return false
             }
         }
@@ -52,7 +63,12 @@ final class UpdatesSelfModel {
     var step: Step = .idle
     /// Why this copy cannot replace itself (source build, read-only folder…), or nil.
     var blocker: String?
-    var signedLocally = false
+    /// How the version ready to install is signed: whether macOS keeps the permissions.
+    var continuity: UpdatesSelfSigning.Continuity = .adhoc
+    /// The new version is being re-signed with the local certificate (`UpdatesSelfSigning`).
+    var signing = false
+    /// The last attempt failed while re-signing: "Installer sans re-signer" is offered.
+    var signingRefused = false
     var panelVisible = false
 
     @ObservationIgnored private let store = JSONStore<UpdatesSelfSaved>("selfupdate", default: UpdatesSelfSaved())
@@ -60,6 +76,10 @@ final class UpdatesSelfModel {
     @ObservationIgnored private var cancel: CancelFlag?
     @ObservationIgnored private var stagedFolder: URL?
     @ObservationIgnored private var stagedApp: URL?
+    /// The local certificate `stagedApp` is re-signed with once the password is typed (`.password`).
+    @ObservationIgnored private var pendingIdentity: UpdatesSelfSigning.Identity?
+    /// `stagedApp` with its published signature ("Installer sans re-signer").
+    @ObservationIgnored private var publishedContinuity: UpdatesSelfSigning.Continuity = .adhoc
     /// "Plus tard": the background checks of this session stay quiet for a day; the next launch shows it again.
     @ObservationIgnored private var snoozedUntil: Date?
     @ObservationIgnored private var demoBlocker: String?
@@ -120,7 +140,7 @@ final class UpdatesSelfModel {
     func check(auto: Bool = false, announce: Bool = true) async {
         if auto && !Self.autoEnabled { return }
         let tell = !auto && announce
-        guard !state.isChecking, !step.isBusy, step != .ready else {
+        guard !state.isChecking, !step.isBusy, !step.awaitsUser else {
             if tell, release != nil { showPanel() }
             return
         }
@@ -195,7 +215,7 @@ final class UpdatesSelfModel {
     func closePanel() {
         guard panelVisible else { return }
         panelVisible = false
-        if !step.isBusy && step != .ready { snoozedUntil = Date().addingTimeInterval(24 * 3600) }
+        if !step.isBusy && !step.awaitsUser { snoozedUntil = Date().addingTimeInterval(24 * 3600) }
     }
 
     func later() {
@@ -236,7 +256,8 @@ final class UpdatesSelfModel {
     // MARK: Download and install
 
     /// "Mettre à jour": downloads the archive and checks it. Nothing is replaced before "Installer et relancer".
-    func startUpdate() {
+    /// `resign` false ("Installer sans re-signer") keeps the published signature instead of the local certificate.
+    func startUpdate(resign: Bool = true) {
         guard let r = release, !step.isBusy else { return }
         guard !DemoData.isEnabled else { return HUD.show(DemoData.refusal) }
         refreshBlocker()
@@ -256,11 +277,12 @@ final class UpdatesSelfModel {
         discardStaged()
         let flag = CancelFlag()
         cancel = flag
+        signingRefused = false
         step = .downloading(received: 0, expected: r.size)
-        work = Task { await download(r, from: url, cancel: flag) }
+        work = Task { await download(r, from: url, resign: resign, cancel: flag) }
     }
 
-    private func download(_ r: UpdatesSelfRelease, from url: URL, cancel flag: CancelFlag) async {
+    private func download(_ r: UpdatesSelfRelease, from url: URL, resign: Bool, cancel flag: CancelFlag) async {
         guard let base = DataStore.ensureFolder(UpdatesSelfInstaller.folderName),
               let folder = try? FileOps.makeDirectory(base.appendingPathComponent(r.version)) else {
             step = .failed("Impossible de préparer le dossier de téléchargement de l'app.")
@@ -280,20 +302,41 @@ final class UpdatesSelfModel {
             guard !flag.isCancelled else { throw CancellationError() }
             step = .verifying
             let signature = try await UpdatesSelfSignature.fetch(for: r)
-            let prepared = try await Task.detached(priority: .userInitiated) {
-                try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, signature: signature, currentBundle: bundle,
-                                                 isCancelled: { flag.isCancelled })
+            let (app, identity, published) = try await Task.detached(priority: .userInitiated) {
+                let app = try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, signature: signature,
+                                                           isCancelled: { flag.isCancelled })
+                let current = UpdatesSelfSigning.signer(of: bundle), signed = UpdatesSelfSigning.signer(of: app.path)
+                return (app, resign ? UpdatesSelfSigning.identity(current: current, published: signed) : nil,
+                        UpdatesSelfSigning.continuity(current: current, published: signed))
             }.value
             guard !flag.isCancelled else { throw CancellationError() }
-            stagedApp = prepared.app
-            signedLocally = prepared.signedLocally
-            step = .ready
-            ActionLog.write("MISE À JOUR \(r.version) téléchargée et vérifiée : \(prepared.app.path)")
+            stagedApp = app
+            publishedContinuity = published
+            continuity = published
+            ActionLog.write("MISE À JOUR \(r.version) téléchargée et vérifiée : \(app.path)")
+            if let identity, identity.keychain != nil {
+                // The signing keychain opens only with its password: the panel asks for it.
+                pendingIdentity = identity
+                step = .password(nil)
+            } else {
+                // A certificate of the session keychain (set up before the signing keychain) needs nothing.
+                if let identity {
+                    signing = true
+                    let outcome = await Task.detached(priority: .userInitiated) { UpdatesSelfSigning.sign(app, with: identity) }.value
+                    signing = false
+                    guard outcome == .signed else { throw UpdatesSelfInstaller.Failure.localSign(Self.detail(outcome)) }
+                    continuity = .local
+                }
+                step = .ready
+            }
             if !panelVisible { showPanel() }
         } catch {
+            signing = false
             if flag.isCancelled || error is CancellationError {
                 step = .idle
             } else {
+                // The local certificate could not be used: the published signature remains possible, at the user's choice.
+                if case .localSign? = error as? UpdatesSelfInstaller.Failure { signingRefused = true }
                 step = .failed(UpdatesSelfGitHub.message(for: error))
                 ActionLog.write("MISE À JOUR \(r.version) abandonnée : \(UpdatesSelfGitHub.message(for: error))")
             }
@@ -302,10 +345,55 @@ final class UpdatesSelfModel {
         cancel = nil
     }
 
+    /// "Signer": unlocks the signing keychain with `password` just long enough to re-sign the verified version,
+    /// which then keeps the designated requirement macOS ties the permissions to. A wrong password asks again.
+    func signStaged(password: String) {
+        guard case .password = step, let app = stagedApp, let identity = pendingIdentity, !password.isEmpty else { return }
+        guard !DemoData.isEnabled else { return HUD.show(DemoData.refusal) }
+        step = .verifying
+        signing = true
+        Task {
+            let outcome = await Task.detached(priority: .userInitiated) { UpdatesSelfSigning.sign(app, with: identity, password: password) }.value
+            signing = false
+            switch outcome {
+            case .signed:
+                pendingIdentity = nil
+                continuity = .local
+                step = .ready
+            case .wrongPassword:
+                step = .password("Mot de passe refusé : c'est celui choisi avec setup_signing.sh, pas celui de ta session.")
+            case .failed:
+                // A half-signed app is never installed.
+                pendingIdentity = nil
+                signingRefused = true
+                step = .failed(UpdatesSelfInstaller.Failure.localSign(Self.detail(outcome)).localizedDescription)
+                ActionLog.write("MISE À JOUR re-signature impossible : \(Self.detail(outcome))")
+                discardStaged()
+            }
+        }
+    }
+
+    /// "Installer sans re-signer": the verified version keeps its published signature; macOS will ask for the permissions again.
+    func skipSigning() {
+        guard case .password = step else { return }
+        pendingIdentity = nil
+        continuity = publishedContinuity
+        step = .ready
+    }
+
+    nonisolated static func detail(_ outcome: UpdatesSelfSigning.Outcome) -> String {
+        switch outcome {
+        case .signed: return ""
+        case .wrongPassword: return "trousseau de signature verrouillé"
+        case .failed(let why): return why
+        }
+    }
+
     func cancelUpdate() {
         cancel?.cancel()
         work?.cancel()
-        if step == .ready {
+        if step.awaitsUser {
+            pendingIdentity = nil
             discardStaged()
             step = .idle
         }
@@ -400,9 +488,20 @@ extension UpdatesSelfModel {
         switch tab {
         case "maj-telechargement": step = .downloading(received: 4_820_000, expected: release?.size ?? 11_480_000)
         case "maj-verification": step = .verifying
+        case "maj-motdepasse": step = .password(nil)
+        case "maj-motdepasse-refuse": step = .password("Mot de passe refusé : c'est celui choisi avec setup_signing.sh, pas celui de ta session.")
+        case "maj-signature":
+            step = .verifying
+            signing = true
+        case "maj-resignature":
+            step = .failed(UpdatesSelfInstaller.Failure.localSign("errSecInternalComponent").localizedDescription)
+            signingRefused = true
         case "maj-prete":
             step = .ready
-            signedLocally = true
+            continuity = .kept
+        case "maj-prete-certificat":
+            step = .ready
+            continuity = .firstRelease
         case "maj-erreur": step = .failed(UpdatesSelfGitHub.message(for: URLError(.notConnectedToInternet)))
         case "maj-impossible":
             demoBlocker = UpdatesSelfInstaller.blocker(bundlePath: "/Applications/Clean My Claude.app", readOnly: false, writable: false)
@@ -446,6 +545,7 @@ extension UpdatesSelfModel {
             for c in r.changes.prefix(5) { lines.append("    • \(c.title.topic.map { "\($0) : " } ?? "")\(c.title.text)") }
         }
         if let b = blocker { lines.append("  Mise à jour sur place impossible : \(b)") }
+        if !DemoData.isEnabled { lines += UpdatesSelfSigning.describe(bundle: build.isBundle ? build.bundlePath : nil).map { "  " + $0 } }
         lines.append("  (GitHub n'est interrogé que par l'app en marche, jamais par --dump)")
         return lines
     }
@@ -496,6 +596,7 @@ extension UpdatesSelfModel {
             f.append("Mise à jour de l'app : adresse d'archive « \(link) » \(ok ? "refusée" : "acceptée") à tort")
         }
         f += UpdatesSelfSignature.selfTest()
+        f += UpdatesSelfSigning.selfTest()
         // A pre-release, a tag that is no version, an archive outside GitHub or still uploading: not offered.
         let prerelease = #"{"tag_name":"v0.5.0-beta","html_url":"https://github.com/x/y","prerelease":true,"assets":[]}"#
         let notVersion = #"{"tag_name":"nightly","html_url":"https://github.com/x/y","assets":[]}"#
