@@ -23,6 +23,13 @@ enum AdBlockCommands {
                 m.runMeasure()
                 return .done
             },
+            AppCommand(id: "adblock_youtube", title: "Bloquer les pubs YouTube", subtitle: "L'extension de Safari qui coupe les pubs des vidéos",
+                       keywords: keywords + ["youtube", "vidéo", "vidéos", "safari", "extension", "ublock"], icon: .symbol("play.rectangle", tint),
+                       group: .actions, assistantSafe: true, hint: "Ouvrir") { _ in
+                m.openPage()
+                m.refreshExtensions()
+                return .done
+            },
             AppCommand(id: "adblock_remove", title: "Désactiver le bloqueur de pub", subtitle: "Retire le profil DNS : tout redevient comme avant",
                        keywords: keywords + ["désactiver", "retirer", "supprimer"], icon: .symbol("hand.raised.slash", Theme.bad), group: .actions,
                        risk: .confirm("Le profil DNS du bloqueur sera retiré de ton Mac (mot de passe administrateur) : les pubs reviendront.")) { _ in
@@ -109,6 +116,51 @@ enum AdBlockChecks {
                && AdBlockDNS.verdict(rcode: 5, addresses: []) == .blocked, "NXDOMAIN / SERVFAIL / REFUSED")
         expect(AdBlockProbe(domain: "x.fr", shouldBlock: true, verdict: .missing).good, "une pub introuvable est bien bloquée")
         expect(AdBlockDNS.parse(Data([1, 2, 3])) == nil, "réponse tronquée acceptée")
+
+        // Safari's extensions as pluginkit lists them: only the ad blockers are kept.
+        let listing = """
+             net.raymondhill.uBlock-Origin-Lite.Extension(2026.1012.1545)
+        	            Path = /Applications/uBlock Origin Lite.app/Contents/PlugIns/uBlock Origin Lite Extension.appex
+        	   Parent Bundle = /Applications/uBlock Origin Lite.app
+        	     Parent Name = uBlock Origin Lite
+        +    com.exemple.Notes.Extension(1.0)
+        	     Parent Name = Notes rapides
+        -    com.exemple.wipr.blocker(2.1)
+        	     Parent Name = Wipr
+
+         (3 plug-ins)
+        """
+        let found = AdBlockBrowser.parse(listing)
+        expect(found.map(\.name) == ["uBlock Origin Lite", "Wipr"], "extensions Safari : \(found.map(\.name))")
+        expect(found.first?.youtube == true && found.last?.youtube == false && found.first?.appPath == "/Applications/uBlock Origin Lite.app",
+               "extensions Safari : YouTube et app")
+        expect(found.last?.identifier == "com.exemple.wipr.blocker", "extensions Safari : marque de pluginkit retirée")
+
+        // The counter: one event per blocked lookup, with its app; real answers and other lines ignored.
+        let log = """
+        2026-10-20 01:03:41.542 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R100] getaddrinfo start -- flags: 0xC000D000, ifindex: 0, protocols: 0, hostname: <private> <dn:5+xG0g>, options: 0x0 {}, client pid: 988 (com.apple.WebKi), delegator uuid: 32C7
+        2026-10-20 01:03:41.543 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R100->Q1] getaddrinfo result -- event: add, ifindex: 0, name: <dn:Yb9gFA>, type: A, rdata: 0.0.0.0, expired: yes
+        2026-10-20 01:03:41.544 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R100->Q2] getaddrinfo result -- event: add, ifindex: 0, name: <dn:Yb9gFA>, type: A, rdata: 0.0.0.0, expired: no
+        2026-10-20 01:03:41.545 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R101] getaddrinfo start -- flags: 0x0, client pid: 77 (cloudd), delegator uuid: 1
+        2026-10-20 01:03:41.546 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R101->Q3] getaddrinfo result -- event: add, ifindex: 0, name: <dn:X>, type: A, rdata: <ipv4:u5oziw>, expired: no
+        2026-10-20 01:03:42.000 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R102->Q4] getaddrinfo result -- event: add, ifindex: 0, name: <dn:Z>, type: A, rdata: 0.0.0.0, expired: no
+        """
+        let events = AdBlockLog.parse(log)
+        expect(events.map(\.app) == ["Safari et pages web", "Autres apps"], "compteur : \(events.map(\.app))")
+        var tally = AdBlockTally()
+        tally.add(events, readUntil: Date())
+        expect(tally.total == 2 && tally.days.values.reduce(0, +) == 2, "compteur : total")
+        expect(AdBlockLog.appName("cloudtelemetryd") == "Services de macOS" && AdBlockLog.appName("Google Chrome H") == "Google Chrome", "compteur : noms d'apps")
+        let fun = AdBlockFun.equivalences(1_000)
+        expect(fun.first { $0.id == "tv" }?.value == "8 h 20", "équivalences : 1 000 spots de 30 s = 8 h 20 (\(fun.first?.value ?? ""))")
+        expect(fun.first { $0.id == "paper" }?.text.contains("le poids de 1,2 chat") == false, "équivalences : accord")
+        expect(AdBlockFun.compare(5, lead: "le poids", to: AdBlockFun.weights) == "le poids d'un chat"
+               && AdBlockFun.compare(330, lead: "la hauteur", to: AdBlockFun.heights) == "la hauteur de la tour Eiffel"
+               && AdBlockFun.compare(9_000, lead: "la hauteur", to: AdBlockFun.heights) == "la hauteur de l'Everest"
+               && AdBlockFun.compare(12, lead: "le poids", to: AdBlockFun.weights) == "le poids de 3 chats",
+               "équivalences : \(AdBlockFun.compare(12, lead: "le poids", to: AdBlockFun.weights))")
+        let step = AdBlockFun.milestone(1_500)
+        expect(step.reached?.0 == 1_000 && step.next?.0 == 5_000 && abs(step.progress - 0.125) < 0.001, "paliers")
 
         // The state from the three canaries.
         expect(AdBlockState.from(both: .blocked, maximalOnly: .blocked, reachable: .open) == .on(.maximal), "état : Maximal")

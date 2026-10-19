@@ -35,13 +35,25 @@ final class AdBlockModel: AppModule {
     var removing = false
     /// The DNS servers the network gives this Mac (read with the state).
     var resolvers: [String] = []
+    /// Safari's ad-blocking extensions (nil until read, when the page shows).
+    var browserExtensions: [AdBlockExtension]?
+    /// The ads stopped, counted from macOS' log.
+    var tally = AdBlockTally() {
+        didSet { tallyStore.value = tally }
+    }
+    var counting = false
+    /// Why the log could not be read, if it could not.
+    var countError: String?
 
     @ObservationIgnored private let store = JSONStore<AdBlockSettings>("adblock", default: AdBlockSettings())
+    @ObservationIgnored private let tallyStore = JSONStore<AdBlockTally>("adblock-tally", default: AdBlockTally())
+    static let countJob = "adblock-count"
     @ObservationIgnored private var activeObserver: NSObjectProtocol?
     @ObservationIgnored private weak var app: AppModel?
 
     init() {
         settings = store.value
+        tally = tallyStore.value
     }
 
     var measure: AdBlockMeasure? { settings.lastMeasure }
@@ -64,10 +76,12 @@ final class AdBlockModel: AppModule {
 
     func start(app: AppModel) {
         self.app = app
+        if installed { scheduleCount() }
     }
 
     func stop() {
         store.flush()
+        tallyStore.flush()
     }
 
     func loadDemo() {
@@ -80,8 +94,24 @@ final class AdBlockModel: AppModule {
         settings.lastMeasure = Self.demoMeasure(level: nil)
         state = .on(.maximal)
         resolvers = ["192.168.1.1"]
+        browserExtensions = AdBlockBrowser.demo
+        tally = Self.demoTally()
         checkText = "securepubads.g.doubleclick.net"
         check = AdBlockCheck(domain: "securepubads.g.doubleclick.net", onMac: .blocked, level: .maximal, inList: .blocked, excepted: false)
+    }
+
+    /// A fortnight of a fictional Mac: the counter, its curve and the apps that tried.
+    static func demoTally() -> AdBlockTally {
+        var t = AdBlockTally()
+        let perDay = [612, 845, 1_204, 980, 733, 1_512, 1_388, 902, 1_120, 1_675, 1_430, 990, 1_268, 418]
+        for (i, n) in perDay.enumerated() {
+            t.days[AdBlockTally.dayKey(Date().addingTimeInterval(-Double(perDay.count - 1 - i) * 86_400))] = n
+        }
+        t.total = perDay.reduce(0, +)
+        t.apps = ["Safari et pages web": 10_204, "Google Chrome": 2_870, "Mail": 1_032, "Ruche": 588, "Services de macOS": 383]
+        t.since = Date().addingTimeInterval(-13 * 86_400)
+        t.readUntil = Date().addingTimeInterval(-120)
+        return t
     }
 
     /// What the demo measures: the ads all blocked but one, the useful sites all reachable.
@@ -108,10 +138,15 @@ final class AdBlockModel: AppModule {
             waitingForInstall = true
         case "reinstaller":
             settings.level = .balanced
+        case "sans-extension":
+            browserExtensions = []
+        case "compteur-vide":
+            tally = AdBlockTally()
         case "attente":
-            // At work: a measurement on this Mac and a domain being checked.
+            // At work: a measurement on this Mac, a domain being checked, the log being read.
             measuring = true
             checking = true
+            counting = true
         default:
             break
         }
@@ -152,6 +187,64 @@ final class AdBlockModel: AppModule {
             state = found
             if found.isOn { waitingForInstall = false }
         }
+    }
+
+    // MARK: Counting
+
+    /// Every half hour while the blocker is installed (and when the page opens).
+    private func scheduleCount() {
+        Scheduler.shared.register(Self.countJob, every: 1_800) { [weak self] in await self?.count() }
+    }
+
+    /// Reads macOS' log since the last reading (three days at most) and adds the requests answered "blocked".
+    func count() async {
+        guard installed, !counting, !DemoData.isEnabled, !Snapshot.isActive else { return }
+        let end = Date()
+        let start = max(tally.readUntil ?? settings.installedAt ?? end, end.addingTimeInterval(-3 * 86_400))
+        guard end.timeIntervalSince(start) > 20 else { return }
+        counting = true
+        let result = await Task.detached(priority: .utility) { AdBlockLog.read(from: start, to: end) }.value
+        counting = false
+        switch result {
+        case .success(let events):
+            countError = nil
+            tally.add(events, readUntil: end)
+        case .failure(.unreadable(let why)):
+            countError = why
+        }
+    }
+
+    /// The page shows: the counter is brought up to date if it is more than a minute old.
+    func countIfStale() {
+        guard installed, Date().timeIntervalSince(tally.readUntil ?? .distantPast) > 60 else { return }
+        Task { await count() }
+    }
+
+    // MARK: Safari extensions
+
+    /// The ad blockers installed in Safari (a quick read of the system's extension list).
+    func refreshExtensions() {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
+        Task {
+            let found = await Task.detached(priority: .utility) { AdBlockBrowser.installed() }.value
+            if found != browserExtensions { browserExtensions = found }
+        }
+    }
+
+    func openSafari() {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Safari.app"), configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// The extension's own app: it has the button that opens Safari's settings on the extension.
+    func openExtensionApp(_ ext: AdBlockExtension) {
+        guard !DemoData.isEnabled, !Snapshot.isActive, let path = ext.appPath, FS.exists(path) else { return }
+        NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: path), configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    func openRecommendedStore() {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
+        Finder.open(AdBlockBrowser.recommendedStore)
     }
 
     // MARK: Measuring
@@ -259,6 +352,7 @@ final class AdBlockModel: AppModule {
         settings.installedAt = Date()
         waitingForInstall = true
         watchReturn()
+        scheduleCount()
     }
 
     /// Back from System Settings: is the filter on now?

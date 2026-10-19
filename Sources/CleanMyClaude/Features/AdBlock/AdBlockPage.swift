@@ -18,7 +18,11 @@ struct AdBlockPage: View {
             } else {
                 AdBlockStatusCard()
             }
+            if m.installed || m.tally.total > 0 {
+                AdBlockCounterPanel()
+            }
             AdBlockLevelPanel()
+            AdBlockYouTubePanel()
             TileRow {
                 AdBlockExceptionsPanel()
                 AdBlockCheckPanel()
@@ -27,8 +31,8 @@ struct AdBlockPage: View {
                 AdBlockMeasurePanel(measure: measure)
             }
             TileRow {
-                Callout(symbol: "play.rectangle", title: "Ce qu'un DNS ne bloque pas",
-                        text: "Les pubs servies par le site lui-même : YouTube, Twitch, les posts sponsorisés d'Instagram ou de Facebook. Pour celles-là, ajoute une extension à ton navigateur : uBlock Origin Lite (Chrome, Edge, Brave), uBlock Origin (Firefox), AdGuard ou Wipr (Safari).",
+                Callout(symbol: "rectangle.dashed", title: "Ce qu'un DNS ne bloque pas",
+                        text: "Les pubs servies par le site lui-même : YouTube (voir plus haut), Twitch, les posts sponsorisés d'Instagram ou de Facebook, et les cadres vides laissés par les pubs bloquées. Dans Chrome, Edge ou Brave, uBlock Origin Lite s'en charge aussi ; dans Firefox, uBlock Origin.",
                         tint: Self.tint)
                 Callout(symbol: "lock", title: "Où partent tes requêtes",
                         text: resolverText(m), tint: Self.tint)
@@ -37,7 +41,11 @@ struct AdBlockPage: View {
                         tint: Self.tint)
             }
         }
-        .onAppear { m.refreshState() }
+        .onAppear {
+            m.refreshState()
+            m.refreshExtensions()
+            m.countIfStale()
+        }
     }
 
     private func resolverText(_ m: AdBlockModel) -> String {

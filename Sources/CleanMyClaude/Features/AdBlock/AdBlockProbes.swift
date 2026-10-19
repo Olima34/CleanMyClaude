@@ -90,6 +90,8 @@ enum AdBlockProbes {
 /// `CleanMyClaude --adblock …`: the ad blocker from the command line, to measure it and check the profile it writes.
 ///   --adblock mesure [mac|equilibre|maximal]   what is blocked, on this Mac or through a level's resolver
 ///   --adblock etat                              what this Mac's resolver does now
+///   --adblock extensions                        Safari's ad-blocking extensions
+///   --adblock compteur [minutes]                the ads stopped in the last minutes, from macOS' log
 ///   --adblock verifier <domaine>                one domain, on this Mac and through both levels
 ///   --adblock profil <fichier.mobileconfig>     writes the profile (Maximal) for inspection, never over a file
 enum AdBlockCLI {
@@ -103,6 +105,23 @@ enum AdBlockCLI {
             print("Mesure \(level.map { "du niveau \($0.title) (\($0.list))" } ?? "de ce Mac") en \(String(format: "%.1f", Date().timeIntervalSince(start))) s")
             print("Pubs et pisteurs bloqués : \(m.blockedAds)/\(m.ads.count) (\(Int(m.share * 100)) %) · sites utiles bloqués : \(m.brokenUseful)/\(m.useful.count)\(m.offline ? " · pas de réseau ?" : "")")
             for p in m.probes where !p.good { print("  \(p.shouldBlock ? "passe" : "bloqué à tort") : \(p.domain) (\(p.verdict.rawValue))") }
+        case "compteur":
+            // The last N minutes of macOS' log (60 by default), as the counter reads them.
+            let minutes = Double(args.dropFirst().first ?? "60") ?? 60
+            let start = Date()
+            switch AdBlockLog.read(from: Date().addingTimeInterval(-minutes * 60), to: Date()) {
+            case .success(let events):
+                var t = AdBlockTally()
+                t.add(events, readUntil: Date())
+                print("\(Fmt.int(t.total)) pubs et pisteurs arrêtés en \(Int(minutes)) min (lu en \(String(format: "%.1f", Date().timeIntervalSince(start))) s)")
+                for (app, n) in t.apps.sorted(by: { $0.value > $1.value }) { print("  \(app) : \(n)") }
+                for e in AdBlockFun.equivalences(t.total) { print("  \(e.value) \(e.text)") }
+            case .failure(.unreadable(let why)):
+                print("Journal illisible : \(why)")
+            }
+        case "extensions":
+            let found = AdBlockBrowser.installed()
+            print(found.isEmpty ? "Aucune extension anti-pub dans Safari" : found.map { "\($0.name) (\($0.identifier))\($0.youtube ? " · pubs YouTube" : "")" }.joined(separator: "\n"))
         case "etat":
             print("État : \(describe(AdBlockProbes.state())) · DNS du réseau : \(AdBlockProbes.networkResolvers().joined(separator: ", "))")
         case "verifier":
@@ -116,7 +135,7 @@ enum AdBlockCLI {
             }
             do { print("Écrit : \(try FileOps.write(data, to: URL(fileURLWithPath: path)).path)") } catch { print("Échec : \(error.localizedDescription)") }
         default:
-            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | verifier <domaine> | profil <fichier>")
+            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | verifier <domaine> | profil <fichier>")
         }
     }
 
