@@ -74,7 +74,12 @@ final class UpdatesSelfModel {
         skipped = saved.skipped
         if let d = saved.lastCheck { state = .done(d) }
         // Only a version still newer than this copy (it may have been updated another way since).
-        if let r = saved.release, let v = build.version, UpdatesSelfGitHub.isNewer(r.version, than: v) { release = r }
+        if var r = saved.release, let v = build.version, UpdatesSelfGitHub.isNewer(r.version, than: v) {
+            // selfupdate.json can be rewritten by any program: its addresses are checked again (and once more before use).
+            if let link = r.downloadURL, !UpdatesSelfGitHub.isTrustedDownload(link) { r.downloadURL = nil }
+            if let link = r.signatureURL, !UpdatesSelfGitHub.isTrustedDownload(link) { r.signatureURL = nil }
+            release = r
+        }
         refreshBlocker()
     }
 
@@ -236,8 +241,16 @@ final class UpdatesSelfModel {
         guard !DemoData.isEnabled else { return HUD.show(DemoData.refusal) }
         refreshBlocker()
         guard blocker == nil else { return }
-        guard let link = r.downloadURL, let url = URL(string: link) else {
+        guard let link = r.downloadURL else {
             step = .failed("Cette version n'a pas encore d'archive prête à installer : réessaie dans quelques minutes, ou passe par la page de la version.")
+            return
+        }
+        guard UpdatesSelfGitHub.isTrustedDownload(link), let url = URL(string: link) else {
+            step = .failed(UpdatesSelfInstaller.Failure.untrusted.localizedDescription)
+            return
+        }
+        guard r.digest != nil else {
+            step = .failed(UpdatesSelfInstaller.Failure.noDigest.localizedDescription)
             return
         }
         discardStaged()
@@ -266,8 +279,9 @@ final class UpdatesSelfModel {
             }
             guard !flag.isCancelled else { throw CancellationError() }
             step = .verifying
+            let signature = try await UpdatesSelfSignature.fetch(for: r)
             let prepared = try await Task.detached(priority: .userInitiated) {
-                try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, currentBundle: bundle,
+                try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, signature: signature, currentBundle: bundle,
                                                  isCancelled: { flag.isCancelled })
             }.value
             guard !flag.isCancelled else { throw CancellationError() }
@@ -413,7 +427,7 @@ extension UpdatesSelfModel {
             list.append(AppCommand(id: "upd_self_show", title: "Voir les nouveautés de Clean My Claude \(r.version)",
                                    subtitle: Fmt.plural(r.changeCount, "changement", "changements") + " depuis ta version",
                                    keywords: ["clean my claude", "nouveautés", "mise à jour", "changements", "version"],
-                                   icon: .spark, group: .actions, assistantSafe: true) { ctx in
+                                   icon: .spark, group: .actions, assistantSafe: true, urlSafe: true) { ctx in
                 ctx.app.updates.selfUpdate.showPanel()
                 return .done
             })
@@ -455,16 +469,33 @@ extension UpdatesSelfModel {
          "draft":false,"prerelease":false,"published_at":"2026-10-19T00:36:44Z","body":"**Installer en une ligne**",
          "assets":[{"name":"notes.txt","size":10,"browser_download_url":"https://github.com/Olima34/CleanMyClaude/releases/download/v0.4.0/notes.txt","state":"uploaded"},
                    {"name":"CleanMyClaude.zip","size":11118628,"state":"uploaded","digest":"\(digest.uppercased().replacingOccurrences(of: "SHA256", with: "sha256"))",
-                    "browser_download_url":"https://github.com/Olima34/CleanMyClaude/releases/download/v0.4.0/CleanMyClaude.zip"}]}
+                    "browser_download_url":"https://github.com/Olima34/CleanMyClaude/releases/download/v0.4.0/CleanMyClaude.zip"},
+                   {"name":"CleanMyClaude.zip.sig","size":88,"state":"uploaded",
+                    "browser_download_url":"https://github.com/Olima34/CleanMyClaude/releases/download/v0.4.0/CleanMyClaude.zip.sig"}]}
         """
         if let r = UpdatesSelfGitHub.parseRelease(Data(release.utf8)) {
             if r.version != "0.4.0" || r.tag != "v0.4.0" { f.append("Mise à jour de l'app : version publiée mal lue (\(r.version))") }
             if r.downloadURL?.hasSuffix("/CleanMyClaude.zip") != true || r.size != 11_118_628 { f.append("Mise à jour de l'app : archive non trouvée") }
             if r.digest != digest { f.append("Mise à jour de l'app : empreinte de l'archive mal lue (\(r.digest ?? "aucune"))") }
+            if r.signatureURL?.hasSuffix("/CleanMyClaude.zip.sig") != true { f.append("Mise à jour de l'app : signature de l'archive non trouvée") }
             if r.published == nil { f.append("Mise à jour de l'app : date de publication non lue") }
         } else {
             f.append("Mise à jour de l'app : réponse de version illisible")
         }
+        // The archive's address, read again from selfupdate.json before use: this repository's releases on GitHub only.
+        for (link, ok) in [("https://github.com/Olima34/CleanMyClaude/releases/download/v0.4.0/CleanMyClaude.zip", true),
+                           ("https://api.github.com/repos/Olima34/CleanMyClaude/releases/assets/123", true),
+                           ("http://github.com/Olima34/CleanMyClaude/releases/download/v0.4.0/CleanMyClaude.zip", false),
+                           ("https://github.com.exemple.test/Olima34/CleanMyClaude/releases/download/v1/x.zip", false),
+                           ("https://exemple.test/CleanMyClaude.zip", false), ("https://evilgithub.com/Olima34/CleanMyClaude/releases/download/v1/x.zip", false),
+                           ("https://github.com/autre/CleanMyClaude/releases/download/v9.0/CleanMyClaude.zip", false),
+                           ("https://user@github.com/Olima34/CleanMyClaude/releases/download/v1/x.zip", false),
+                           ("https://github.com/Olima34/CleanMyClaude/releases/download/../../../autre/x.zip", false),
+                           ("file:///tmp/CleanMyClaude.zip", false), ("pas une adresse", false)]
+        where UpdatesSelfGitHub.isTrustedDownload(link) != ok {
+            f.append("Mise à jour de l'app : adresse d'archive « \(link) » \(ok ? "refusée" : "acceptée") à tort")
+        }
+        f += UpdatesSelfSignature.selfTest()
         // A pre-release, a tag that is no version, an archive outside GitHub or still uploading: not offered.
         let prerelease = #"{"tag_name":"v0.5.0-beta","html_url":"https://github.com/x/y","prerelease":true,"assets":[]}"#
         let notVersion = #"{"tag_name":"nightly","html_url":"https://github.com/x/y","assets":[]}"#

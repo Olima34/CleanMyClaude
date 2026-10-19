@@ -302,7 +302,9 @@ final class FinderServices: NSObject {
 }
 
 /// `cleanmyclaude://launcher` opens the launcher, `cleanmyclaude://page/converter` a section,
-/// `cleanmyclaude://run/act_smart_scan` a launcher command (risky ones still ask first).
+/// `cleanmyclaude://run/act_smart_scan` a launcher command. Any web page, mail or app can open such a link (`open -g` too):
+/// only `urlSafe` commands (navigation, read-only analyses) run straight away; any other asks first, "Annuler" being the
+/// default answer; a risky (`.confirm`) one never runs from a link: the launcher opens with it selected, the user decides there.
 @MainActor
 enum URLActions {
     /// Opening a link brings the app to the front, and its main window would take the keyboard from the launcher panel
@@ -323,15 +325,47 @@ enum URLActions {
                 NotificationCenter.default.post(name: .openMainWindow, object: nil)
             }
         case "run":
-            if let id = parts.dropFirst().first, let command = ModuleRegistry.commands(app).first(where: { $0.id == id }) {
-                if command.staysInLauncher {
-                    inPanel { Task { await CommandRunner.execute(command, app: app) } }
-                } else {
-                    Task { await CommandRunner.execute(command, app: app) }
-                }
+            guard let id = parts.dropFirst().first, let command = ModuleRegistry.commands(app).first(where: { $0.id == id }) else { return }
+            if case .confirm = command.risk {
+                inPanel { select(command, app: app) }
+                return
+            }
+            guard command.urlSafe || confirmFromLink(command) else { return }
+            if command.staysInLauncher {
+                inPanel { Task { await CommandRunner.execute(command, app: app) } }
+            } else {
+                Task { await CommandRunner.execute(command, app: app) }
             }
         default:
             NotificationCenter.default.post(name: .openMainWindow, object: nil)
         }
+    }
+
+    /// A risky command asked by a link: the launcher opens on it, nothing runs before the user's Entrée (and its confirmation).
+    private static func select(_ command: AppCommand, app: AppModel) {
+        let launcher = app.launcher
+        launcher.show()
+        launcher.query = command.title
+        if let i = launcher.flat.firstIndex(where: { $0.id == command.id }) {
+            launcher.selection = i
+        } else {
+            launcher.hide()
+            HUD.show("Un lien a demandé « \(command.title) » : lance-le toi-même depuis le lanceur si tu le veux.",
+                     symbol: "hand.raised.fill")
+        }
+    }
+
+    /// Any other command not marked `urlSafe`: a link cannot run it without the user's yes.
+    /// "Annuler" answers Entrée; "Exécuter" has no key, it needs a click.
+    static func confirmFromLink(_ command: AppCommand) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = "Un lien venu d'une autre app demande : \(command.title)"
+        alert.informativeText = (command.subtitle.map { "\($0)\n\n" } ?? "")
+            + "Une page web, un message ou une autre app a ouvert un lien Clean My Claude. Si tu n'es pas à l'origine de cette demande, annule."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Annuler").keyEquivalent = "\r"
+        alert.addButton(withTitle: "Exécuter").keyEquivalent = ""
+        NSApp.activate(ignoringOtherApps: true)
+        return alert.runModal() == .alertSecondButtonReturn
     }
 }

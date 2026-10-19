@@ -116,7 +116,7 @@ final class HotkeysModel: AppModule {
     func commands(app: AppModel) -> [AppCommand] {
         var out = [
             AppCommand(id: "hk_new", title: "Créer un raccourci pour une app", subtitle: "Ouvre n'importe quelle app d'un raccourci clavier",
-                       keywords: ["raccourci", "clavier", "hotkey", "shortcut"], icon: .symbol("keyboard", Theme.brand), group: .tools, hint: "Ouvrir") { ctx in
+                       keywords: ["raccourci", "clavier", "hotkey", "shortcut"], icon: .symbol("keyboard", Theme.brand), group: .tools, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
                 ctx.app.page = .hotkeys
                 NotificationCenter.default.post(name: .openMainWindow, object: nil)
                 return .done

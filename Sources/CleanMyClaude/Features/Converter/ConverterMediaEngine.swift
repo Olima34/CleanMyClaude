@@ -203,10 +203,26 @@ enum ConverterMediaEngine {
 
     // MARK: - ffmpeg
 
-    /// The encoders this ffmpeg was built with ("libx264", "libwebp"…). Slow-ish: call off the main thread, once.
+    private final class ConverterEncoderCache: @unchecked Sendable {
+        let lock = NSLock()
+        var byPath: [String: Set<String>] = [:]
+    }
+    private static let encoderCache = ConverterEncoderCache()
+
+    /// The encoders this ffmpeg was built with ("libx264", "libwebp"…), asked when a conversion first needs them and kept
+    /// for the session. Slow-ish: call off the main thread.
     static func ffmpegEncoders(_ ffmpeg: String) -> Set<String> {
+        encoderCache.lock.lock()
+        let known = encoderCache.byPath[ffmpeg]
+        encoderCache.lock.unlock()
+        if let known { return known }
         let r = Shell.run(ffmpeg, ["-hide_banner", "-encoders"], timeout: 15)
-        return r.ok ? ffmpegEncodersParse(r.out) : []
+        guard r.ok else { return [] }
+        let names = ffmpegEncodersParse(r.out)
+        encoderCache.lock.lock()
+        encoderCache.byPath[ffmpeg] = names
+        encoderCache.lock.unlock()
+        return names
     }
 
     static func ffmpegEncodersParse(_ text: String) -> Set<String> {

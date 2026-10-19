@@ -67,6 +67,9 @@ struct AppCommand: Identifiable {
     var risk: CommandRisk = .safe
     /// Claude may suggest it (it is still confirmed by the user when risky).
     var assistantSafe = false
+    /// A `cleanmyclaude://run/<id>` link (from a web page, a mail, another app) may run it without asking:
+    /// only navigation (a page of the app, the launcher) and read-only analyses. Never a `.confirm` command.
+    var urlSafe = false
     /// Right-hand hint ("Copier", "Ouvrir"…).
     var hint: String? = nil
     /// For dynamic results (calculator, files…): relevance set by the provider, added to the match score.

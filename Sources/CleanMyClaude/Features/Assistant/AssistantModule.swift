@@ -120,7 +120,7 @@ final class AssistantModel: AppModule {
 
     func commands(app: AppModel) -> [AppCommand] {
         [AppCommand(id: "open_assistant_chat", title: "Discuter avec Claude", keywords: ["claude", "assistant", "ia", "aide", "question"],
-                    icon: .spark, group: .assistant) { ctx in
+                    icon: .spark, group: .assistant, urlSafe: true) { ctx in
             ctx.app.page = .assistant
             NotificationCenter.default.post(name: .openMainWindow, object: nil)
             return .done
@@ -140,6 +140,18 @@ final class AssistantModel: AppModule {
         let ids = Self.catalog(app: app).map(\.id)
         if ids.isEmpty { failures.append("aucune commande proposable à Claude") }
         if ids != ids.sorted() { failures.append("catalogue de commandes non trié (cache du prompt)") }
+        // Only `assistantSafe`: a name read on the Mac could talk Claude into proposing anything else.
+        for id in ["sys_empty_trash", "sys_restart", "sys_shutdown", "sys_logout", "clip_clear", "auto_trash_old", "auto_cleanup_now",
+                   "maint_snapshots", "maint_simulators", "launcher_open"] where ids.contains(id) {
+            failures.append("commande risquée proposable à Claude : \(id)")
+        }
+        for id in ["act_smart_scan", "act_scan_junk", "act_free_ram", "maint_dock", "open_cleanup"] where !ids.contains(id) {
+            failures.append("commande utile absente du catalogue de Claude : \(id)")
+        }
+        // Links in answers: https only.
+        let answer = AssistantEntryView.markdown("[a](cleanmyclaude://run/sys_restart) [b](https://exemple.fr/x) [c](file:///etc/hosts) [d](http://exemple.fr)")
+        let links = answer.runs.compactMap(\.link)
+        if links.map(\.absoluteString) != ["https://exemple.fr/x"] { failures.append("liens des réponses : \(links)") }
         let haiku = AssistantClient.body(model: .haiku, system: "s", messages: [], tools: [], effort: "low")
         if haiku["fallbacks"] != nil { failures.append("Haiku 5.5 n'accepte pas de solution de repli") }
         let opus = AssistantClient.body(model: .opus, system: "s", messages: [], tools: tools, effort: "medium")
@@ -382,12 +394,12 @@ final class AssistantModel: AppModule {
 
     // MARK: Tools
 
-    /// The commands Claude may propose: navigation, scans and system actions (never apps, files or settings panes).
+    /// The commands Claude may propose: only those marked `assistantSafe` (navigation, scans, harmless tools).
+    /// What Claude reads (file, process or app names) may carry instructions: a whole group (system actions,
+    /// maintenance…) is never offered just because of its section.
     static func catalog(app: AppModel) -> [AppCommand] {
-        let groups: Set<CommandSection> = [.actions, .system, .tools, .convert, .clipboard]
-        return ModuleRegistry.commands(app)
-            .filter { $0.assistantSafe || groups.contains($0.group) }
-            .filter { AppCommand.isValidID($0.id) && $0.id != "launcher_open" }
+        ModuleRegistry.commands(app)
+            .filter { $0.assistantSafe && AppCommand.isValidID($0.id) && $0.id != "launcher_open" }
             .sorted { $0.id < $1.id }
     }
 

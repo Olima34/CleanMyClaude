@@ -4,10 +4,33 @@ import AppKit
 
 @main
 enum Entry {
+    /// False when LaunchServices started the app bundle (Finder, Dock, login, `open -a "Clean My Claude" --args …`):
+    /// its parent is then launchd. Started that way the app answers to macOS with its own permissions (Full Disk Access…),
+    /// so any program could make it read a protected folder and write the result where it likes (`--dump --storage
+    /// ~/Library/Messages`, `--snapshot <folder>`): every command line mode, `--demo` included, is ignored and the app
+    /// opens normally. The same when a program started the bundle "disclaimed" (posix_spawn with
+    /// responsibility_spawnattrs_setdisclaim): the app is then responsible for itself, with its own permissions too.
+    /// The binary started from a terminal (.build/debug/CleanMyClaude, or the bundle's own executable run from a shell)
+    /// keeps them: macOS then holds the terminal responsible, with the terminal's permissions.
+    static let commandLineAllowed: Bool = {
+        guard Bundle.main.bundlePath.hasSuffix(".app") else { return true }
+        if getppid() == 1 { return false }
+        return Shell.responsiblePID(getpid()) != getpid()
+    }()
+
+    /// The command line as the app may read it: only the executable when `commandLineAllowed` is false.
+    static let arguments: [String] = commandLineAllowed ? CommandLine.arguments : Array(CommandLine.arguments.prefix(1))
+
     static func main() {
         // A tool that quits before reading its input (claude, a killed process) must not take the app down with it.
         signal(SIGPIPE, SIG_IGN)
-        let args = CommandLine.arguments
+        if !commandLineAllowed {
+            // "-key value" arguments also land in UserDefaults (`-launcher.indexConsent YES`…): none from a launch by another program.
+            UserDefaults.standard.removeVolatileDomain(forName: UserDefaults.argumentDomain)
+            CleanMyClaudeApp.main()
+            return
+        }
+        let args = arguments
         if args.contains("--selftest") {
             exit(SelfTest.run() ? 0 : 1)
         }
@@ -101,7 +124,7 @@ enum Entry {
     }
 
     static func value(after flag: String) -> String? {
-        let args = CommandLine.arguments
+        let args = arguments
         guard let i = args.firstIndex(of: flag), args.count > i + 1 else { return nil }
         return args[i + 1]
     }
@@ -227,7 +250,7 @@ enum Diagnostics {
 enum Snapshot {
     /// True while rendering: AppKit controls (menus, fields, switches) come out as yellow boxes in `ImageRenderer`
     /// and scroll views come out empty, so views swap them for drawn equivalents.
-    nonisolated static let isActive = CommandLine.arguments.contains("--snapshot")
+    nonisolated static let isActive = Entry.arguments.contains("--snapshot")
 
     static func run(dir: String) {
         _ = NSApplication.shared
@@ -240,7 +263,7 @@ enum Snapshot {
             themes.select(id)
         }
         // A theme that is always light or always dark decides on its own.
-        let light = themes.active.appearance == .system ? CommandLine.arguments.contains("--light") : themes.active.appearance == .light
+        let light = themes.active.appearance == .system ? Entry.arguments.contains("--light") : themes.active.appearance == .light
         let appearance = NSAppearance(named: light ? .aqua : .darkAqua)!
         NSApp.appearance = appearance
         let scale = Entry.value(after: "--scale").flatMap(Double.init) ?? 1
@@ -388,7 +411,7 @@ enum SelfTest {
         }
         // Module checks (calculator, conversions, command ids…).
         let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() }
-        for f in moduleFailures + ThemeChecks.run() {
+        for f in moduleFailures + ThemeChecks.run() + Shell.selfTest() + thirdPartyTools() {
             print("✗ \(f)")
             ok = false
         }
@@ -419,5 +442,28 @@ enum SelfTest {
         }
         print(ok ? "✓ garde-fous OK (\(refused.count) refus, \(allowed.count) autorisations, catalogue vérifié\(DemoData.isEnabled ? ", mode démo inerte" : ""))" : "✗ échec")
         return ok
+    }
+
+    /// Claude Code and ffmpeg, when this Mac has them, still answer once started without the app's permissions.
+    private static func thirdPartyTools() -> [String] {
+        guard !DemoData.isEnabled else { return [] }
+        var f: [String] = []
+        if let claude = AssistantClaudeCode.findBinary() {
+            let r = Shell.run(claude, ["--version"], replaceEnvironment: AssistantClaudeCode.cleanEnvironment(), timeout: 30)
+            if r.ok, let line = r.out.split(separator: "\n").first {
+                print("  claude --version : \(line) · \(FS.pretty(claude))\(AssistantClaudeCode.isSignedByAnthropic(claude) ? " · signé par Anthropic" : "")")
+            } else {
+                f.append("claude --version a échoué hors des droits de l'app (\(r.status)) : \(r.err.prefix(200))")
+            }
+        }
+        if let ffmpeg = Shell.which("ffmpeg") {
+            let r = Shell.run(ffmpeg, ["-version"], timeout: 30)
+            if r.ok, r.out.hasPrefix("ffmpeg version") {
+                print("  ffmpeg -version : \(r.out.split(separator: "\n").first ?? "") · \(ffmpeg)")
+            } else {
+                f.append("ffmpeg -version a échoué hors des droits de l'app (\(r.status)) : \(r.err.prefix(200))")
+            }
+        }
+        return f
     }
 }

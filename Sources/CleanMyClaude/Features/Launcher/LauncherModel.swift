@@ -152,7 +152,7 @@ final class LauncherModel: AppModule {
     func commands(app: AppModel) -> [AppCommand] {
         LauncherSystem.commands() + LauncherSettings.commands() + LauncherAppActions.commands(app) + [
             AppCommand(id: "launcher_open", title: "Ouvrir le lanceur", keywords: ["lanceur", "launcher", "recherche"],
-                       icon: .spark, group: .actions) { ctx in
+                       icon: .spark, group: .actions, urlSafe: true) { ctx in
                 ctx.app.launcher.show()
                 return .done
             }

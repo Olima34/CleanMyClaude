@@ -115,7 +115,16 @@ enum ModuleRegistry {
         for c in commands(app) {
             if !AppCommand.isValidID(c.id) { failures.append("Identifiant de commande invalide : \(c.id)") }
             if !seen.insert(c.id).inserted { failures.append("Identifiant de commande en double : \(c.id)") }
+            // A cleanmyclaude://run/… link never runs a risky command by itself.
+            if case .confirm = c.risk, c.urlSafe { failures.append("Commande risquée exécutable par lien : \(c.id)") }
         }
+        // Navigation still works from a link; a system action asks first.
+        let byID = Dictionary(commands(app).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for (id, safe) in [("open_dashboard", true), ("launcher_open", true), ("act_scan_junk", true), ("sys_sleep", false),
+                           ("sys_empty_trash", false), ("tool_password", false)] where byID[id]?.urlSafe != safe {
+            failures.append("Commande \(id) : exécution par lien \(safe ? "refusée" : "permise") à tort")
+        }
+        if case .confirm = byID["sys_hidden_files"]?.risk {} else { failures.append("sys_hidden_files relance le Finder sans demander") }
         return failures
     }
 }

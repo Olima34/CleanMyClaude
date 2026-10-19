@@ -103,6 +103,13 @@ private struct AutomationRulesTab: View {
         let next = AutomationKind.allCases.compactMap { k in model.nextRun(k).map { (k, $0) } }.min { $0.1 < $1.1 }
         let last = model.journal.first { $0.setting != true }
         VStack(alignment: .leading, spacing: 14) {
+            if let notice = model.integrityNotice {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Callout(symbol: "exclamationmark.shield", title: "Automatisations coupées par prudence", text: notice, tint: Theme.warn)
+                    Button("J'ai compris") { model.integrityNotice = nil }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                }
+            }
             TileRow(spacing: 12) {
                 StatTile(symbol: "bolt.badge.clock", value: "\(model.activeCount) sur \(AutomationKind.allCases.count)",
                          label: "Automatisations actives",
@@ -542,7 +549,7 @@ private struct AutomationDownloadsTab: View {
                             if AutomationDownloads.isAllowedSource(path) {
                                 model.settings.downloadsFolder = path == AutomationDownloads.defaultFolder ? "" : FS.pretty(path)
                             } else {
-                                HUD.show("Choisis un dossier de ton dossier personnel, hors Bibliothèque.", symbol: "exclamationmark.triangle.fill")
+                                HUD.show("Choisis un dossier de ton dossier personnel, hors Bibliothèque, dossiers cachés et paquets.", symbol: "exclamationmark.triangle.fill")
                             }
                         }
                     }
@@ -695,7 +702,14 @@ private struct AutomationRuleEditor: View {
                         Text(rule.destination.isEmpty ? "Aucun dossier choisi" : FS.pretty(FS.expand(rule.destination)))
                             .font(.ui(12)).foregroundStyle(rule.destination.isEmpty ? Theme.warn : Theme.text)
                         Button("Choisir…") {
-                            if let path = AutomationUI.chooseFolder(start: FS.expand(rule.destination)) { rule.destination = FS.pretty(path) }
+                            if let path = AutomationUI.chooseFolder(start: FS.expand(rule.destination)) {
+                                if AutomationDownloads.isAllowedDestination(path) {
+                                    rule.destination = FS.pretty(path)
+                                } else {
+                                    HUD.show("Choisis un dossier de ton dossier personnel, hors Bibliothèque, dossiers cachés et paquets.",
+                                             symbol: "exclamationmark.triangle.fill")
+                                }
+                            }
                         }
                         .buttonStyle(SoftButtonStyle(small: true))
                     }

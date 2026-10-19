@@ -30,7 +30,7 @@ enum ClipboardStorage {
 
     /// Decodes the pasteboard data, writes a PNG and a thumbnail (off the main thread). Nil if it is not an image.
     static func prepare(_ data: Data) -> Prepared? {
-        guard !DemoData.isEnabled, let dir = DataStore.ensureFolder(folderName),
+        guard !DemoData.isEnabled, let dir = DataStore.ensureFolder(folderName, excludeFromBackup: true),
               let source = CGImageSourceCreateWithData(data as CFData, nil),
               let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
         let id = UUID()
@@ -40,6 +40,8 @@ enum ClipboardStorage {
         do {
             try full.write(to: dir.appendingPathComponent(file), options: .atomic)
             try small.write(to: dir.appendingPathComponent(thumb), options: .atomic)
+            DataStore.protect(dir.appendingPathComponent(file))
+            DataStore.protect(dir.appendingPathComponent(thumb))
         } catch {
             remove(file)
             remove(thumb)

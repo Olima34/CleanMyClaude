@@ -320,7 +320,7 @@ final class NetworkModel: AppModule {
             },
             AppCommand(id: "net_ports", title: "Ports ouverts", subtitle: "Les programmes qui attendent des connexions",
                        keywords: ["ports", "lsof", "écoute", "listen", "serveur"], icon: .symbol("door.left.hand.open", Theme.palette[1]),
-                       group: .tools, assistantSafe: true) { ctx in
+                       group: .tools, assistantSafe: true, urlSafe: true) { ctx in
                 ctx.app.page = .network
                 ctx.app.network.tab = .ports
                 AppContext.showMainWindow()
@@ -329,7 +329,7 @@ final class NetworkModel: AppModule {
             },
             AppCommand(id: "net_wifi", title: "Signal Wi-Fi", subtitle: "Force du signal, canal, débit de liaison",
                        keywords: ["wifi", "wi-fi", "signal", "réseau", "canal"], icon: .symbol("wifi", Theme.palette[1]), group: .tools,
-                       assistantSafe: true) { ctx in
+                       assistantSafe: true, urlSafe: true) { ctx in
                 ctx.app.page = .network
                 ctx.app.network.tab = .connection
                 AppContext.showMainWindow()

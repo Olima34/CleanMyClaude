@@ -29,8 +29,10 @@ final class ConverterModel: AppModule {
     var message: String?
     var qrText = ""
     var ffmpegPath: String?
-    var ffmpegEncoders: Set<String> = []
+    /// Read once files are added (nil before).
+    var ffmpegEncoders: Set<String>?
     @ObservationIgnored private var toolsChecked = false
+    @ObservationIgnored private var readingEncoders = false
     @ObservationIgnored private var qrCache: (text: String, image: CGImage?) = ("", nil)
     @ObservationIgnored private var batchStart: Date?
 
@@ -48,6 +50,7 @@ final class ConverterModel: AppModule {
             return
         }
         checkTools()
+        readEncoders()
         var known = Set(files.map { $0.url.standardizedFileURL.path })
         var fresh: [ConverterFile] = []
         for url in urls.map(\.standardizedFileURL) where url.isFileURL && known.insert(url.path).inserted {
@@ -169,19 +172,30 @@ final class ConverterModel: AppModule {
 
     // MARK: - Tools
 
-    /// Looks for ffmpeg once (and its encoders in the background).
+    /// Looks for ffmpeg once, without starting it: showing the page runs nothing. Its encoders are read once files are added
+    /// (a conversion is coming), or by the conversion itself (`ConverterMediaEngine.ffmpegEncoders`, kept for the session);
+    /// ffmpeg then runs without the app's permissions (`Shell`).
     func checkTools() {
         guard !toolsChecked, !DemoData.isEnabled else { return }
         toolsChecked = true
-        guard let path = Shell.which("ffmpeg") else { return }
-        ffmpegPath = path
+        ffmpegPath = Shell.which("ffmpeg")
+    }
+
+    private func readEncoders() {
+        guard let path = ffmpegPath, ffmpegEncoders == nil, !readingEncoders else { return }
+        readingEncoders = true
         Task { [weak self] in
-            let encoders = await Task.detached { ConverterMediaEngine.ffmpegEncoders(path) }.value
+            let encoders = await Task.detached(priority: .utility) { ConverterMediaEngine.ffmpegEncoders(path) }.value
             self?.ffmpegEncoders = encoders
+            self?.readingEncoders = false
         }
     }
 
-    var imageFormats: [ConverterImageFormat] { ConverterImageEngine.formats(webp: ffmpegEncoders.contains("libwebp")) }
+    /// WebP needs ffmpeg built with libwebp; until its encoders are read, ffmpeg's presence decides
+    /// (the conversion checks again and says so).
+    var imageFormats: [ConverterImageFormat] {
+        ConverterImageEngine.formats(webp: ffmpegEncoders.map { $0.contains("libwebp") } ?? (ffmpegPath != nil))
+    }
     var audioFormats: [ConverterAudioFormat] { ConverterAudioFormat.available(ffmpeg: ffmpegPath != nil) }
     var containers: [ConverterVideoContainer] {
         ConverterVideoContainer.allCases.filter { !$0.viaFFmpeg || ffmpegPath != nil }
@@ -511,7 +525,7 @@ final class ConverterModel: AppModule {
     func commands(app: AppModel) -> [AppCommand] {
         ConverterOperation.allCases.map { op in
             AppCommand(id: op.commandID, title: op.commandTitle, subtitle: op.explanation, keywords: op.keywords + ["convertir", "convertisseur"],
-                       icon: .symbol(op.symbol, op.family.tint), group: .convert, assistantSafe: true, hint: "Ouvrir") { ctx in
+                       icon: .symbol(op.symbol, op.family.tint), group: .convert, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
                 ctx.app.converter.focus(op)
                 ctx.app.page = .converter
                 NotificationCenter.default.post(name: .openMainWindow, object: nil)

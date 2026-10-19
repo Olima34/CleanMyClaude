@@ -11,7 +11,7 @@ enum ClipboardLauncher {
         let words = ["presse-papiers", "historique", "clipboard", "copier", "coller", "copié"]
         return [
             AppCommand(id: "clip_search", title: "Rechercher dans le presse-papiers", subtitle: m.isActive ? "Tape « cb » puis quelques mots" : "L'historique n'est pas activé",
-                       keywords: words + ["cb"], icon: .symbol("doc.on.clipboard", tint), group: .clipboard, assistantSafe: true) { ctx in
+                       keywords: words + ["cb"], icon: .symbol("doc.on.clipboard", tint), group: .clipboard, assistantSafe: true, urlSafe: true) { ctx in
                 if m.isActive { m.showInLauncher() } else { m.openPage() }
                 return .done
             },

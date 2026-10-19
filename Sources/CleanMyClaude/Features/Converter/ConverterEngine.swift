@@ -104,6 +104,9 @@ enum ConverterEngine {
     /// WebP through ffmpeg: the upright image goes through a temporary PNG first (ffmpeg reads HEIC poorly).
     private static func webp(_ input: URL, maxSide: Int, quality: Double, spec: Spec, control: ConverterControl) async throws -> URL {
         guard let ffmpeg = spec.ffmpeg else { throw ConverterError.unsupported("Le WebP demande ffmpeg (brew install ffmpeg).") }
+        guard await Task.detached(operation: { ConverterMediaEngine.ffmpegEncoders(ffmpeg) }).value.contains("libwebp") else {
+            throw ConverterError.unsupported("Ton ffmpeg n'a pas l'encodeur WebP (libwebp).")
+        }
         let src = try ConverterImageEngine.source(input)
         guard let image = ConverterImageEngine.uprightImage(src, index: CGImageSourceGetPrimaryImageIndex(src), maxSide: maxSide),
               let png = ConverterImageEngine.pngData(image), let tmp = FS.userTempDir else {

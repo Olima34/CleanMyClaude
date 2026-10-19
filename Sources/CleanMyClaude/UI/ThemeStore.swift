@@ -19,7 +19,7 @@ final class ThemeStore: @unchecked Sendable {
     @ObservationIgnored private let persists: Bool
 
     init() {
-        persists = !DemoData.isEnabled && !Snapshot.isActive && !CommandLine.arguments.contains("--selftest")
+        persists = !DemoData.isEnabled && !Snapshot.isActive && !Entry.arguments.contains("--selftest")
         let defaults = UserDefaults.standard
         var saved: [ThemeSpec] = []
         if persists, let data = defaults.data(forKey: Self.customsKey),

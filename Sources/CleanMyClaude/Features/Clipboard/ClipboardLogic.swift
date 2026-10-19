@@ -177,6 +177,65 @@ enum ClipboardFilter {
         guard let bundleID else { return false }
         return list.contains { $0.bundleID.caseInsensitiveCompare(bundleID) == .orderedSame }
     }
+
+    /// Token prefixes of well-known services, with the shortest real token: API keys (Anthropic, OpenAI, Google),
+    /// GitHub, GitLab and Slack tokens, AWS access keys.
+    static let secretPrefixes: [(prefix: String, minLength: Int)] = [
+        ("sk-ant-", 24), ("sk-", 24), ("ghp_", 30), ("gho_", 30), ("ghs_", 30), ("ghu_", 30), ("ghr_", 30), ("github_pat_", 40),
+        ("glpat-", 20), ("xoxb-", 20), ("xoxp-", 20), ("xoxa-", 20), ("xoxe-", 20), ("AKIA", 20), ("ASIA", 20), ("AIza", 30)
+    ]
+
+    /// A secret copied from a browser or a terminal, without the markers a password manager adds: API key or token,
+    /// private key, one-time code, or a string that looks like a password. Not kept in the history
+    /// (`ClipboardSettings.skipSecrets`). Links, sentences, paths, numbers and mail addresses are not secrets.
+    static func looksSecret(_ raw: String) -> Bool {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !s.isEmpty else { return false }
+        if s.contains("PRIVATE KEY-----") || s.lowercased().hasPrefix("otpauth://") { return true }
+        // Everything else is a single word.
+        guard s.count <= 4096, !s.contains(where: \.isWhitespace) else { return false }
+        let tokenChars = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_")).inverted
+        for (prefix, minLength) in secretPrefixes where s.hasPrefix(prefix) && s.count >= minLength {
+            if s.unicodeScalars.allSatisfy({ $0.isASCII }) && s.rangeOfCharacter(from: tokenChars) == nil { return true }
+        }
+        // A JSON Web Token: three base64url parts, the first one an encoded "{".
+        let jwtParts = s.split(separator: ".", omittingEmptySubsequences: false)
+        if s.hasPrefix("eyJ"), s.count >= 30, jwtParts.count == 3, !jwtParts[1].isEmpty,
+           s.unicodeScalars.allSatisfy({ $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "-_.=".unicodeScalars.contains($0)) }) {
+            return true
+        }
+        // A one-time code: 6 to 8 digits alone.
+        if (6...8).contains(s.count), s.allSatisfy({ $0.isASCII && $0.isNumber }) { return true }
+        // A password: 10 to 64 characters mixing upper case, lower case, digits and symbols, and nothing else it could be.
+        guard (10...64).contains(s.count) else { return false }
+        if s.contains("://") || s.lowercased().hasPrefix("www.") || s.hasPrefix("/") || s.hasPrefix("~/") || s.hasPrefix("./") { return false }
+        if s.range(of: #"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$"#, options: .regularExpression) != nil { return false }
+        // "-", "_" and "." also join the words of file names and identifiers: they do not count as symbols.
+        let symbol = s.contains { !$0.isLetter && !$0.isNumber && !"-_.".contains($0) }
+        return symbol && s.contains(where: \.isUppercase) && s.contains(where: \.isLowercase) && s.contains(where: \.isNumber)
+    }
+}
+
+/// What "Ouvrir le lien" may do with a copied link.
+enum ClipboardLinkAction: Equatable {
+    case open(URL)
+    case reveal(String)
+    case refuse
+}
+
+enum ClipboardLinks {
+    /// Web pages and mail open; a file:// link is shown in the Finder (never opened: it could be an app or a script);
+    /// anything else (cleanmyclaude://, ssh://, another app's scheme) is left alone.
+    static func action(for raw: String) -> ClipboardLinkAction {
+        let s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: s), let scheme = url.scheme?.lowercased() else { return .refuse }
+        switch scheme {
+        case "http", "https": return url.host?.isEmpty == false ? .open(url) : .refuse
+        case "mailto": return .open(url)
+        case "file": return url.path.isEmpty ? .refuse : .reveal(url.path)
+        default: return .refuse
+        }
+    }
 }
 
 struct ClipboardSettings: Codable, Equatable {
@@ -192,6 +251,26 @@ struct ClipboardSettings: Codable, Equatable {
     /// From the launcher, paste into the app in front (needs Accessibility) instead of only copying.
     var pasteDirectly = true
     var excluded: [ClipboardExcludedApp] = ClipboardFilter.passwordManagers
+    /// API keys, tokens, private keys, one-time codes and likely passwords are not kept (`ClipboardFilter.looksSecret`).
+    var skipSecrets = true
+
+    init() {}
+
+    /// Tolerant reading: a field added later never resets the others (nor turns the history off).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ClipboardSettings()
+        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        acknowledged = try c.decodeIfPresent(Bool.self, forKey: .acknowledged) ?? d.acknowledged
+        maxItems = try c.decodeIfPresent(Int.self, forKey: .maxItems) ?? d.maxItems
+        maxStorageMB = try c.decodeIfPresent(Int.self, forKey: .maxStorageMB) ?? d.maxStorageMB
+        retentionDays = try c.decodeIfPresent(Int.self, forKey: .retentionDays) ?? d.retentionDays
+        keepImages = try c.decodeIfPresent(Bool.self, forKey: .keepImages) ?? d.keepImages
+        keepFiles = try c.decodeIfPresent(Bool.self, forKey: .keepFiles) ?? d.keepFiles
+        pasteDirectly = try c.decodeIfPresent(Bool.self, forKey: .pasteDirectly) ?? d.pasteDirectly
+        excluded = try c.decodeIfPresent([ClipboardExcludedApp].self, forKey: .excluded) ?? d.excluded
+        skipSecrets = try c.decodeIfPresent(Bool.self, forKey: .skipSecrets) ?? d.skipSecrets
+    }
 }
 
 /// Keeping the list tidy: no twins, caps on count, weight and age. Pinned items are never dropped.

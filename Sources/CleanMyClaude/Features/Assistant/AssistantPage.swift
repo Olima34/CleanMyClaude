@@ -284,6 +284,8 @@ struct AssistantEntryView: View {
                 Text(Self.markdown(text)).font(.ui(13)).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
+                    // A link in an answer opens in the browser only over https (never cleanmyclaude://, file://…).
+                    .environment(\.openURL, OpenURLAction { Self.isOpenable($0) ? .systemAction : .discarded })
                 Spacer(minLength: 40)
             }
         case .proposal(let id, let title, let reason):
@@ -319,8 +321,18 @@ struct AssistantEntryView: View {
         }
     }
 
+    /// Claude's answer, links included. What Claude writes may echo what it read on the Mac: a link other than https
+    /// (cleanmyclaude://run/…, file://, x-apple.systempreferences:…) is shown as plain text.
     static func markdown(_ text: String) -> AttributedString {
-        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+        var s = (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
+        for run in s.runs {
+            if let url = run.link, !isOpenable(url) { s[run.range].link = nil }
+        }
+        return s
+    }
+
+    static func isOpenable(_ url: URL) -> Bool {
+        url.scheme?.lowercased() == "https" && url.host?.isEmpty == false
     }
 }
 

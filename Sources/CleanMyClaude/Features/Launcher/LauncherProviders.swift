@@ -139,7 +139,9 @@ enum LauncherSystem {
                 return .done
             },
             AppCommand(id: "sys_hidden_files", title: "Afficher ou masquer les fichiers cachés", subtitle: "Dans le Finder",
-                       keywords: ["fichiers cachés", "hidden", "invisibles", "finder"], icon: .symbol("eye"), group: .system) { _ in
+                       keywords: ["fichiers cachés", "hidden", "invisibles", "finder"], icon: .symbol("eye"), group: .system,
+                       // The Finder relaunches, like `maint_finder`.
+                       risk: .confirm("Le Finder va redémarrer : ses fenêtres se ferment, et une copie en cours serait interrompue.")) { _ in
                 guard !DemoData.isEnabled else { return .message(DemoData.refusal) }
                 let current = await tool("/usr/bin/defaults", ["read", "com.apple.finder", "AppleShowAllFiles"])
                 let on = ["1", "true", "yes"].contains(current.out.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
@@ -173,7 +175,7 @@ enum LauncherSystem {
         ]
         for (id, title, sub, symbol) in folders {
             list.append(AppCommand(id: id, title: title, subtitle: "Dossier", keywords: ["dossier", "folder", sub],
-                                   icon: .symbol(symbol, Theme.palette[1]), group: .system, hint: "Ouvrir") { _ in
+                                   icon: .symbol(symbol, Theme.palette[1]), group: .system, assistantSafe: true, hint: "Ouvrir") { _ in
                 NSWorkspace.shared.open(URL(fileURLWithPath: sub.isEmpty ? FS.home : FS.home + "/" + sub))
                 return .done
             })
@@ -248,14 +250,14 @@ enum LauncherAppActions {
                 // Translates right in the launcher panel; ⌘↩ opens the full page.
                 return AppCommand(id: "open_translator", title: p.title, subtitle: "Traduire ici, sans ouvrir la fenêtre · ⌘↩ ouvre la page",
                                   keywords: ["traduire", "traduction", "translate", "langue"], icon: .symbol(p.symbol, Theme.palette[1]),
-                                  group: .actions, assistantSafe: true, hint: "Traduire", staysInLauncher: true) { ctx in
+                                  group: .actions, assistantSafe: true, urlSafe: true, hint: "Traduire", staysInLauncher: true) { ctx in
                     if ctx.alternate { openMain(ctx.app, p) } else { ctx.app.launcher.showTranslator() }
                     return .done
                 }
             }
             return AppCommand(id: "open_\(p.rawValue)", title: p.title, subtitle: "Ouvrir dans Clean My Claude",
                               keywords: ["clean my claude", "ouvrir"], icon: .symbol(p.symbol), group: .actions,
-                              assistantSafe: true, hint: "Ouvrir") { ctx in
+                              assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
                 openMain(ctx.app, p)
                 return .done
             }
@@ -263,41 +265,41 @@ enum LauncherAppActions {
         list += [
             AppCommand(id: "act_smart_scan", title: "Analyse intelligente", subtitle: "Fichiers inutiles, sécurité, apps, démarrage",
                        keywords: ["analyser", "scan", "bilan", "santé"], icon: .symbol("wand.and.stars"), group: .actions,
-                       assistantSafe: true) { ctx in
+                       assistantSafe: true, urlSafe: true) { ctx in
                 openMain(ctx.app, .dashboard)
                 Task { await ctx.app.smartScan() }
                 return .done
             },
             AppCommand(id: "act_scan_junk", title: "Chercher les fichiers inutiles", keywords: ["nettoyer", "nettoyage", "caches", "place"],
-                       icon: .symbol("sparkles"), group: .actions, assistantSafe: true) { ctx in
+                       icon: .symbol("sparkles"), group: .actions, assistantSafe: true, urlSafe: true) { ctx in
                 openMain(ctx.app, .cleanup)
                 Task { await ctx.app.cleanup.scan() }
                 return .done
             },
             AppCommand(id: "act_security", title: "Faire le bilan de sécurité", keywords: ["sécurité", "protection", "malware"],
-                       icon: .symbol("lock.shield"), group: .actions, assistantSafe: true) { ctx in
+                       icon: .symbol("lock.shield"), group: .actions, assistantSafe: true, urlSafe: true) { ctx in
                 openMain(ctx.app, .protection)
                 Task { await ctx.app.protection.audit() }
                 return .done
             },
             AppCommand(id: "act_storage", title: "Explorer le dossier personnel", keywords: ["stockage", "espace disque", "gros fichiers"],
-                       icon: .symbol("chart.pie"), group: .actions, assistantSafe: true) { ctx in
+                       icon: .symbol("chart.pie"), group: .actions, assistantSafe: true, urlSafe: true) { ctx in
                 openMain(ctx.app, .storage)
                 Task { await ctx.app.storage.scan(FS.home) }
                 return .done
             },
             AppCommand(id: "act_free_ram", title: "Libérer la mémoire vive", subtitle: "Demande ton mot de passe",
-                       keywords: ["ram", "mémoire", "purge"], icon: .symbol("memorychip"), group: .actions) { _ in
+                       keywords: ["ram", "mémoire", "purge"], icon: .symbol("memorychip"), group: .actions, assistantSafe: true) { _ in
                 let message = await Task.detached { QuickActions.freeMemory() }.value
                 return message.map { .message($0) } ?? .done
             },
             AppCommand(id: "act_flush_dns", title: "Vider le cache DNS", subtitle: "Demande ton mot de passe",
-                       keywords: ["dns", "réseau", "internet"], icon: .symbol("network"), group: .actions) { _ in
+                       keywords: ["dns", "réseau", "internet"], icon: .symbol("network"), group: .actions, assistantSafe: true) { _ in
                 let message = await Task.detached { QuickActions.flushDNS() }.value
                 return message.map { .message($0) } ?? .done
             },
             AppCommand(id: "act_log", title: "Journal des suppressions", keywords: ["journal", "log", "historique"],
-                       icon: .symbol("doc.text"), group: .actions) { _ in
+                       icon: .symbol("doc.text"), group: .actions, assistantSafe: true) { _ in
                 if FS.exists(ActionLog.file) { NSWorkspace.shared.open(URL(fileURLWithPath: ActionLog.file)) } else { Finder.reveal(ActionLog.folder) }
                 return .done
             }
@@ -305,7 +307,7 @@ enum LauncherAppActions {
         for t in MaintenanceTask.all where t.available && !["ram", "dns"].contains(t.id) {
             list.append(AppCommand(id: "maint_\(t.id)", title: t.title, subtitle: "Maintenance" + (t.needsAdmin ? " · mot de passe" : ""),
                                    keywords: ["maintenance", "réparer"], icon: .symbol(t.symbol, Theme.warn), group: .actions,
-                                   risk: maintenanceRisk(t)) { ctx in
+                                   risk: maintenanceRisk(t), assistantSafe: assistantMaintenance.contains(t.id)) { ctx in
                 await ctx.app.performance.run(t)
                 let r = ctx.app.performance.results[t.id]
                 return r?.ok == true ? .message("\(t.title) : terminé.") : .failed(r?.message ?? "Échec")
@@ -313,6 +315,9 @@ enum LauncherAppActions {
         }
         return list
     }
+
+    /// The maintenance Claude may suggest: nothing deleted, nothing interrupted (Spotlight still asks first, it keeps the Mac busy).
+    static let assistantMaintenance: Set<String> = ["dock", "quicklook", "launchservices", "spotlight"]
 
     /// Relaunching the Dock or Quick Look loses nothing; the other tasks delete (simulators, snapshots), keep the Mac
     /// busy (Spotlight, Launch Services) or interrupt something (a copy in the Finder): they ask first.

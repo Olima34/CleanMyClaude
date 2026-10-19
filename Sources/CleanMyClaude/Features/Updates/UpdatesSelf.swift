@@ -57,8 +57,10 @@ struct UpdatesSelfRelease: Codable, Equatable {
     /// The archive to install (nil: none attached yet).
     var downloadURL: String?
     var size: Int64 = 0
-    /// "sha256:…", computed by GitHub when the archive was published.
+    /// "sha256:…", computed by GitHub when the archive was published. Without it nothing is installed.
     var digest: String?
+    /// CleanMyClaude.zip.sig: the base64 of an Ed25519 signature of the archive (`UpdatesSelfSignature`), when published.
+    var signatureURL: String?
     /// Most recent first, merges left out.
     var changes: [UpdatesSelfChange] = []
     /// Changes left out of `changes` (it keeps the most recent ones).
@@ -81,6 +83,7 @@ struct UpdatesSelfCompare: Equatable {
 enum UpdatesSelfGitHub {
     static let repo = "Olima34/CleanMyClaude"
     static let assetName = "CleanMyClaude.zip"
+    static let signatureAssetName = "CleanMyClaude.zip.sig"
     static let releasesPage = "https://github.com/\(repo)/releases/latest"
     static let installCommand = "curl -fsSL https://raw.githubusercontent.com/\(repo)/main/scripts/install.sh | bash"
     static let maxChanges = 40
@@ -172,18 +175,31 @@ enum UpdatesSelfGitHub {
         guard version.first?.isNumber == true, let page = URL(string: r.html_url), page.scheme == "https" else { return nil }
         let complete = r.assets.filter { ($0.state ?? "uploaded") == "uploaded" }
         let zip = complete.first { $0.name == assetName } ?? complete.first { $0.name.lowercased().hasSuffix(".zip") }
-        // Only an archive that GitHub itself serves over HTTPS.
-        let download = zip.flatMap { URL(string: $0.browser_download_url) }.flatMap { url -> String? in
-            guard url.scheme == "https", let host = url.host, host == "github.com" || host.hasSuffix(".github.com") else { return nil }
-            return url.absoluteString
-        }
+        // Only an archive that GitHub itself serves over HTTPS, from this repository.
+        let download = zip.map(\.browser_download_url).flatMap { isTrustedDownload($0) ? $0 : nil }
         let digest = zip?.digest.map { $0.lowercased() }.flatMap { d -> String? in
             guard d.hasPrefix("sha256:"), d.dropFirst(7).count == 64, d.dropFirst(7).allSatisfy(\.isHexDigit) else { return nil }
             return d
         }
+        let signature = complete.first { $0.name == signatureAssetName }.map(\.browser_download_url).flatMap { isTrustedDownload($0) ? $0 : nil }
         return UpdatesSelfRelease(version: version, tag: r.tag_name, title: r.name?.isEmpty == false ? r.name! : "Clean My Claude \(version)",
                                   pageURL: page.absoluteString, published: r.published_at,
-                                  downloadURL: download, size: download == nil ? 0 : zip?.size ?? 0, digest: download == nil ? nil : digest)
+                                  downloadURL: download, size: download == nil ? 0 : zip?.size ?? 0, digest: download == nil ? nil : digest,
+                                  signatureURL: download == nil ? nil : signature)
+    }
+
+    /// A file of this repository's releases, served by GitHub over HTTPS: github.com/<repo>/releases/download/…
+    /// (or the API's address of an asset). Checked when GitHub answers and again just before downloading:
+    /// selfupdate.json, where the answer is kept, can be rewritten by any program of the user.
+    static func isTrustedDownload(_ link: String) -> Bool {
+        guard let url = URL(string: link), url.scheme == "https", let host = url.host?.lowercased(),
+              url.user == nil, url.password == nil, url.port == nil, url.query == nil, url.fragment == nil else { return false }
+        let path = url.path.lowercased()
+        let ownRepo = repo.lowercased()
+        guard !path.contains("/../"), !path.hasSuffix("/..") else { return false }
+        if host == "github.com" { return path.hasPrefix("/\(ownRepo)/releases/download/") }
+        if host.hasSuffix(".github.com") { return path.hasPrefix("/repos/\(ownRepo)/releases/assets/") }
+        return false
     }
 
     /// The answer of /compare/base...head.
@@ -310,12 +326,21 @@ enum UpdatesSelfInstaller {
     static let folderName = "Mise à jour"
 
     enum Failure: LocalizedError {
-        case digest, unpack(String), invalid(String), signature(String), localSign(String), trash(String), move(String, String)
+        case digest, noDigest, untrusted, unsigned, badSignature, unpack(String), invalid(String), signature(String), localSign(String),
+             trash(String), move(String, String)
 
         var errorDescription: String? {
             switch self {
             case .digest:
                 return "L'archive téléchargée ne correspond pas à celle publiée sur GitHub : je ne l'installe pas. Réessaie, ou télécharge-la depuis la page de la version."
+            case .noDigest:
+                return "GitHub ne donne pas l'empreinte de cette archive : sans elle, impossible de vérifier ce qui a été téléchargé. Rien n'a été installé."
+            case .untrusted:
+                return "L'adresse de l'archive ne mène pas aux versions de Clean My Claude sur GitHub : je ne la télécharge pas."
+            case .unsigned:
+                return "Cette version n'est pas accompagnée de sa signature (CleanMyClaude.zip.sig) : je ne l'installe pas."
+            case .badSignature:
+                return "La signature de l'archive ne correspond pas à la clé de Clean My Claude : je ne l'installe pas."
             case .unpack(let why):
                 return "L'archive téléchargée ne s'ouvre pas\(why.isEmpty ? "" : " (\(why))") : rien n'a été installé."
             case .invalid(let why):
@@ -400,9 +425,13 @@ enum UpdatesSelfInstaller {
 
     /// Checks the downloaded archive, unpacks it next to itself and checks the app inside. Runs tools: not on the main thread.
     /// Returns the app, ready to take the place of `currentBundle`, and whether it was signed with the local identity.
-    static func prepare(zip: URL, folder: URL, release: UpdatesSelfRelease, currentBundle: String,
+    /// `signature`: the archive's Ed25519 signature (`UpdatesSelfSignature.fetch`), required once the public key is set.
+    static func prepare(zip: URL, folder: URL, release: UpdatesSelfRelease, signature: Data?, currentBundle: String,
                         isCancelled: () -> Bool) throws -> (app: URL, signedLocally: Bool) {
-        if let expected = release.digest, sha256(of: zip) != expected { throw Failure.digest }
+        // The fingerprint GitHub computed when the archive was published: never optional.
+        guard let expected = release.digest else { throw Failure.noDigest }
+        guard sha256(of: zip) == expected else { throw Failure.digest }
+        try UpdatesSelfSignature.check(zip: zip, signature: signature)
         if isCancelled() { throw CancellationError() }
         let out = try FileOps.makeDirectory(folder.appendingPathComponent("app", isDirectory: true))
         let unzip = Shell.run("/usr/bin/ditto", ["-x", "-k", zip.path, out.path], timeout: 180)
@@ -452,5 +481,67 @@ enum UpdatesSelfInstaller {
     static func relaunch(_ app: URL) -> Bool {
         let script = "pid=$1; i=0; while kill -0 \"$pid\" 2>/dev/null && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done; /usr/bin/open \"$2\""
         return Shell.launchDetached("/bin/sh", ["-c", script, "sh", "\(getpid())", app.path])
+    }
+}
+
+/// Ed25519 signature of the published archives, in preparation: the CI will publish CleanMyClaude.zip.sig (the base64
+/// of a signature of CleanMyClaude.zip by a private key kept out of the repository) next to the archive. While
+/// `publicKey` is nil nothing is checked; once it is set, an archive without a valid signature is never installed.
+/// GitHub's SHA-256 only proves the archive is the one published; the signature proves who published it.
+enum UpdatesSelfSignature {
+    /// Base64 of the raw 32-byte Ed25519 public key (`Curve25519.Signing.PublicKey.rawRepresentation`). Not set yet.
+    static let publicKey: String? = nil
+
+    /// The signature published with `release`, or nil while no public key is set (nothing is downloaded then).
+    static func fetch(for release: UpdatesSelfRelease, publicKey: String? = publicKey) async throws -> Data? {
+        guard publicKey != nil else { return nil }
+        guard let link = release.signatureURL else { throw UpdatesSelfInstaller.Failure.unsigned }
+        guard UpdatesSelfGitHub.isTrustedDownload(link), let url = URL(string: link) else { throw UpdatesSelfInstaller.Failure.untrusted }
+        let text = String(decoding: try await HTTP.get(url).0.prefix(1024), as: UTF8.self)
+        guard let signature = Data(base64Encoded: text.trimmingCharacters(in: .whitespacesAndNewlines)), signature.count == 64 else {
+            throw UpdatesSelfInstaller.Failure.badSignature
+        }
+        return signature
+    }
+
+    static func isValid(_ signature: Data, of archive: Data, publicKey: String) -> Bool {
+        guard let raw = Data(base64Encoded: publicKey), let key = try? Curve25519.Signing.PublicKey(rawRepresentation: raw) else { return false }
+        return key.isValidSignature(signature, for: archive)
+    }
+
+    /// Nothing while no public key is set; afterwards a missing or wrong signature stops the installation.
+    static func check(zip: URL, signature: Data?, publicKey: String? = publicKey) throws {
+        guard let publicKey else { return }
+        guard let signature else { throw UpdatesSelfInstaller.Failure.unsigned }
+        guard let archive = try? Data(contentsOf: zip, options: .mappedIfSafe), isValid(signature, of: archive, publicKey: publicKey) else {
+            throw UpdatesSelfInstaller.Failure.badSignature
+        }
+    }
+
+    /// With a key pair made for the test: a good signature passes; a changed archive, another key or no signature do not;
+    /// without a public key, nothing is required.
+    static func selfTest() -> [String] {
+        var f: [String] = []
+        let key = Curve25519.Signing.PrivateKey()
+        let publicKey = key.publicKey.rawRepresentation.base64EncodedString()
+        let archive = Data("PK archive de Clean My Claude".utf8)
+        guard let signature = try? key.signature(for: archive) else { return ["Signature Ed25519 : impossible de signer"] }
+        if !isValid(signature, of: archive, publicKey: publicKey) { f.append("Signature Ed25519 valide refusée") }
+        if isValid(signature, of: archive + Data([0]), publicKey: publicKey) { f.append("Archive modifiée acceptée par la signature") }
+        let other = Curve25519.Signing.PrivateKey().publicKey.rawRepresentation.base64EncodedString()
+        if isValid(signature, of: archive, publicKey: other) { f.append("Signature acceptée avec une autre clé") }
+        if isValid(Data(repeating: 0, count: 64), of: archive, publicKey: publicKey) || isValid(signature, of: archive, publicKey: "pas une clé") {
+            f.append("Signature vide ou clé illisible acceptée")
+        }
+        // The installation check reads a file: not in demo mode.
+        guard !DemoData.isEnabled else { return f }
+        let zip = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("cleanmyclaude-signature-\(getpid()).zip")
+        guard (try? archive.write(to: zip)) != nil else { return f + ["Signature Ed25519 : archive d'essai impossible à écrire"] }
+        defer { try? FileManager.default.removeItem(at: zip) }
+        if (try? check(zip: zip, signature: signature, publicKey: publicKey)) == nil { f.append("Archive signée refusée à l'installation") }
+        if (try? check(zip: zip, signature: nil, publicKey: publicKey)) != nil { f.append("Archive sans signature acceptée alors que la clé est fixée") }
+        if (try? check(zip: zip, signature: Data(repeating: 1, count: 64), publicKey: publicKey)) != nil { f.append("Archive mal signée acceptée") }
+        if (try? check(zip: zip, signature: nil, publicKey: nil)) == nil { f.append("Signature exigée alors qu'aucune clé n'est fixée") }
+        return f
     }
 }

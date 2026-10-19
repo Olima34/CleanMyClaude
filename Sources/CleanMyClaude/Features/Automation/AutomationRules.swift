@@ -270,12 +270,46 @@ enum AutomationDownloads {
 
     static var defaultFolder: String { FS.home + "/Downloads" }
 
-    /// The watched folder must be inside the home folder, never the home itself, a hidden folder or ~/Library.
-    static func isAllowedSource(_ path: String, home: String = FS.home) -> Bool {
+    /// Folders that are documents or libraries for macOS (an app, a Photos or Music library, a Final Cut bundle…):
+    /// never watched nor filled by a rule, even before they exist.
+    static let packageExtensions: Set<String> = [
+        "app", "appex", "bundle", "framework", "plugin", "kext", "prefpane", "saver", "xpc", "pkg", "mpkg", "dsym",
+        "photoslibrary", "photolibrary", "migratedphotolibrary", "aplibrary", "musiclibrary", "tvlibrary", "imovielibrary",
+        "theater", "fcpbundle", "logicx", "band", "lrlibrary", "rtfd", "pages", "numbers", "key", "sparsebundle",
+        "xcodeproj", "xcworkspace", "xcarchive", "playground", "scptd", "wdgt"
+    ]
+
+    /// A folder the automations may watch or fill: inside the home folder, never the home itself, a hidden folder,
+    /// ~/Library or a package; on the disk, none of its folders may be a symbolic link (a folder of the home that leads
+    /// to /tmp) or a package. Folders not created yet are judged by their names.
+    static func isAllowedFolder(_ path: String, home: String = FS.home) -> Bool {
         let p = (path as NSString).standardizingPath
         guard p.hasPrefix(home + "/") else { return false }
-        let first = p.dropFirst(home.count + 1).split(separator: "/").first.map(String.init) ?? ""
-        return !first.isEmpty && !first.hasPrefix(".") && first != "Library"
+        let parts = p.dropFirst(home.count + 1).split(separator: "/").map(String.init)
+        guard let first = parts.first, first != "Library",
+              !parts.contains(where: { $0.hasPrefix(".") || packageExtensions.contains(($0 as NSString).pathExtension.lowercased()) }) else {
+            return false
+        }
+        var current = home
+        for part in parts {
+            current += "/" + part
+            // Stops at the first folder that does not exist yet (FileOps creates the rest).
+            guard let v = try? URL(fileURLWithPath: current).resourceValues(forKeys: [.isSymbolicLinkKey, .isPackageKey]) else { break }
+            if v.isSymbolicLink == true || v.isPackage == true { return false }
+        }
+        return true
+    }
+
+    /// The watched folder: Téléchargements, or a folder the user picked on the page (see `AutomationSeal`).
+    static func isAllowedSource(_ path: String, home: String = FS.home) -> Bool {
+        isAllowedFolder(path, home: home)
+    }
+
+    /// Where a rule may move files (`~` allowed).
+    static func isAllowedDestination(_ path: String, home: String = FS.home) -> Bool {
+        let d = path.trimmingCharacters(in: .whitespaces)
+        let expanded = d.hasPrefix("~/") ? home + String(d.dropFirst(1)) : d
+        return isAllowedFolder(expanded, home: home)
     }
 
     static func isIgnored(_ f: AutomationFile, now: Date) -> Bool {
@@ -286,8 +320,8 @@ enum AutomationDownloads {
         return false
     }
 
-    /// The first matching rule wins; each file is handled once.
-    static func plan(_ files: [AutomationFile], rules: [AutomationRule], source: String, now: Date) -> [AutomationMove] {
+    /// The first matching rule wins; each file is handled once. A rule whose folder is not allowed moves nothing.
+    static func plan(_ files: [AutomationFile], rules: [AutomationRule], source: String, now: Date, home: String = FS.home) -> [AutomationMove] {
         let src = (source as NSString).standardizingPath
         return files.compactMap { f -> AutomationMove? in
             guard !isIgnored(f, now: now), let rule = rules.first(where: { $0.matches(f, now: now) }) else { return nil }
@@ -295,7 +329,7 @@ enum AutomationDownloads {
             if rule.action == .move {
                 let d = (FS.expand(rule.destination.trimmingCharacters(in: .whitespaces)) as NSString).standardizingPath
                 // Never into the watched folder itself (nothing would change) nor into the file (a package).
-                guard d.hasPrefix("/"), d != src, !d.hasPrefix(f.path + "/") else { return nil }
+                guard d.hasPrefix("/"), d != src, !d.hasPrefix(f.path + "/"), isAllowedFolder(d, home: home) else { return nil }
                 dest = d
             }
             return AutomationMove(file: f, ruleID: rule.id, ruleName: rule.name, action: rule.action, destination: dest)

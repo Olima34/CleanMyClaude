@@ -22,6 +22,38 @@ enum ClipboardChecks {
         expect(!ClipboardFilter.isExcluded(nil, list: defaults), "app inconnue ignorée")
         expect(!ClipboardSettings().enabled, "historique activé par défaut")
 
+        // Secrets copied without a marker (browser, terminal): recognized by their look.
+        let fakeKey = String(repeating: "aB3dE6", count: 8)
+        let secrets = [
+            "sk-ant-api03-" + fakeKey, "sk-proj-" + fakeKey, "ghp_" + fakeKey, "github_pat_11ABCDEFG0" + fakeKey, "glpat-" + fakeKey,
+            "xoxb-1234567890-" + fakeKey, "AKIAIOSFODNN7EXAMPLE", "AIzaSyD" + fakeKey,
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U",
+            "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----",
+            "otpauth://totp/Exemple:camille?secret=JBSWY3DPEHPK3PXP", "482913", "  04829137\n", "Tr0ub4dor&3xY", "x7#Kp2$mQ9vL!"
+        ]
+        for s in secrets { expect(ClipboardFilter.looksSecret(s), "secret non reconnu : \(s.prefix(24))") }
+        let ordinary = [
+            "https://exemple.fr/Page?id=42&Tri=Date", "www.Exemple.fr/Contact2", "Rendez-vous jeudi à 14 h avec l'équipe.",
+            "/Users/camille/Documents/Rapport-2024.pdf", "~/Desktop/Capture2024!.png", "Rapport_Final-2024.pdf", "camille.Dupont42@exemple.fr",
+            "42", "3,14", "1250", "12345", "0612345678", "+33 6 12 34 56 78", "2026-10-19", "#D97757", "550e8400-e29b-41d4-a716-446655440000",
+            "sk-learn", "Bonjour!", "func greet(_ name: String) -> String {", "MotDePasse sans chiffre"
+        ]
+        for s in ordinary { expect(!ClipboardFilter.looksSecret(s), "pris à tort pour un secret : \(s)") }
+        expect(ClipboardSettings().skipSecrets, "secrets enregistrés par défaut")
+        if let old = try? JSONDecoder.store.decode(ClipboardSettings.self, from: Data(#"{"enabled":true,"acknowledged":true,"maxItems":50}"#.utf8)) {
+            expect(old.enabled && old.maxItems == 50 && old.skipSecrets, "réglages d'une version précédente mal relus")
+        } else {
+            f.append("réglages d'une version précédente illisibles")
+        }
+
+        // "Ouvrir le lien": web pages and mail only; a file is shown in the Finder, the rest stays closed.
+        expect(ClipboardLinks.action(for: "https://exemple.fr/a") == .open(URL(string: "https://exemple.fr/a")!), "lien https non ouvert")
+        expect(ClipboardLinks.action(for: "mailto:camille@exemple.fr") == .open(URL(string: "mailto:camille@exemple.fr")!), "lien mailto non ouvert")
+        expect(ClipboardLinks.action(for: "file:///Applications/Calculator.app") == .reveal("/Applications/Calculator.app"), "fichier ouvert au lieu d'être montré")
+        for s in ["cleanmyclaude://run/sys_restart", "ssh://serveur", "x-apple.systempreferences:com.apple.preference.security", "javascript:alert(1)", "ftp://exemple.fr"] {
+            expect(ClipboardLinks.action(for: s) == .refuse, "lien ouvert à tort : \(s)")
+        }
+
         // "Coller en texte brut": markers kept, plain text left alone.
         let rich = ["public.rtf", "public.utf8-plain-text", ClipboardFilter.concealed, ClipboardFilter.transient]
         expect(ClipboardFilter.markers(in: rich) == [ClipboardFilter.concealed, ClipboardFilter.transient], "marqueurs perdus en texte brut")

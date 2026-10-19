@@ -52,19 +52,19 @@ enum ToolboxLauncher {
             },
             AppCommand(id: "tool_hash_file", title: "Calculer l'empreinte d'un fichier", subtitle: "SHA-256, SHA-1, MD5…",
                        keywords: ["empreinte", "hash", "sha256", "md5", "checksum", "somme de contrôle"],
-                       icon: .symbol("number.square", tint), group: .tools, assistantSafe: true) { ctx in
+                       icon: .symbol("number.square", tint), group: .tools, assistantSafe: true, urlSafe: true) { ctx in
                 open(m, ctx.app, tab: .hashes)
                 return .done
             },
             AppCommand(id: "tool_json", title: "Formater ou valider du JSON", keywords: ["json", "formater", "valider", "indenter"],
-                       icon: .symbol("curlybraces", tint), group: .tools, assistantSafe: true) { ctx in
+                       icon: .symbol("curlybraces", tint), group: .tools, assistantSafe: true, urlSafe: true) { ctx in
                 m.textOp = .jsonPretty
                 open(m, ctx.app, tab: .text)
                 return .done
             },
             AppCommand(id: "tool_text", title: "Transformer du texte", subtitle: "Base64, URL, casse, compteur de mots",
                        keywords: ["base64", "url", "encoder", "décoder", "casse", "majuscules", "camelcase", "compter les mots"],
-                       icon: .symbol("textformat", tint), group: .tools, assistantSafe: true) { ctx in
+                       icon: .symbol("textformat", tint), group: .tools, assistantSafe: true, urlSafe: true) { ctx in
                 open(m, ctx.app, tab: .text)
                 return .done
             }

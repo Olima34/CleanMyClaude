@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import Security
 
 /// Bridge to Claude Code installed on the Mac: the assistant runs on the user's Claude subscription, without an API key
 /// (same approach as the Vigie app). Claude Code ships with the Claude desktop app
@@ -51,9 +52,11 @@ enum AssistantClaudeCode {
     private static let appDir = FS.home + "/Library/Application Support/Claude/claude-code"
     private static let standalone = [FS.home + "/.local/bin/claude", FS.home + "/.claude/local/claude",
                                      "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]
+    /// Anthropic's Developer ID team (`codesign -dv` on the Claude app's Claude Code and on the official installer's).
+    static let anthropicTeamID = "Q6L2SF6YDW"
 
-    /// The most recent Claude Code: the one of the Claude app (updated with it), else a separate install.
-    static func findBinary() -> String? {
+    /// Every Claude Code on this Mac: the Claude app's, most recent version first, then the separate installs.
+    static func candidates() -> (bundled: [String], standalone: [String]) {
         var bundled: [(version: [Int], path: String)] = []
         for version in FS.children(appDir) {
             let parts = version.split(separator: ".").compactMap { Int($0) }
@@ -63,19 +66,56 @@ enum AssistantClaudeCode {
                 if Shell.exists(p) { bundled.append((parts, p)) }
             }
         }
-        if let best = bundled.max(by: { $0.version.lexicographicallyPrecedes($1.version) }) { return best.path }
-        return standalone.first(where: Shell.exists) ?? Shell.which("claude")
+        var others: [String] = []
+        for p in standalone.filter(Shell.exists) + [Shell.which("claude")].compactMap({ $0 }) where !others.contains(p) { others.append(p) }
+        return (bundled.sorted { $1.version.lexicographicallyPrecedes($0.version) }.map(\.path), others)
+    }
+
+    /// The most recent Claude Code signed by Anthropic: the one of the Claude app (updated with it), else a separate install.
+    /// These folders belong to the user, so a program could plant a fake `claude` there: a valid signature wins over it.
+    /// An npm install is a node script, never signed: it is still used when nothing signed is found. Either way
+    /// `Shell` starts it without the app's privacy permissions (Full Disk Access…).
+    static func findBinary() -> String? {
+        let found = candidates()
+        if let signed = (found.bundled + found.standalone).first(where: isSignedByAnthropic) { return signed }
+        // What sits in the Claude app's folder is always signed: an unsigned one there is no Claude Code.
+        return found.standalone.first
+    }
+
+    private final class SignatureCache: @unchecked Sendable {
+        let lock = NSLock()
+        var results: [String: Bool] = [:]
+    }
+    private static let signatures = SignatureCache()
+
+    /// A valid signature from Anthropic's Developer ID (checked once per version of the file: it reads the whole binary).
+    static func isSignedByAnthropic(_ path: String) -> Bool {
+        let real = (path as NSString).resolvingSymlinksInPath
+        guard let a = try? FileManager.default.attributesOfItem(atPath: real) else { return false }
+        let key = "\(real)|\(a[.size] as? Int64 ?? 0)|\((a[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)|\(a[.systemFileNumber] as? Int ?? 0)"
+        signatures.lock.lock()
+        let known = signatures.results[key]
+        signatures.lock.unlock()
+        if let known { return known }
+        var code: SecStaticCode?
+        var requirement: SecRequirement?
+        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(anthropicTeamID)\""
+        let ok = SecStaticCodeCreateWithPath(URL(fileURLWithPath: real) as CFURL, [], &code) == errSecSuccess
+            && SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess
+            && code.map { SecStaticCodeCheckValidity($0, SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)), requirement) == errSecSuccess } == true
+        signatures.lock.lock()
+        signatures.results[key] = ok
+        signatures.lock.unlock()
+        return ok
     }
 
     /// A neutral environment: nothing inherited from a running Claude Code session (host tokens, nested-session guards)
-    /// nor any API key, so the subscription is what gets used.
+    /// nor any API key, so the subscription is what gets used. `Shell.environment`'s PATH (system folders, then Homebrew's,
+    /// where an npm install finds node), nothing that injects code.
     static func cleanEnvironment() -> [String: String] {
-        var env = ProcessInfo.processInfo.environment.filter { key, _ in
+        Shell.environment.filter { key, _ in
             !(key.hasPrefix("CLAUDE") || key.hasPrefix("ANTHROPIC_") || key.hasPrefix("MCP_"))
         }
-        env["PATH"] = "/usr/bin:/bin:/usr/sbin:/sbin"
-        env["LANG"] = env["LANG"] ?? "fr_FR.UTF-8"
-        return env
     }
 
     /// `claude auth status` reads the login without using any of the subscription. Off the main thread.

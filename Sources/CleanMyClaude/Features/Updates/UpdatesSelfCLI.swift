@@ -40,7 +40,7 @@ enum UpdatesSelfCLI {
         }
         let r = result.latest
         print("Dernière version publiée : \(r.version) (\(r.tag))" + (r.published.map { ", le \(Fmt.day($0))" } ?? ""))
-        print("  Archive : \(r.downloadURL ?? "aucune") · \(Fmt.bytes(r.size)) · \(r.digest ?? "pas d'empreinte")")
+        print("  Archive : \(r.downloadURL ?? "aucune") · \(Fmt.bytes(r.size)) · \(r.digest ?? "pas d'empreinte") · signature \(r.signatureURL == nil ? "absente" : "publiée")")
         guard result.isUpdate else {
             print("→ À jour : rien à installer.")
             return
@@ -61,8 +61,16 @@ enum UpdatesSelfCLI {
             print("✗ \(blocker)")
             return
         }
-        guard let link = r.downloadURL, let url = URL(string: link) else {
+        guard let link = r.downloadURL else {
             print("✗ Cette version n'a pas d'archive à installer.")
+            return
+        }
+        guard UpdatesSelfGitHub.isTrustedDownload(link), let url = URL(string: link) else {
+            print("✗ \(UpdatesSelfInstaller.Failure.untrusted.localizedDescription)")
+            return
+        }
+        guard r.digest != nil else {
+            print("✗ \(UpdatesSelfInstaller.Failure.noDigest.localizedDescription)")
             return
         }
         guard let base = DataStore.ensureFolder(UpdatesSelfInstaller.folderName),
@@ -76,8 +84,10 @@ enum UpdatesSelfCLI {
             let zip = try await HTTP.download(url, into: folder, name: UpdatesSelfGitHub.assetName) { received, expected in
                 print("   \(Fmt.bytes(received)) sur \(Fmt.bytes(expected))")
             }
-            print("→ Vérification : empreinte \(r.digest == nil ? "absente de GitHub" : "comparée à celle de GitHub"), contenu, signature")
-            let prepared = try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, currentBundle: target.path,
+            let signature = try await UpdatesSelfSignature.fetch(for: r)
+            print("→ Vérification : empreinte comparée à celle de GitHub, "
+                  + (UpdatesSelfSignature.publicKey == nil ? "signature Ed25519 pas encore exigée" : "signature Ed25519 vérifiée") + ", contenu, signature de l'app")
+            let prepared = try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, signature: signature, currentBundle: target.path,
                                                             isCancelled: { false })
             print("  " + (prepared.signedLocally ? "Re-signée avec le certificat local de la copie remplacée" : "Signature publiée gardée (ad hoc)"))
             print("→ Remplacement : l'ancienne copie part à la Corbeille")

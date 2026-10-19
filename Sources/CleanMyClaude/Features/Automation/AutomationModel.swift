@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CryptoKit
 
 enum AutomationKind: String, Codable, CaseIterable, Identifiable {
     case cleanup, trash, downloads, health
@@ -153,21 +154,30 @@ final class AutomationModel: AppModule {
     var trashPreview: AutomationTrashPreview?
     var downloadsPreview: AutomationDownloadsPreview?
     var editingRule: UUID?
+    /// The settings did not match their seal at launch: the automations were turned off (shown on the page).
+    var integrityNotice: String?
 
+    static let settingsName = "automation"
     @ObservationIgnored private weak var app: AppModel?
-    @ObservationIgnored private let settingsStore = JSONStore<AutomationSettings>("automation", default: AutomationSettings())
+    @ObservationIgnored private let settingsStore = JSONStore<AutomationSettings>(settingsName, default: AutomationSettings())
+    @ObservationIgnored private let sealStore = JSONStore<AutomationSealRecord>("automation-seal", default: AutomationSealRecord())
     @ObservationIgnored private let journalStore = JSONStore<[AutomationLogEntry]>("automation-journal", default: [])
     @ObservationIgnored private let healthStore = JSONStore<[AutomationHealthSample]>("automation-health", default: [])
     @ObservationIgnored private var previewWork: DispatchWorkItem?
+    /// Set once the settings were checked at launch: from then on every change is sealed.
+    @ObservationIgnored private var sealing = false
+    @ObservationIgnored private var sealKey: SymmetricKey?
 
     init() {
-        settings = settingsStore.value
+        // Whatever the file says, only values the page could have set.
+        settings = settingsStore.value.sanitized()
         journal = journalStore.value
         samples = healthStore.value
     }
 
     private func settingsChanged(from old: AutomationSettings) {
         settingsStore.value = settings
+        reseal()
         if (settings.rules != old.rules || settings.downloadsFolder != old.downloadsFolder) && downloadsPreview != nil {
             // Keep the dry run in step with the rules being edited.
             previewWork?.cancel()
@@ -229,6 +239,7 @@ final class AutomationModel: AppModule {
 
     func start(app: AppModel) {
         self.app = app
+        checkIntegrity()
         // A light check every quarter of an hour; each automation decides whether it is due.
         Scheduler.shared.register(Self.jobID, every: 900) { [weak self] in
             await self?.tick()
@@ -237,6 +248,51 @@ final class AutomationModel: AppModule {
 
     func stop() {
         Scheduler.shared.unregister(Self.jobID)
+        // The settings and their seal go together: a seal behind its file turns the automations off at the next launch.
+        settingsStore.flush()
+        sealStore.flush()
+    }
+
+    // MARK: Seal
+
+    /// At launch (real app only): automation.json must be the one the app wrote last (`AutomationSeal`).
+    /// Never changed (no file): the defaults, all off, nothing to check.
+    private func checkIntegrity() {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
+        sealing = true
+        guard let raw = try? Data(contentsOf: DataStore.url(Self.settingsName + ".json")) else { return }
+        if let key = AutomationSeal.key(create: false), AutomationSeal.isValid(sealStore.value.mac, for: raw, key: key) {
+            sealKey = key
+            // A folder that became a symbolic link since, for instance.
+            if settings != settingsStore.value {
+                settingsStore.value = settings
+                reseal()
+            }
+            return
+        }
+        lockdown()
+    }
+
+    /// The settings were changed outside the app (or saved by a version without seals): nothing runs on its own any more.
+    private func lockdown() {
+        let wereOn = [AutomationKind.cleanup, .trash, .downloads].filter(isEnabled)
+        settings.cleanupEnabled = false
+        settings.trashEnabled = false
+        settings.downloadsEnabled = false
+        settings.downloadsFolder = ""
+        for k in wereOn {
+            log(k, automatic: true, title: k.switched(on: false),
+                detail: "Réglages modifiés hors de Clean My Claude : réactive-la après un aperçu à blanc.", setting: true)
+        }
+        integrityNotice = "Clean My Claude n'a pas pu vérifier que les réglages des automatisations viennent de lui : ils ont été modifiés en dehors de l'app, ou enregistrés par une version précédente. Par prudence, le nettoyage planifié, la Corbeille et le rangement sont coupés, et le dossier surveillé est revenu à Téléchargements. Relis tes règles, puis réactive ce que tu veux après un aperçu à blanc."
+    }
+
+    /// Seals what is about to be written (the key is made the first time).
+    private func reseal() {
+        guard sealing, !DemoData.isEnabled else { return }
+        if sealKey == nil { sealKey = AutomationSeal.key(create: true) }
+        guard let key = sealKey, let data = AutomationSeal.bytes(settings) else { return }
+        sealStore.value = AutomationSealRecord(mac: AutomationSeal.mac(data, key: key))
     }
 
     func loadDemo() {
@@ -256,6 +312,11 @@ final class AutomationModel: AppModule {
 
     func applySnapshotTab(_ tab: String) {
         if let t = AutomationTab(rawValue: tab) { self.tab = t }
+        // `--tab alerte`: the rules as they look after settings changed outside the app.
+        if tab == "alerte", DemoData.isEnabled {
+            lockdown()
+            self.tab = .rules
+        }
     }
 
     /// Runs whatever is due. Called by the `Scheduler`.
@@ -586,7 +647,7 @@ final class AutomationModel: AppModule {
             AppCommand(id: "auto_preview_downloads", title: "Aperçu du rangement des téléchargements",
                        subtitle: "Ce que tes règles feraient, sans rien toucher",
                        keywords: ["aperçu", "ranger", "téléchargements", "règles"],
-                       icon: .symbol("eye", Theme.warn), group: .actions, assistantSafe: true) { ctx in
+                       icon: .symbol("eye", Theme.warn), group: .actions, assistantSafe: true, urlSafe: true) { ctx in
                 ctx.app.automation.open(.downloads, app: ctx.app)
                 await ctx.app.automation.preview(.downloads)
                 return .done
@@ -594,7 +655,7 @@ final class AutomationModel: AppModule {
             AppCommand(id: "auto_open_health", title: "Ouvrir l'historique de santé",
                        subtitle: "Espace libre, mémoire, batterie et score au fil des jours",
                        keywords: ["santé", "historique", "graphique", "batterie", "évolution"],
-                       icon: .symbol("waveform.path.ecg", Theme.good), group: .actions, assistantSafe: true) { ctx in
+                       icon: .symbol("waveform.path.ecg", Theme.good), group: .actions, assistantSafe: true, urlSafe: true) { ctx in
                 ctx.app.automation.open(.health, app: ctx.app)
                 return .done
             },
@@ -655,7 +716,7 @@ final class AutomationModel: AppModule {
             (file("sans-extension", addedDaysAgo: 30), nil),
             (file("rapport.pdf", addedDaysAgo: 1), "Tout PDF")
         ]
-        let plan = AutomationDownloads.plan(cases.map(\.0), rules: rules, source: "/tmp/test", now: now)
+        let plan = AutomationDownloads.plan(cases.map(\.0), rules: rules, source: "/tmp/test", now: now, home: "/tmp")
         for (fileCase, expected) in cases {
             let got = plan.first { $0.file.path == fileCase.path }?.ruleName
             if got != expected { f.append("règle pour « \(fileCase.name) » : \(got ?? "aucune"), attendu \(expected ?? "aucune")") }
@@ -664,15 +725,15 @@ final class AutomationModel: AppModule {
         // Disabled rules, incomplete rules and moves into the watched folder itself are skipped.
         var off = images
         off.enabled = false
-        if !AutomationDownloads.plan([file("a.png", addedDaysAgo: 2)], rules: [off], source: "/tmp/test", now: now).isEmpty { f.append("règle désactivée appliquée") }
+        if !AutomationDownloads.plan([file("a.png", addedDaysAgo: 2)], rules: [off], source: "/tmp/test", now: now, home: "/tmp").isEmpty { f.append("règle désactivée appliquée") }
         let noFolder = AutomationRule(name: "x", kinds: [.images], minAgeDays: 0, action: .move, destination: " ")
-        if !AutomationDownloads.plan([file("a.png", addedDaysAgo: 2)], rules: [noFolder], source: "/tmp/test", now: now).isEmpty { f.append("règle sans dossier appliquée") }
+        if !AutomationDownloads.plan([file("a.png", addedDaysAgo: 2)], rules: [noFolder], source: "/tmp/test", now: now, home: "/tmp").isEmpty { f.append("règle sans dossier appliquée") }
         let same = AutomationRule(name: "x", kinds: [.images], minAgeDays: 0, action: .move, destination: "/tmp/test/")
-        if !AutomationDownloads.plan([file("a.png", addedDaysAgo: 2)], rules: [same], source: "/tmp/test", now: now).isEmpty { f.append("déplacement vers le même dossier") }
+        if !AutomationDownloads.plan([file("a.png", addedDaysAgo: 2)], rules: [same], source: "/tmp/test", now: now, home: "/tmp").isEmpty { f.append("déplacement vers le même dossier") }
         // First match wins.
         let order = AutomationDownloads.plan([file("doc.pdf", addedDaysAgo: 40)],
                                              rules: [AutomationRule(name: "A", kinds: [.documents], minAgeDays: 30, action: .trash), all],
-                                             source: "/tmp/test", now: now)
+                                             source: "/tmp/test", now: now, home: "/tmp")
         if order.first?.ruleName != "A" { f.append("la première règle doit l'emporter") }
         if AutomationRule.parseExtensions(".Torrent, epub;epub  mobi") != ["torrent", "epub", "mobi"] { f.append("lecture des extensions") }
         let home = "/Users/test"
@@ -682,6 +743,34 @@ final class AutomationModel: AppModule {
         for (path, ok) in sources where AutomationDownloads.isAllowedSource(path, home: home) != ok {
             f.append("dossier surveillé « \(path) » \(ok ? "refusé" : "accepté") à tort")
         }
+        // A rule never moves files out of the home folder, into a hidden folder, ~/Library or a package.
+        let destinations: [(String, Bool)] = [("~/Pictures/Téléchargements", true), (home + "/Documents/Tri", true), ("/tmp/vol", false),
+                                              ("~/Library/Mail", false), ("~/.ssh", false), ("~/Documents/.cache/x", false),
+                                              ("~/Pictures/Photos Library.photoslibrary/originals", false), ("~/Applications/Outil.app", false),
+                                              ("~", false), ("~/../other/Downloads", false), ("/Users/other/Documents", false)]
+        for (path, ok) in destinations where AutomationDownloads.isAllowedDestination(path, home: home) != ok {
+            f.append("dossier de destination « \(path) » \(ok ? "refusé" : "accepté") à tort")
+        }
+        if !AutomationDownloads.plan([file("a.png", addedDaysAgo: 2)],
+                                     rules: [AutomationRule(name: "x", kinds: [.images], minAgeDays: 0, action: .move, destination: "/var/tmp/x")],
+                                     source: "/tmp/test", now: now, home: "/tmp").isEmpty {
+            f.append("déplacement hors du dossier personnel appliqué")
+        }
+        // automation.json rewritten by another program: back within what the page offers.
+        var forged = AutomationSettings()
+        forged.trashDays = 0
+        forged.downloadsFolder = "/tmp"
+        forged.rules = [AutomationRule(name: "Vol", kinds: [.images], minAgeDays: -5, action: .move, destination: "/tmp/vol"),
+                        AutomationRule(name: "Bon", kinds: [.images], minAgeDays: 1, action: .move, destination: "~/Pictures/Tri")]
+        let clean = forged.sanitized(home: home)
+        if clean.trashDays != 7 || clean.downloadsFolder != "" { f.append("réglages falsifiés : Corbeille \(clean.trashDays) j, dossier « \(clean.downloadsFolder) »") }
+        if clean.rules.first?.enabled != false || clean.rules.first?.destination != "" || clean.rules.first?.minAgeDays != 0 {
+            f.append("règle falsifiée gardée")
+        }
+        if clean.rules.last != forged.rules.last { f.append("règle valide modifiée par la vérification") }
+        forged.trashDays = 9000
+        if forged.sanitized(home: home).trashDays != 365 { f.append("durée de la Corbeille non bornée") }
+        f += AutomationSeal.selfTest()
 
         // Trash age
         let trash = [AutomationTrash.Item(path: "/t/a", name: "a", size: 1, added: now.addingTimeInterval(-40 * 86400)),

@@ -102,7 +102,7 @@ struct ClipboardIntro: View {
                             .font(.ui(13)).foregroundStyle(Theme.text2)
                         VStack(alignment: .leading, spacing: 10) {
                             point("tray.full", "Il garde le texte, les liens, les images et les fichiers que tu copies, avec l'app d'où ils viennent.")
-                            point("lock.shield", "Il ignore les mots de passe : tout ce qu'un gestionnaire marque comme confidentiel, et tout ce qui est copié pendant que 1Password, Bitwarden, Mots de passe ou une autre app de ta liste est au premier plan.")
+                            point("lock.shield", "Il ignore les mots de passe : tout ce qu'un gestionnaire marque comme confidentiel, ce qui est copié pendant que 1Password, Bitwarden, Mots de passe ou une autre app de ta liste est au premier plan, et ce qui ressemble à un secret (clé d'API, jeton, clé privée, code à usage unique).")
                             point("internaldrive", "Tout reste sur ce Mac, dans le dossier de Clean My Claude. Rien n'est envoyé nulle part.")
                             point("slider.horizontal.3", "Tu choisis combien garder (200 éléments, 200 Mo et 30 jours par défaut), tu épingles, tu effaces quand tu veux.")
                             point("command", "Depuis le lanceur, tape « cb » et quelques mots pour retrouver un élément et le recoller.")
@@ -460,8 +460,13 @@ struct ClipboardRow: View {
     private func menu(_ m: ClipboardModel) -> some View {
         Button("Copier") { onCopy() }
         Button(item.pinned ? "Désépingler" : "Épingler") { m.togglePin(item.id) }
-        if item.textKind == .link, let s = item.text?.trimmingCharacters(in: .whitespacesAndNewlines) {
-            Button("Ouvrir le lien") { Finder.open(s) }
+        if item.textKind == .link, let s = item.text {
+            // Web pages and mail open; a file:// link is only shown in the Finder; any other kind of link stays closed.
+            switch ClipboardLinks.action(for: s) {
+            case .open(let url): Button("Ouvrir le lien") { NSWorkspace.shared.open(url) }
+            case .reveal(let path): Button("Afficher dans le Finder") { Finder.reveal(path) }
+            case .refuse: EmptyView()
+            }
         }
         if item.kind == .files, let f = item.files?.first {
             Button("Afficher dans le Finder") { Finder.reveal(f) }
@@ -487,7 +492,7 @@ struct ClipboardSideColumn: View {
                 stat(Fmt.int(m.items.count), m.items.count > 1 ? "éléments" : "élément")
                 stat(Fmt.bytes(m.totalBytes), "sur ce Mac")
                 stat(Fmt.int(m.skipped), m.skipped > 1 ? "ignorés" : "ignoré")
-                    .help("Copies laissées de côté depuis le lancement : mots de passe, données temporaires, apps ignorées.")
+                    .help("Copies laissées de côté depuis le lancement : mots de passe, secrets probables, données temporaires, apps ignorées.")
             }
             Panel(title: "Réglages", symbol: "slider.horizontal.3", tint: Theme.palette[4]) {
                 choice("Garder au plus", [50, 100, 200, 500, 1000], m.settings.maxItems, { Fmt.int($0) }) { m.settings.maxItems = $0; m.prune() }
@@ -502,6 +507,9 @@ struct ClipboardSideColumn: View {
                     ClipboardSwitch(title: "Garder les images", detail: "Captures, photos copiées : enregistrées en PNG dans le dossier de l'app.", isOn: $m.settings.keepImages)
                     ClipboardSwitch(title: "Garder les fichiers", detail: "Seul le chemin est gardé, pas une copie du fichier.", isOn: $m.settings.keepFiles)
                     ClipboardSwitch(title: "Coller directement depuis le lanceur", detail: "Sinon, l'élément est copié et tu colles avec ⌘V.", isOn: $m.settings.pasteDirectly)
+                    ClipboardSwitch(title: "Ignorer les secrets probables",
+                                    detail: "Clés d'API, jetons, clés privées, codes à usage unique, mots de passe copiés depuis un navigateur ou un terminal : reconnus à leur forme, ils ne sont pas enregistrés.",
+                                    isOn: $m.settings.skipSecrets)
                 }
                 Divider().overlay(Theme.border)
                 HStack {

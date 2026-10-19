@@ -107,7 +107,7 @@ final class ClipboardModel: AppModule {
 
     /// The general pasteboard; the live tests swap in a private one so the user's clipboard is never touched.
     @ObservationIgnored var pasteboard = NSPasteboard.general
-    @ObservationIgnored private let historyStore = JSONStore<[ClipboardItem]>("clipboard-history", default: [])
+    @ObservationIgnored private let historyStore = JSONStore<[ClipboardItem]>("clipboard-history", default: [], excludeFromBackup: true)
     @ObservationIgnored private let settingsStore = JSONStore<ClipboardSettings>("clipboard", default: ClipboardSettings())
     @ObservationIgnored private var keys: [UUID: String] = [:]
     @ObservationIgnored private var timer: Timer?
@@ -243,10 +243,15 @@ final class ClipboardModel: AppModule {
         let source = (name: front?.localizedName, id: front?.bundleIdentifier, path: front?.bundleURL?.path)
         let now = Date()
 
+        // The types were read for an earlier change: if another copy landed in between (a password manager writing
+        // its concealed item, typically), what was just read is not what they described. Left for the next poll.
+        func unchanged() -> Bool { pb.changeCount == change }
+
         if types.contains(NSPasteboard.PasteboardType.fileURL.rawValue) {
             // Files left out: the file name the Finder also puts on the clipboard as text is not kept either.
             guard settings.keepFiles else { return }
             if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+                guard unchanged() else { return }
                 let paths = urls.map(\.path)
                 add(ClipboardItem(kind: .files, files: paths, digest: ClipboardStorage.digest(Data(paths.joined(separator: "\n").utf8)),
                                   date: now, firstDate: now, appName: source.name, appBundleID: source.id, appPath: source.path))
@@ -254,7 +259,13 @@ final class ClipboardModel: AppModule {
             }
         }
         if let text = pb.string(forType: .string), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard unchanged() else { return }
             guard text.utf8.count <= ClipboardHistory.maxTextBytes else { skipped += 1; return }
+            // A key, a token or a password copied from a browser or a terminal carries no marker: recognized by its look.
+            if settings.skipSecrets && ClipboardFilter.looksSecret(text) {
+                skipped += 1
+                return
+            }
             add(ClipboardItem(kind: .text, text: text, digest: ClipboardStorage.digest(Data(text.utf8)),
                               date: now, firstDate: now, appName: source.name, appBundleID: source.id, appPath: source.path))
             return
@@ -262,7 +273,7 @@ final class ClipboardModel: AppModule {
         guard settings.keepImages else { return }
         let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff, NSPasteboard.PasteboardType("public.jpeg"), NSPasteboard.PasteboardType("public.heic")]
         guard let type = imageTypes.first(where: { types.contains($0.rawValue) }), let data = pb.data(forType: type),
-              data.count <= ClipboardStorage.maxImageBytes else { return }
+              unchanged(), data.count <= ClipboardStorage.maxImageBytes else { return }
         Task.detached(priority: .utility) { [self] in
             guard let p = ClipboardStorage.prepare(data) else { return }
             await MainActor.run {

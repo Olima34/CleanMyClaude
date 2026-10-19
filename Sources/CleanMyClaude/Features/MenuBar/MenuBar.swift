@@ -223,7 +223,7 @@ enum QuickActions {
     }
 
     static func flushDNS() -> String? {
-        let r = Shell.runAsAdmin("dscacheutil -flushcache; killall -HUP mDNSResponder")
+        let r = Shell.runAsAdmin("/usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder")
         return r.ok ? "Cache DNS vidé." : (r.err == "Opération annulée." ? nil : r.err)
     }
 
