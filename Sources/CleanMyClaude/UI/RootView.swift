@@ -6,7 +6,6 @@ struct RootView: View {
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        @Bindable var app = app
         Group {
             // A closed window would keep redrawing its pages and running their timers (processes, network):
             // they go away with it, so their onDisappear runs, and come back when it reopens.
@@ -24,21 +23,22 @@ struct RootView: View {
                 Color.clear
             }
         }
-        // A new version of the app: the panel in the middle, nothing behind it answers until the user does.
-        .disabled(app.updates.selfUpdate.panelVisible)
-        .allowsHitTesting(!app.updates.selfUpdate.panelVisible)
+        // The first-launch cards, or a new version of the app: a panel in the middle, nothing behind it answers
+        // until the user does. The cards come first; a new version waits for them.
+        .disabled(app.showOnboarding || app.updates.selfUpdate.panelVisible)
+        .allowsHitTesting(!app.showOnboarding && !app.updates.selfUpdate.panelVisible)
         .overlay {
-            if app.mainWindowOpen && app.updates.selfUpdate.panelVisible {
+            if app.mainWindowOpen && app.showOnboarding {
+                OnboardingModal()
+            } else if app.mainWindowOpen && app.updates.selfUpdate.panelVisible {
                 UpdatesSelfModal()
             }
         }
+        .animation(.easeOut(duration: 0.2), value: app.showOnboarding)
         .animation(.easeOut(duration: 0.2), value: app.updates.selfUpdate.panelVisible)
         .ignoresSafeArea()
         .background(Theme.bg)
         .tint(Theme.accent)
-        .sheet(isPresented: $app.showOnboarding) {
-            OnboardingView().environment(app)
-        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             app.refreshPermissions()
         }
@@ -272,103 +272,5 @@ struct SidebarItem: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-    }
-}
-
-// MARK: - Onboarding
-
-struct OnboardingView: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        VStack(spacing: 22) {
-            HStack(spacing: 14) {
-                ClaudeSpark(size: 40, animate: true)
-                PixelMascot(pixel: 6, broom: true)
-            }
-            .padding(.top, 8)
-            VStack(spacing: 8) {
-                Text("Bienvenue dans Clean My Claude").font(.serif(28)).foregroundStyle(Theme.text)
-                Text("Tu me demandes de faire le ménage, je m'en occupe. Trois promesses avant de commencer :")
-                    .font(.ui(13)).foregroundStyle(Theme.text2).multilineTextAlignment(.center)
-            }
-            VStack(alignment: .leading, spacing: 14) {
-                promise("hand.raised", "Rien sans ton accord", "J'analyse en lecture seule. Je ne supprime que ce que tu coches, après confirmation.")
-                promise("arrow.uturn.backward", "Le plus prudent d'abord", "Les caches se suppriment (les apps les recréent), tout le reste passe par la Corbeille. Un journal note chaque action.")
-                promise("lock", "Rien ne sort sans ton clic", "Tes données restent sur ton Mac. Les rares connexions (test de débit, mises à jour de tes apps, Assistant Claude) partent seulement quand tu cliques. Seule exception, que tu peux couper : je demande à GitHub s'il existe une nouvelle version de moi-même. Le code est ouvert, sur GitHub.")
-            }
-            .padding(18)
-            .background(RoundedRectangle(cornerRadius: Theme.r(14)).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: Theme.r(14)).strokeBorder(Theme.border, lineWidth: Theme.line))
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
-                    Image(systemName: app.fullDiskAccess ? "checkmark.circle.fill" : "externaldrive.badge.checkmark")
-                        .foregroundStyle(app.fullDiskAccess ? Theme.good : Theme.accent)
-                    Text(app.fullDiskAccess ? "Accès complet au disque accordé" : "Recommandé : l'accès complet au disque")
-                        .font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                }
-                if !app.fullDiskAccess {
-                    Text("Sans lui, macOS me cache la Corbeille, les pièces jointes de Mail et la liste des autorisations. Active Clean My Claude dans Réglages › Confidentialité et sécurité › Accès complet au disque.")
-                        .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    Button("Ouvrir le réglage") { Finder.open(Permissions.fullDiskAccessURL) }
-                        .buttonStyle(SoftButtonStyle())
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("Les autres autorisations, je ne te les demanderai qu'au moment où tu en auras besoin, ou toutes d'un coup :")
-                        .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    Button(PermissionCenter.shared.isRunning ? "En cours…" : "Tout autoriser") {
-                        Task { await PermissionCenter.shared.requestAll() }
-                    }
-                    .buttonStyle(SoftButtonStyle(small: true))
-                    .disabled(PermissionCenter.shared.isRunning)
-                }
-                later("rectangle.split.2x1", "Accessibilité", "ranger tes fenêtres au clavier et coller depuis l'historique du presse-papiers")
-                later("location", "Localisation", "afficher le nom de ton réseau Wi-Fi (macOS le cache sans elle)")
-                later("bell", "Notifications", "te prévenir quand la mémoire sature ou qu'une automatisation a travaillé")
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: "command").font(.ui(11, .semibold)).foregroundStyle(Theme.brand)
-                    Text("Je reste discret, sans icône dans le Dock : \(app.launcher.combo?.display ?? "⌥Espace") ouvre le lanceur depuis n'importe quelle app, et l'étincelle de la barre des menus me rouvre.")
-                        .font(.ui(12, .medium)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.top, 4)
-                if !Snapshot.isActive { LaunchAtLoginToggle().font(.ui(12)) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
-                app.finishOnboarding()
-            } label: {
-                Text("C'est parti").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(SoftButtonStyle(prominent: true))
-            .keyboardShortcut(.defaultAction)
-        }
-        .padding(28)
-        .frame(width: 520)
-        .background(Theme.bg)
-    }
-
-    private func later(_ symbol: String, _ title: String, _ use: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Image(systemName: symbol).font(.ui(11)).foregroundStyle(Theme.text3).frame(width: 16)
-            (Text(title).font(.ui(12, .semibold)).foregroundColor(Theme.text) + Text(" : pour " + use + ".").font(.ui(12)).foregroundColor(Theme.text2))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func promise(_ symbol: String, _ title: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol).font(.ui(14, .medium)).foregroundStyle(Theme.good).frame(width: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                Text(text).font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-            }
-        }
     }
 }

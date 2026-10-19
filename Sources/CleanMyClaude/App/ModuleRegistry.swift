@@ -15,8 +15,8 @@ struct QuickToggle: Identifiable {
 protocol AppModule: AnyObject {
     /// Short text next to the module in the sidebar (a count, a size…), or nil.
     var sidebarBadge: String? { get }
-    /// Called once at launch of the real app (never in demo, snapshot or command line modes):
-    /// register hot keys, timers, scheduler jobs, observers.
+    /// Called once at launch of the real app (never in demo, snapshot or command line modes), or at the end of the
+    /// first-launch cards: register hot keys, timers, scheduler jobs, observers.
     func start(app: AppModel)
     func stop()
     /// Fills the module with fictional data for `--demo` (README screenshots).
@@ -75,15 +75,17 @@ enum ModuleRegistry {
         modules(app).first { $0.page == page }?.module
     }
 
-    static func startAll(_ app: AppModel) {
+    /// `only`: just these pages' modules (`AppModel.startModules` holds the others back during the first-launch cards).
+    static func startAll(_ app: AppModel, only pages: Set<Page>? = nil) {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
-        for (_, m) in modules(app) { m.start(app: app) }
+        for (page, m) in modules(app) where pages?.contains(page) ?? true { m.start(app: app) }
     }
 
     /// Called when the app quits: modules release what they hold (Caféine, timers) and save their data.
-    static func stopAll(_ app: AppModel) {
+    /// `only`: the modules that were started.
+    static func stopAll(_ app: AppModel, only pages: Set<Page>? = nil) {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
-        for (_, m) in modules(app) { m.stop() }
+        for (page, m) in modules(app) where pages?.contains(page) ?? true { m.stop() }
     }
 
     static func loadDemo(_ app: AppModel) {

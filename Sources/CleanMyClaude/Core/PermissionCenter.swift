@@ -185,9 +185,9 @@ final class PermissionCenter {
 
     // MARK: Asking
 
-    /// Asks for everything still missing, one after the other: macOS' own prompts first, then the two
-    /// System Settings switches (the pane opens and the app waits until the switch is on, or « Passer »).
-    func requestAll() async {
+    /// Asks for everything still missing (or only `kinds`, in their order), one after the other: macOS' own prompts
+    /// first, then the two System Settings switches (the pane opens and the app waits until the switch is on, or « Passer »).
+    func requestAll(_ kinds: [PermissionKind] = PermissionKind.allCases) async {
         guard !isRunning, !DemoData.isEnabled else { return }
         isRunning = true
         defer {
@@ -196,7 +196,7 @@ final class PermissionCenter {
             waitingForSettings = false
         }
         await refresh()
-        for kind in PermissionKind.allCases where states[kind] != .granted {
+        for kind in kinds where states[kind] != .granted {
             current = kind
             await request(kind)
             await refresh()

@@ -174,8 +174,25 @@ final class AppModel {
     }
 
     func finishOnboarding() {
-        UserDefaults.standard.set(true, forKey: Preferences.onboardedKey)
+        if !DemoData.isEnabled { UserDefaults.standard.set(true, forKey: Preferences.onboardedKey) }
         showOnboarding = false
+        startModules()
+    }
+
+    // MARK: Modules
+
+    /// The modules started so far.
+    @ObservationIgnored private(set) var startedModules: Set<Page> = []
+
+    /// Starts the modules at launch. While the first-launch cards are up only the launcher starts (its shortcut, the
+    /// list of apps): the others wait for the last card, so that nothing they do at launch (file index, folder
+    /// watchers, automations, clipboard) brings a macOS question before the Autorisations card has explained it.
+    func startModules() {
+        let pages: Set<Page> = showOnboarding ? [.launcher] : Set(ModuleRegistry.modules(self).map(\.page))
+        let new = pages.subtracting(startedModules)
+        guard !new.isEmpty else { return }
+        startedModules.formUnion(new)
+        ModuleRegistry.startAll(self, only: new)
     }
 
     // MARK: Health

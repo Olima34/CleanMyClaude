@@ -293,7 +293,20 @@ enum Snapshot {
             shots.append(("menubar-panel", AnyView(MenuBarPanel())))
         }
         if everything || only == .dashboard {
-            shots.append(("onboarding-panel", AnyView(OnboardingView())))
+            // The first-launch cards, one picture each (`--tab barre` keeps only that one), then as the user sees
+            // them: in the middle of the window, the dashboard dimmed behind them.
+            let tab = Entry.value(after: "--tab")
+            for slide in OnboardingSlide.allCases where tab == nil || tab == slide.snapshotName {
+                shots.append(("onboarding-\(slide.snapshotName)-panel", AnyView(OnboardingPanel(start: slide))))
+            }
+            shots.append(("onboarding-window-panel", AnyView(
+                PageView(page: .dashboard)
+                    .padding(32)
+                    .frame(width: 1180, height: 760, alignment: .top)
+                    .clipped()
+                    .background(Theme.bg)
+                    .overlay { OnboardingModal() }
+            )))
         }
         if everything || only == .updates {
             // Clean My Claude's own update panel (`--tab maj-telechargement`, `maj-prete`… for its other steps).
@@ -324,8 +337,9 @@ enum Snapshot {
             if let p = Page(rawValue: name) { model.page = p }
             let content = view
                 .environment(model)
-                .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "onboarding-panel": 520,
-                               "appearance-panel": AppearanceSettings.width, "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180][name] ?? 1180)
+                .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "appearance-panel": AppearanceSettings.width,
+                               "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180][name]
+                       ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)

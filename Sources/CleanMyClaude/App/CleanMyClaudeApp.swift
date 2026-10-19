@@ -144,8 +144,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // Before the first window: a theme that is always light or dark sets the appearance of every window.
+        // Before the first window: a theme that is always light or dark sets the appearance of every window,
+        // and the first-launch cards show the login item as it really is.
         MainActor.assumeIsolated { ThemeStore.shared.applyAppearance() }
+        LoginItem.applyDefaultOnce()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -160,7 +162,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 NSApp.activate(ignoringOtherApps: true)
             }
-            LoginItem.applyDefaultOnce()
             NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: nil, queue: .main) { note in
                 guard let w = note.object as? NSWindow else { return }
                 MainActor.assumeIsolated {
@@ -197,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let app = AppContext.model {
                 statusItem = StatusItemController(app: app)
                 AppContext.noteMainWindowVisibility()
-                ModuleRegistry.startAll(app)
+                app.startModules()
             }
             NotificationCenter.default.addObserver(forName: .openMainWindow, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { AppContext.showMainWindow() }
@@ -223,7 +224,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Modules release what they hold (Caféine, timers) and save their data.
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
-            if let app = AppContext.model { ModuleRegistry.stopAll(app) }
+            if let app = AppContext.model { ModuleRegistry.stopAll(app, only: app.startedModules) }
         }
     }
 

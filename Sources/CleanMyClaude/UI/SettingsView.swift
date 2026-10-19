@@ -35,6 +35,15 @@ struct GeneralSettings: View {
                 Toggle("Alertes disque plein et mémoire saturée", isOn: $alerts)
                     .onChange(of: alerts) { _, on in if on { Alerts.requestPermission() } }
                     .disabled(!Alerts.available)
+                HStack {
+                    Text("Présentation de l'app")
+                    Spacer()
+                    Button("Revoir") {
+                        app.showOnboarding = true
+                        AppContext.showMainWindow()
+                    }
+                    .disabled(app.showOnboarding)
+                }
             }
             Section {
                 Toggle("Rechercher les nouvelles versions de Clean My Claude", isOn: $autoUpdate)
