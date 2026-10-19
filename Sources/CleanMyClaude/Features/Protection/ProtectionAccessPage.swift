@@ -105,7 +105,7 @@ struct ExtensionsPanel: View {
                                     Tag(text: e.browser, tint: Theme.text3)
                                     if !e.enabled { Tag(text: "Désactivée", tint: Theme.text3) }
                                 }
-                                Text(e.forced ? "Imposée par un réglage (politique ou profil)" : (e.readsEverything ? "Peut lire et modifier toutes les pages" : "Accès limité à certains sites"))
+                                Text(e.forced ? "Installée par un réglage ou un autre programme, pas par toi" : (e.readsEverything ? "Peut lire et modifier toutes les pages" : "Accès limité à certains sites"))
                                     .font(.ui(11)).foregroundStyle(e.forced ? Theme.bad : Theme.text3)
                             }
                             Spacer()

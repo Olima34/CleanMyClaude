@@ -2,6 +2,7 @@ import Foundation
 import CoreAudio
 import CoreMediaIO
 import SystemConfiguration
+import AppKit
 
 /// What real-time protection watches. Everything is off until the user turns it on (notifications are asked then).
 struct ProtectionRealtimeSettings: Codable, Equatable {
@@ -84,22 +85,61 @@ final class ProtectionMonitor {
 
     // MARK: Folders
 
+    /// Folders that do not exist yet, waited for in their parent (a fresh account has no ~/Library/LaunchAgents:
+    /// the first agent to come creates it).
+    private var waiting: [String: DispatchSourceFileSystemObject] = [:]
+
     private func watch(_ folder: String) {
         guard folderSources[folder] == nil else { return }
         let fd = open(folder, O_EVTONLY)
-        guard fd >= 0 else { return }
+        guard fd >= 0 else {
+            waitFor(folder)
+            return
+        }
+        waiting.removeValue(forKey: folder)?.cancel()
         known[folder] = Set(FS.children(folder, hidden: true))
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
-        source.setEventHandler { [weak self] in
-            MainActor.assumeIsolated { self?.changed(folder) }
+        source.setEventHandler { [weak self, weak source] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                // The folder itself was removed or replaced: watched again where it is now (or waited for).
+                if let events = source?.data, events.contains(.delete) || events.contains(.rename) {
+                    self.folderSources.removeValue(forKey: folder)?.cancel()
+                    self.watch(folder)
+                    return
+                }
+                self.changed(folder)
+            }
         }
         source.setCancelHandler { close(fd) }
         source.resume()
         folderSources[folder] = source
     }
 
+    private func waitFor(_ folder: String) {
+        guard waiting[folder] == nil else { return }
+        let parent = (folder as NSString).deletingLastPathComponent
+        let fd = open(parent, O_EVTONLY)
+        guard fd >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write], queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, FS.isDirectory(folder) else { return }
+                self.waiting.removeValue(forKey: folder)?.cancel()
+                // Everything already in it is new.
+                self.watch(folder)
+                self.known[folder] = []
+                self.changed(folder)
+            }
+        }
+        source.setCancelHandler { close(fd) }
+        source.resume()
+        waiting[folder] = source
+    }
+
     private func unwatch(_ folder: String) {
         folderSources.removeValue(forKey: folder)?.cancel()
+        waiting.removeValue(forKey: folder)?.cancel()
         known[folder] = nil
     }
 
@@ -209,43 +249,64 @@ final class ProtectionMonitor {
 
     // MARK: Camera and microphone
 
+    private var processListeners: [() -> Void] = []
+
     private func startDevices() {
         guard deviceListeners.isEmpty else { return }
-        // Microphone: the default input device, followed when it changes.
-        var defaultInput = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDefaultInputDevice,
-                                                      mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        let micBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+        let changed: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.checkMicrophone() } }
         }
-        var running = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var inputs: [AudioObjectID] = []
-        if let devices = audioInputDevices() {
-            for d in devices where AudioObjectAddPropertyListenerBlock(d, &running, .main, micBlock) == noErr { inputs.append(d) }
+        let rearm: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.rearmDevices() } }
         }
-        let systemBlock: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
-            DispatchQueue.main.async { MainActor.assumeIsolated { self?.checkMicrophone() } }
+        let system = AudioObjectID(kAudioObjectSystemObject)
+        // A microphone or camera plugged in later is watched too.
+        var devicesAddress = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal,
+                                                        mElement: kAudioObjectPropertyElementMain)
+        AudioObjectAddPropertyListenerBlock(system, &devicesAddress, .main, rearm)
+        deviceListeners.append { AudioObjectRemovePropertyListenerBlock(system, &devicesAddress, .main, rearm) }
+        if #available(macOS 14.2, *) {
+            // Which process records, not whether a device runs: a headset playing music is no microphone in use.
+            var list = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList, mScope: kAudioObjectPropertyScopeGlobal,
+                                                  mElement: kAudioObjectPropertyElementMain)
+            let processes: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self?.armProcesses()
+                        self?.checkMicrophone()
+                    }
+                }
+            }
+            AudioObjectAddPropertyListenerBlock(system, &list, .main, processes)
+            deviceListeners.append { AudioObjectRemovePropertyListenerBlock(system, &list, .main, processes) }
+            armProcesses()
+        } else {
+            var running = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+                                                     mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+            var inputs: [AudioObjectID] = []
+            for d in audioInputDevices() ?? [] where AudioObjectAddPropertyListenerBlock(d, &running, .main, changed) == noErr { inputs.append(d) }
+            deviceListeners.append { for i in inputs { AudioObjectRemovePropertyListenerBlock(i, &running, .main, changed) } }
         }
-        AudioObjectAddPropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &defaultInput, .main, systemBlock)
-        deviceListeners.append {
-            var r = running
-            var d = defaultInput
-            for i in inputs { AudioObjectRemovePropertyListenerBlock(i, &r, .main, micBlock) }
-            AudioObjectRemovePropertyListenerBlock(AudioObjectID(kAudioObjectSystemObject), &d, .main, systemBlock)
-        }
-        // Cameras.
+        // Cameras, and the list of cameras.
         var camRunning = CMIOObjectPropertyAddress(mSelector: CMIOObjectPropertySelector(kCMIODevicePropertyDeviceIsRunningSomewhere),
                                                    mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeWildcard),
                                                    mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementWildcard))
         let camBlock: CMIOObjectPropertyListenerBlock = { [weak self] _, _ in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.checkCamera() } }
         }
-        let cameras = cameraDevices()
         var watched: [CMIOObjectID] = []
-        for c in cameras where CMIOObjectAddPropertyListenerBlock(c, &camRunning, .main, camBlock) == noErr { watched.append(c) }
+        for c in cameraDevices() where CMIOObjectAddPropertyListenerBlock(c, &camRunning, .main, camBlock) == noErr { watched.append(c) }
+        var camList = CMIOObjectPropertyAddress(mSelector: CMIOObjectPropertySelector(kCMIOHardwarePropertyDevices),
+                                                mScope: CMIOObjectPropertyScope(kCMIOObjectPropertyScopeGlobal),
+                                                mElement: CMIOObjectPropertyElement(kCMIOObjectPropertyElementMain))
+        let camRearm: CMIOObjectPropertyListenerBlock = { [weak self] _, _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.rearmDevices() } }
+        }
+        let cmioSystem = CMIOObjectID(kCMIOObjectSystemObject)
+        CMIOObjectAddPropertyListenerBlock(cmioSystem, &camList, .main, camRearm)
         deviceListeners.append {
-            var r = camRunning
-            for c in watched { CMIOObjectRemovePropertyListenerBlock(c, &r, .main, camBlock) }
+            for c in watched { CMIOObjectRemovePropertyListenerBlock(c, &camRunning, .main, camBlock) }
+            CMIOObjectRemovePropertyListenerBlock(cmioSystem, &camList, .main, camRearm)
         }
         micOn = microphoneInUse()
         cameraOn = cameraInUse()
@@ -254,16 +315,51 @@ final class ProtectionMonitor {
     private func stopDevices() {
         deviceListeners.forEach { $0() }
         deviceListeners = []
+        processListeners.forEach { $0() }
+        processListeners = []
+    }
+
+    /// The devices changed (one plugged or unplugged): listeners again on the new list, state kept.
+    private func rearmDevices() {
+        guard !deviceListeners.isEmpty else { return }
+        let mic = micOn, cam = cameraOn
+        stopDevices()
+        startDevices()
+        micOn = mic
+        cameraOn = cam
+        checkMicrophone()
+        checkCamera()
+    }
+
+    /// A listener on each audio client's "recording" state (macOS 14.2 and later).
+    private func armProcesses() {
+        guard #available(macOS 14.2, *) else { return }
+        processListeners.forEach { $0() }
+        processListeners = []
+        let block: AudioObjectPropertyListenerBlock = { [weak self] _, _ in
+            DispatchQueue.main.async { MainActor.assumeIsolated { self?.checkMicrophone() } }
+        }
+        var input = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyIsRunningInput, mScope: kAudioObjectPropertyScopeGlobal,
+                                               mElement: kAudioObjectPropertyElementMain)
+        var armed: [AudioObjectID] = []
+        for p in audioProcesses() where AudioObjectAddPropertyListenerBlock(p, &input, .main, block) == noErr { armed.append(p) }
+        processListeners.append { for p in armed { AudioObjectRemovePropertyListenerBlock(p, &input, .main, block) } }
     }
 
     private func checkMicrophone() {
-        let on = microphoneInUse()
+        let users = microphoneUsers()
+        let on = users.map { !$0.isEmpty } ?? microphoneInUse()
         guard on != micOn else { return }
         micOn = on
-        onEvent(ProtectionEvent(kind: .microphone, title: on ? "Le micro s'est allumé" : "Le micro s'est éteint",
-                                detail: on ? "Une app écoute. Le point orange de la barre des menus, dans le Centre de contrôle, dit laquelle." : "Plus aucune app n'écoute.",
+        let who = users.flatMap { $0.isEmpty ? nil : $0.joined(separator: ", ") }
+        onEvent(ProtectionEvent(kind: .microphone, title: on ? (who.map { "Le micro s'est allumé : \($0)" } ?? "Le micro s'est allumé") : "Le micro s'est éteint",
+                                detail: on ? (who.map { "\($0) enregistre ce que tu dis." } ?? "Une app écoute. Le point orange de la barre des menus, dans le Centre de contrôle, dit laquelle.")
+                                           : "Plus aucune app n'écoute.",
                                 severity: (on ? Status.warn : Status.info).rawValue), nil)
-        if on { Notifier.post(id: "protection.mic", title: "Le micro est allumé", body: "Une app écoute ce que tu dis. Le Centre de contrôle indique laquelle.", throttle: 30) }
+        if on {
+            Notifier.post(id: "protection.mic", title: "Le micro est allumé",
+                          body: who.map { "\($0) écoute ce que tu dis." } ?? "Une app écoute ce que tu dis. Le Centre de contrôle indique laquelle.", throttle: 30)
+        }
     }
 
     private func checkCamera() {
@@ -276,10 +372,45 @@ final class ProtectionMonitor {
         if on { Notifier.post(id: "protection.camera", title: "La caméra est allumée", body: "Une app te filme. Le Centre de contrôle indique laquelle.", throttle: 30) }
     }
 
-    /// For `--dump`: whether a camera or a microphone is in use right now.
-    static func devicesInUse() -> (camera: Bool, microphone: Bool) {
+    /// The audio clients macOS knows (macOS 14.2 and later).
+    private func audioProcesses() -> [AudioObjectID] {
+        guard #available(macOS 14.2, *) else { return [] }
+        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList, mScope: kAudioObjectPropertyScopeGlobal,
+                                                 mElement: kAudioObjectPropertyElementMain)
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &ids) == noErr else { return [] }
+        return ids
+    }
+
+    /// The apps recording from a microphone right now, or nil before macOS 14.2 (no way to tell then).
+    private func microphoneUsers() -> [String]? {
+        guard #available(macOS 14.2, *) else { return nil }
+        var names: [String] = []
+        for p in audioProcesses() {
+            var input = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyIsRunningInput, mScope: kAudioObjectPropertyScopeGlobal,
+                                                   mElement: kAudioObjectPropertyElementMain)
+            var running: UInt32 = 0
+            var size = UInt32(MemoryLayout<UInt32>.size)
+            guard AudioObjectGetPropertyData(p, &input, 0, nil, &size, &running) == noErr, running != 0 else { continue }
+            var pidAddress = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyPID, mScope: kAudioObjectPropertyScopeGlobal,
+                                                        mElement: kAudioObjectPropertyElementMain)
+            var pid: pid_t = 0
+            size = UInt32(MemoryLayout<pid_t>.size)
+            AudioObjectGetPropertyData(p, &pidAddress, 0, nil, &size, &pid)
+            let name = NSRunningApplication(processIdentifier: pid)?.localizedName
+                ?? NetworkPorts.executablePath(pid).map { ($0 as NSString).lastPathComponent } ?? "Une app"
+            if !names.contains(name) { names.append(name) }
+        }
+        return names
+    }
+
+    /// For `--dump`: whether a camera or a microphone is in use right now, and by whom when macOS says it.
+    static func devicesInUse() -> (camera: Bool, microphone: Bool, users: [String]) {
         let m = ProtectionMonitor()
-        return (m.cameraInUse(), m.microphoneInUse())
+        let users = m.microphoneUsers()
+        return (m.cameraInUse(), users.map { !$0.isEmpty } ?? m.microphoneInUse(), users ?? [])
     }
 
     private func audioInputDevices() -> [AudioObjectID]? {

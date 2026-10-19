@@ -8,7 +8,8 @@ enum ProtectionHeuristics {
     private static let patterns: [NSRegularExpression] = [
         // curl … https://… | sh
         #"(curl|wget)\b[^|;&\n]*https?://[^|;&\n]*\|\s*(sudo\s+)?(/bin/|/usr/bin/(env\s+)?)?(ba|z|da|k)?sh\b"#,
-        #"(curl|wget)\b[^|;&\n]*https?://[^|;&\n]*\|\s*(/usr/bin/)?(python3?|perl|ruby|osascript)\b"#,
+        // … | python3 (or perl, ruby, osascript) reading the download as its program, not `| python3 -m json.tool`
+        #"(curl|wget)\b[^|;&\n]*https?://[^|;&\n]*\|\s*(/usr/bin/)?(python3?|perl|ruby|osascript)\s*(-\s*)?($|[;&)'"])"#,
         // a download written to a shared folder, then made executable or run
         #"(curl|wget)\b[^\n]*-o\s*['"]?/(private/)?(tmp|var/tmp|Users/Shared)/[^\n]*(chmod\s+\+?[0-7]*x|&&\s*/(private/)?(tmp|var/tmp|Users/Shared)/|open\s)"#,
         // base64 decoded straight into an interpreter
@@ -25,22 +26,29 @@ enum ProtectionHeuristics {
         return patterns.contains { $0.firstMatch(in: text, range: range) != nil }
     }
 
-    /// A launch item that runs an interpreter on a script file: the script's own content.
+    /// A launch item that runs an interpreter on a script file: the script's own lines (comments left out).
     static func scriptDownloads(arguments: [String]) -> Bool {
         for a in arguments.dropFirst() where a.hasPrefix("/") {
-            guard let h = FileHandle(forReadingAtPath: a), let d = try? h.read(upToCount: 64 << 10) else { continue }
+            // A regular file only: a pipe given as argument would block the scan.
+            var st = stat()
+            guard lstat(a, &st) == 0, st.st_mode & S_IFMT == S_IFREG,
+                  let h = FileHandle(forReadingAtPath: a), let d = try? h.read(upToCount: 64 << 10) else { continue }
             try? h.close()
-            if isDownloader(String(decoding: d, as: UTF8.self)) { return true }
+            let code = String(decoding: d, as: UTF8.self).split(separator: "\n")
+                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }.joined(separator: "\n")
+            if isDownloader(code) { return true }
         }
         return false
     }
+
+    private static let libraryInjection = try? NSRegularExpression(pattern: #"^(export\s+)?DYLD_INSERT_LIBRARIES=\S"#)
 
     /// Lines of a shell startup file (~/.zshrc…) that run code from elsewhere or inject a library into every program.
     static func suspiciousLines(_ text: String) -> [String] {
         text.split(separator: "\n").map(String.init).filter { line in
             let l = line.trimmingCharacters(in: .whitespaces)
             guard !l.hasPrefix("#") else { return false }
-            return isDownloader(l) || l.contains("DYLD_INSERT_LIBRARIES")
+            return isDownloader(l) || libraryInjection?.firstMatch(in: l, range: NSRange(l.startIndex..., in: l)) != nil
         }
     }
 }
@@ -289,11 +297,14 @@ enum ProtectionThreatScanner {
 
     /// `wholeBundles`: every library of an app is read (trojanized copies hide a dylib in Frameworks), except in apps
     /// Apple signed; otherwise only its programs.
-    static func walk(_ root: String, depth: Int, wholeBundles: Bool = false, isCancelled: () -> Bool, into out: inout Set<String>) {
+    /// `limit`: past that many files found, no folder is entered any more.
+    static func walk(_ root: String, depth: Int, wholeBundles: Bool = false, limit: Int = .max, isCancelled: () -> Bool,
+                     into out: inout Set<String>) {
         let base = root.split(separator: "/").count
         FileSizer.walk(root, isCancelled: isCancelled) { ent in
             let path = String(cString: ent.pointee.fts_path)
             let name = (path as NSString).lastPathComponent
+            if out.count >= limit { return false }
             switch Int32(ent.pointee.fts_info) {
             case FTS_D:
                 if path != root && (skippedNames.contains(name) || path.hasSuffix("/Library/Developer")) { return false }
@@ -442,25 +453,43 @@ enum ProtectionThreatScanner {
         }
     }
 
+    /// Where shared interpreters and tools live: never removed with a launch item that merely runs them.
+    static func isSharedTool(_ path: String) -> Bool {
+        let name = (path as NSString).lastPathComponent
+        if LaunchItemScanner.interpreters.contains(name) || name.hasPrefix("python") || name.hasPrefix("node") { return true }
+        return !Shell.isThirdParty(path) || Shell.homebrewFolders.contains { path.hasPrefix($0 + "/") }
+            || path.hasPrefix("/opt/homebrew/") || path.hasPrefix("/usr/local/Cellar/")
+    }
+
     static func persistenceThreats(_ items: [LaunchItem]) -> [ProtectionThreat] {
         items.compactMap { item in
-            let serious = item.flags.filter { [.knownMalware, .impersonatesApple, .downloader].contains($0) }
+            let identity = item.flags.filter { [.knownMalware, .impersonatesApple].contains($0) }
             // Unsigned and hidden, or in a shared folder: the usual hiding place of a dropper.
             let hidden = item.flags.contains(.unusualLocation) && (item.flags.contains(.unsigned) || item.flags.contains(.adhoc) || item.flags.contains(.script))
-            guard !serious.isEmpty || hidden else { return nil }
+            let downloads = item.flags.contains(.downloader)
+            guard !identity.isEmpty || hidden || downloads else { return nil }
+            // One signal alone (downloads, or hides) deserves a look; together, or an identity theft, it is a threat.
+            let bad = !identity.isEmpty || (downloads && (hidden || item.flags.contains(.unsigned) || item.flags.contains(.recent)))
             var removable = [item.plistPath]
-            if let p = item.program, p.hasPrefix("/"), Shell.isThirdParty(p), FS.exists(p) { removable.append(container(of: p)) }
-            let why = (serious.isEmpty ? [LaunchFlag.unusualLocation] : serious).map(\.rawValue).joined(separator: ", ")
-            return ProtectionThreat(kind: .persistence, severity: (serious.isEmpty ? Status.warn : Status.bad).rawValue, name: item.label,
+            if let p = item.program, p.hasPrefix("/"), FS.exists(p), !isSharedTool(p) {
+                removable.append(container(of: p))
+            } else {
+                // An interpreter (python3, node, sh…): the script it runs goes, never the interpreter.
+                for a in item.arguments.dropFirst() where a.hasPrefix("/") && FS.exists(a) && !FS.isDirectory(a) && !isSharedTool(a) {
+                    removable.append(a)
+                }
+            }
+            let signals = identity + (downloads ? [LaunchFlag.downloader] : []) + (hidden ? [LaunchFlag.unusualLocation] : [])
+            let why = signals.map(\.rawValue).joined(separator: ", ")
+            return ProtectionThreat(kind: .persistence, severity: (bad ? Status.bad : Status.warn).rawValue, name: item.label,
                                     detail: "Se lance à chaque démarrage. \(why) : \(item.commandLine)", path: item.plistPath,
                                     removable: removable,
                                     services: [item.domain == .globalDaemon ? "system/\(item.label)" : "gui/\(getuid())/\(item.label)"])
         }
     }
 
-    /// Apps whose signature no longer matches their content, and apps or Safari extensions of developers Apple blocks.
+    /// Apps whose signature no longer matches their content, and Safari extensions Apple blocks.
     static func appThreats(blocked: [String: Set<String>], isCancelled: () -> Bool) -> [ProtectionThreat] {
-        let blockedTeams = Set(blocked.values.flatMap { $0 }).subtracting(["*"])
         var out: [ProtectionThreat] = []
         for app in appBundles() where !isCancelled() {
             var code: SecStaticCode?
@@ -471,14 +500,6 @@ enum ProtectionThreatScanner {
                                             detail: "Son programme a été modifié après sa signature : version piratée, infectée ou abîmée. Réinstalle-la depuis la source officielle.",
                                             path: app, removable: [app]))
                 continue
-            }
-            var info: CFDictionary?
-            SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-            let dict = info as? [String: Any] ?? [:]
-            if let team = dict[kSecCodeInfoTeamIdentifier as String] as? String, blockedTeams.contains(team) {
-                out.append(ProtectionThreat(kind: .blocked, severity: Status.bad.rawValue, name: (app as NSString).lastPathComponent,
-                                            detail: "Signée par un développeur dont Apple bloque les extensions publicitaires (\(team)).",
-                                            path: app, removable: [app]))
             }
         }
         // Safari extensions on Apple's block list.
@@ -498,7 +519,7 @@ enum ProtectionThreatScanner {
             guard let text = try? String(contentsOfFile: path, encoding: .utf8) else { return nil }
             let lines = ProtectionHeuristics.suspiciousLines(text)
             guard let first = lines.first else { return nil }
-            return ProtectionThreat(kind: .startup, severity: Status.bad.rawValue, name: name,
+            return ProtectionThreat(kind: .startup, severity: Status.warn.rawValue, name: name,
                                     detail: "À chaque Terminal ouvert, cette ligne s'exécute : \(first.prefix(160)). Retire-la de ~/\(name).",
                                     path: path, removable: [])
         }
@@ -517,16 +538,17 @@ enum ProtectionThreatScanner {
         }
         var files: [String] = []
         if FS.isDirectory(path) {
+            // A whole folder dropped by mistake (the home folder…) stops at 5 000 programs.
             var found = Set<String>()
-            walk(path, depth: 8, wholeBundles: true, isCancelled: { false }, into: &found)
+            walk(path, depth: 8, wholeBundles: true, limit: 5_000, isCancelled: { false }, into: &found)
             if path.hasSuffix(".app") { found.formUnion(bundleExecutables(path)) }
-            files = found.sorted()
+            files = Array(found.sorted().prefix(5_000))
         } else {
             files = [path]
         }
         var hits: [ProtectionSignatureHit] = []
         if let sig = ProtectionSignatures.load() {
-            for f in files.prefix(5_000) { hits += ProtectionSignatureScanner.scan(f, with: sig) }
+            for f in files { hits += ProtectionSignatureScanner.scan(f, with: sig) }
         }
         let origin = downloadOrigin(path)
         let from = origin.map { " Téléchargé depuis \($0)." } ?? ""
@@ -598,7 +620,9 @@ enum ProtectionThreatScanner {
             if service.hasPrefix("system/") {
                 let label = String(service.dropFirst(7))
                 guard LaunchItemScanner.isPlainLabel(label) else { continue }
-                _ = Shell.runAsAdmin("/bin/launchctl bootout 'system/\(label)' 2>/dev/null; /bin/launchctl disable 'system/\(label)'; true")
+                // Stopped, not disabled for good: without its file (in the Trash) it does not come back, and put back
+                // from the Trash it starts again like before.
+                _ = Shell.runAsAdmin("/bin/launchctl bootout 'system/\(label)' 2>/dev/null; true")
             } else {
                 _ = Shell.run("/bin/launchctl", ["bootout", service])
             }
@@ -611,17 +635,23 @@ enum ProtectionThreatScanner {
         return report
     }
 
-    /// Ends the user's processes whose executable is one of `paths` or inside one of them.
+    /// Ends the user's processes whose executable is one of `paths` or inside one of them: asked to quit first,
+    /// forced a second later if still there.
     static func terminateProcesses(under paths: [String]) {
         let n = proc_listallpids(nil, 0)
         guard n > 0 else { return }
         var pids = [pid_t](repeating: 0, count: Int(n) + 64)
         let count = Int(proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size)))
         var buffer = [CChar](repeating: 0, count: 4 * Int(MAXPATHLEN))
+        var found: [pid_t] = []
         for pid in pids.prefix(max(0, count)) where pid > 1 && pid != getpid() {
             guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { continue }
             let exe = String(cString: buffer)
-            if paths.contains(where: { exe == $0 || exe.hasPrefix($0 + "/") }) { kill(pid, SIGKILL) }
+            if paths.contains(where: { exe == $0 || exe.hasPrefix($0 + "/") }) { found.append(pid) }
         }
+        guard !found.isEmpty else { return }
+        found.forEach { kill($0, SIGTERM) }
+        Thread.sleep(forTimeInterval: 1)
+        found.forEach { kill($0, SIGKILL) }
     }
 }

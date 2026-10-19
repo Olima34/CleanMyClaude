@@ -123,6 +123,8 @@ enum ProtectionSignatureScanner {
     static func probe(_ path: String) -> (kind: ProtectionFileKind, size: Int64)? {
         var st = stat()
         guard lstat(path, &st) == 0, st.st_mode & S_IFMT == S_IFREG, st.st_size >= 16 else { return nil }
+        // A file iCloud keeps online only: reading it would download it.
+        if st.st_flags & 0x4000_0000 != 0 { return nil }
         guard st.st_mode & 0o111 != 0 || extensions.contains((path as NSString).pathExtension.lowercased()) else { return nil }
         guard let h = FileHandle(forReadingAtPath: path) else { return nil }
         defer { try? h.close() }
@@ -133,8 +135,11 @@ enum ProtectionSignatureScanner {
 
     /// Runs the signatures that apply to this file. Must not run on the main thread.
     static func scan(_ path: String, with sig: ProtectionSignatures.Loaded) -> [ProtectionSignatureHit] {
-        guard let (kind, _) = probe(path),
-              let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: [.alwaysMapped, .uncached]) else { return [] }
+        // Read into memory: a mapped file that shrinks while it is read (a download restarted, a disk unplugged) would
+        // crash the app. Only the big ones are mapped.
+        guard let (kind, size) = probe(path),
+              let data = try? Data(contentsOf: URL(fileURLWithPath: path), options: size > 32 << 20 ? [.alwaysMapped, .uncached] : [.uncached])
+        else { return [] }
         return scan(data, kind: kind, with: sig)
     }
 

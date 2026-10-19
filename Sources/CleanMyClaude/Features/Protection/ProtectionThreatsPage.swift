@@ -233,7 +233,8 @@ struct ThreatActionBar: View {
         let services = list.flatMap(\.services)
         var text = files.prefix(8).map { "• " + FS.pretty($0) }.joined(separator: "\n")
         if files.count > 8 { text += "\n• et \(files.count - 8) autres" }
-        if !services.isEmpty { text += "\n\n\(Fmt.plural(services.count, "service est arrêté", "services sont arrêtés")) d'abord." }
+        text += "\n\n" + (services.isEmpty ? "" : "\(Fmt.plural(services.count, "service est arrêté", "services sont arrêtés")), puis ")
+            + (services.isEmpty ? "L" : "l") + "es programmes lancés depuis ces fichiers sont fermés."
         text += "\n\nTout va dans la Corbeille : tu peux le remettre en place tant que tu ne l'as pas vidée. Un élément du système demande ton mot de passe d'administrateur."
         return text
     }

@@ -65,8 +65,8 @@ enum LaunchFlag: String, Hashable {
 
     var severity: Status {
         switch self {
-        case .knownMalware, .impersonatesApple, .downloader, .invalidSignature, .unusualLocation: return .bad
-        case .unsigned, .orphan, .script, .adhoc: return .warn
+        case .knownMalware, .impersonatesApple, .invalidSignature, .unusualLocation: return .bad
+        case .downloader, .unsigned, .orphan, .script, .adhoc: return .warn
         case .recent: return .info
         }
     }
@@ -161,7 +161,8 @@ enum LaunchItemScanner {
             }
             let unusual = ["/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/", "/Users/Shared/"]
             let devHidden = ["/.venv/", "/.pyenv/", "/.nvm/", "/.local/", "/.cargo/", "/.bun/", "/.deno/", "/.rbenv/",
-                             "/.asdf/", "/.volta/", "/.npm-global/", "/.orbstack/", "/.docker/"]
+                             "/.asdf/", "/.volta/", "/.npm-global/", "/.orbstack/", "/.docker/", "/.nix-profile/", "/.mise/",
+                             "/.fnm/", "/.sdkman/", "/.jenv/", "/.proto/", "/.rustup/", "/.goenv/", "/.colima/", "/.lima/"]
             let hidden = program.contains("/.") && !devHidden.contains(where: { program.contains($0) })
             if unusual.contains(where: { program.hasPrefix($0) }) || hidden {
                 flags.append(.unusualLocation)

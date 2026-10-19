@@ -119,10 +119,11 @@ enum ProtectionExposure {
                   let settings = (json["extensions"] as? [String: Any])?["settings"] as? [String: Any] else { continue }
             for (id, raw) in settings {
                 guard let s = raw as? [String: Any], out[id] == nil else { continue }
-                // Location 5: component of the browser; 10: external component; 3 and 4: policy.
+                // Chromium's ManifestLocation: 5 and 10, the browser's own components; 7 and 9, a policy; 2 and 6, another
+                // program's "external extensions" file (an adware's favourite way in). 1 is the Web Store, 4 unpacked.
                 let location = s["location"] as? Int ?? 1
                 let disabled = (s["disable_reasons"] as? [Any]).map { !$0.isEmpty } ?? ((s["disable_reasons"] as? Int ?? 0) != 0)
-                out[id] = (!disabled && (s["state"] as? Int ?? 1) != 0, location == 3 || location == 4, location == 5 || location == 10)
+                out[id] = (!disabled && (s["state"] as? Int ?? 1) != 0, [2, 6, 7, 9].contains(location), location == 5 || location == 10)
             }
         }
         return out

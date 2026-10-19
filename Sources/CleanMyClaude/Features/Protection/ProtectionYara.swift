@@ -182,6 +182,11 @@ struct ProtectionYaraParser {
                 pos = start
                 let name = ruleName(at: start)
                 skipped.append(name)
+                // A global rule restricts every other one: without it they could all match too much.
+                if String(decoding: src[start..<min(src.count, start + 200)], as: UTF8.self)
+                    .split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).prefix(3).contains("global") {
+                    return ([], skipped + rules.map(\.name))
+                }
                 skipRule()
             }
         }

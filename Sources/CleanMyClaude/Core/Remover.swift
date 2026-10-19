@@ -185,8 +185,13 @@ enum Remover {
             return parts.count >= 3 || !dir
         case "Users":
             return parts.count >= 3 && parts[1] == "Shared"
+        // standardizingPath turns an existing /private/tmp/x into /tmp/x.
         case "private":
             return parts.count >= 3 && (parts[1] == "tmp" || (parts.count >= 4 && parts[1] == "var" && parts[2] == "tmp"))
+        case "tmp":
+            return parts.count >= 2
+        case "var":
+            return parts.count >= 3 && parts[1] == "tmp"
         case "usr":
             return parts.count >= 4 && parts[1] == "local"
         case "opt":

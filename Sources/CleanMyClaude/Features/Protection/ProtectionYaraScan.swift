@@ -452,12 +452,13 @@ private final class ProtectionYaraFile {
             if aborted { break }
             let gv = set.variantBase[g] + vi
             if case .regex(let re) = variant.body {
-                found += variant.wide ? wideRegexMatches(re) : regexMatches(re)
+                found += (variant.wide ? wideRegexMatches(re) : regexMatches(re)).filter { fullwordOK(s, variant, $0.offset, $0.length) }
                 continue
             }
             if set.indexed[gv] {
                 let starts = Set(candidateStarts()[gv]).sorted()
                 for start in starts {
+                    if overTime() { break }
                     if let len = verify(variant, at: start), fullwordOK(s, variant, start, len) {
                         found.append(Match(offset: start, length: len))
                         if found.count >= Self.maxMatches { break }
@@ -549,8 +550,17 @@ private final class ProtectionYaraFile {
             latin1 = NSString(bytes: p, length: n, encoding: String.Encoding.isoLatin1.rawValue) ?? ""
         }
         guard let text = latin1, !aborted else { return [] }
-        return re.matches(in: text as String, range: NSRange(location: 0, length: text.length)).prefix(Self.maxMatches)
-            .map { Match(offset: $0.range.location, length: $0.range.length) }
+        return enumerate(re, in: text, offset: { $0 }, length: { $0 })
+    }
+
+    /// The matches of `re`, stopped at the time budget or the match limit (never all materialized at once).
+    private func enumerate(_ re: NSRegularExpression, in text: NSString, offset: (Int) -> Int, length: (Int) -> Int) -> [Match] {
+        var out: [Match] = []
+        re.enumerateMatches(in: text as String, options: [.reportProgress], range: NSRange(location: 0, length: text.length)) { m, _, stop in
+            if let m { out.append(Match(offset: offset(m.range.location), length: length(m.range.length))) }
+            if out.count >= Self.maxMatches || overTime() { stop.pointee = true }
+        }
+        return out
     }
 
     /// A regex over UTF-16 text: run on every other byte (both alignments), where a character whose high byte
@@ -564,8 +574,7 @@ private final class ProtectionYaraFile {
             var narrow = [UInt8](repeating: 0, count: count)
             for i in 0..<count where p[2 * i + parity + 1] == 0 { narrow[i] = p[2 * i + parity] }
             let text = NSString(bytes: narrow, length: count, encoding: String.Encoding.isoLatin1.rawValue) ?? ""
-            out += re.matches(in: text as String, range: NSRange(location: 0, length: text.length)).prefix(Self.maxMatches)
-                .map { Match(offset: 2 * $0.range.location + parity, length: 2 * $0.range.length) }
+            out += enumerate(re, in: text, offset: { 2 * $0 + parity }, length: { 2 * $0 })
         }
         return out.sorted { $0.offset < $1.offset }
     }

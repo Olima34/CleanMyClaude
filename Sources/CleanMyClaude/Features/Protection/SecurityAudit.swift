@@ -454,7 +454,8 @@ enum SecurityAudit {
     // MARK: Sharing
 
     static func sharing() -> [SecurityCheck] {
-        let disabled = LaunchItemScanner.parseDisabled(Shell.run("/bin/launchctl", ["print-disabled", "system"]).out)
+        let listing = Shell.run("/bin/launchctl", ["print-disabled", "system"])
+        let disabled = LaunchItemScanner.parseDisabled(listing.out)
         // A service listed "enabled" (or "false") runs; one missing from the list keeps macOS' default: off.
         func on(_ label: String) -> Bool { disabled[label] == false }
         func check(_ id: String, _ title: String, _ symbol: String, _ active: Bool, _ what: String, advice: String,
@@ -521,7 +522,15 @@ enum SecurityAudit {
             check("media", "Partage de médias", "music.note.house", mediaOn,
                   "Ta bibliothèque de musique et de vidéos est partagée sur le réseau.",
                   advice: "Désactive « Partage de médias » dans Partage si tu ne t'en sers pas.")
-        ]
+        ].map { c in
+            // Without launchd's list, "off" would be a guess: the services it decides are shown as unknown.
+            guard !listing.ok, ["ssh", "screensharing", "remoteevents", "filesharing"].contains(c.id) else { return c }
+            var u = c
+            u.status = .unknown
+            u.detail = "État illisible."
+            u.fix = nil
+            return u
+        }
     }
 
     static func airDrop() -> SecurityCheck {
@@ -607,16 +616,24 @@ enum SecurityAudit {
             c.detail = "Aucun serveur DNS actif (pas de réseau)."
             return c
         }
-        let unknown = servers.filter { !isPrivate($0) && knownResolvers[$0] == nil && !$0.hasPrefix("45.90.28.") && !$0.hasPrefix("45.90.30.") }
+        // Typed into the network settings (what a DNS changer does with networksetup), not given by the box, the
+        // operator or a VPN: only those are judged.
+        let keys = SCDynamicStoreCopyKeyList(store, "Setup:/Network/Service/[^/]+/DNS" as CFString) as? [String] ?? []
+        let manual = Set(keys.flatMap { (SCDynamicStoreCopyValue(store, $0 as CFString) as? [String: Any])?["ServerAddresses"] as? [String] ?? [] })
         let named = servers.map { s in knownResolvers[s].map { "\(s) (\($0))" } ?? (isPrivate(s) ? "\(s) (local)" : s) }
-        c.detail = "Ton Mac demande les adresses des sites à : " + named.joined(separator: ", ") + "."
+        c.detail = "Ton Mac demande les adresses des sites à : " + named.joined(separator: ", ") + (manual.isEmpty ? ", fournis par le réseau." : ".")
+        let unknown = manual.filter(isUnknownResolver).sorted()
         if unknown.isEmpty {
             c.status = .ok
         } else {
             c.status = .warn
-            c.advice = "Serveur inconnu : \(unknown.joined(separator: ", ")). Si ni toi, ni ton VPN, ni ton fournisseur ne l'avez choisi, un logiciel malveillant peut t'envoyer vers de faux sites. Vérifie-le dans Réglages › Réseau › DNS."
+            c.advice = "Réglé à la main : \(unknown.joined(separator: ", ")), un serveur inconnu. Si ni toi ni ton entreprise ne l'avez choisi, un logiciel malveillant peut t'envoyer vers de faux sites. Vérifie-le dans Réglages › Réseau › DNS."
         }
         return c
+    }
+
+    static func isUnknownResolver(_ ip: String) -> Bool {
+        !isPrivate(ip) && knownResolvers[ip] == nil && !ip.hasPrefix("45.90.28.") && !ip.hasPrefix("45.90.30.")
     }
 
     /// Certificates trusted by hand (the user's or the administrator's trust settings): a root certificate trusted for
@@ -670,11 +687,11 @@ enum SecurityAudit {
         }
         let entries = hostsEntries(text)
         guard !entries.isEmpty else { return c }
-        let hijacked = entries.filter { e in watchedDomains.contains { e.host == $0 || e.host.hasSuffix("." + $0) } }
+        let hijacked = suspiciousHosts(entries)
         if !hijacked.isEmpty {
             c.status = .warn
-            c.detail = "Redirigés : " + hijacked.prefix(4).map { "\($0.host) → \($0.ip)" }.joined(separator: ", ") + "."
-            c.advice = "Un logiciel malveillant bloque ainsi les mises à jour ou t'envoie vers un faux site. Si ce n'est pas toi, retire ces lignes de /etc/hosts."
+            c.detail = "Détournés : " + hijacked.prefix(4).map { "\($0.host) → \($0.ip)" }.joined(separator: ", ") + "."
+            c.advice = "Un logiciel malveillant bloque ainsi les mises à jour de sécurité ou t'envoie vers un faux site. Si ce n'est pas toi, retire ces lignes de /etc/hosts."
         } else {
             c.status = .info
             c.detail = "\(Fmt.plural(entries.count, "entrée ajoutée", "entrées ajoutées")) (bloqueur de publicité, développement…), aucune ne détourne un site sensible."
@@ -684,6 +701,19 @@ enum SecurityAudit {
 
     static let watchedDomains = ["apple.com", "icloud.com", "mzstatic.com", "google.com", "microsoft.com", "github.com", "anthropic.com",
                                  "claude.ai", "malwarebytes.com", "objective-see.org", "virustotal.com", "paypal.com"]
+    /// Where macOS fetches its security updates and XProtect signatures: blocking them is never an ad blocker's job.
+    static let updateHosts = ["swscan.apple.com", "swdist.apple.com", "swcdn.apple.com", "xp.apple.com", "mesu.apple.com",
+                              "updates.cdn-apple.com", "gdmf.apple.com", "ocsp.apple.com", "ocsp2.apple.com", "api.apple-cloudkit.com"]
+
+    /// A sensitive site sent to another address, or macOS' update servers cut off. Blocking a tracker
+    /// (0.0.0.0 adservice.google.com, an ad blocker's list) is fine.
+    static func suspiciousHosts(_ entries: [(ip: String, host: String)]) -> [(ip: String, host: String)] {
+        entries.filter { e in
+            if updateHosts.contains(e.host) { return true }
+            let blocked = ["0.0.0.0", "127.0.0.1", "::1", "::", "0:0:0:0:0:0:0:0"].contains(e.ip)
+            return !blocked && watchedDomains.contains { e.host == $0 || e.host.hasSuffix("." + $0) }
+        }
+    }
 
     static func hostsEntries(_ text: String) -> [(ip: String, host: String)] {
         var out: [(ip: String, host: String)] = []
@@ -705,7 +735,15 @@ enum SecurityAudit {
         var c = SecurityCheck(id: "profiles", title: "Profils de configuration", symbol: "person.text.rectangle", status: .ok,
                               detail: "Aucun profil installé.", settingsURL: SettingsPane.profiles)
         let mdm = Shell.run("/usr/bin/profiles", ["status", "-type", "enrollment"]).out.contains("MDM enrollment: Yes")
-        let names = profileNames(Shell.run("/usr/bin/profiles", ["show", "-type", "configuration"]).out)
+        let listing = Shell.run("/usr/bin/profiles", ["show", "-type", "configuration"])
+        // Some versions of macOS answer only to the administrator: no answer is not "no profile".
+        guard listing.ok || listing.all.contains("There are no configuration profiles") else {
+            c.status = .unknown
+            c.detail = "Liste illisible sans droits d'administrateur."
+            c.scored = false
+            return c
+        }
+        let names = profileNames(listing.out)
         // Screen Time's own profile is Apple's.
         let others = names.filter { !$0.identifier.hasPrefix("com.apple.ManagedSettings") }
         if mdm {
@@ -779,8 +817,9 @@ enum SecurityAudit {
             let path = dir + "/" + name
             guard let kind = sshKeyKind(path) else { continue }
             total += 1
+            // stat, not lstat: a key linked from a dotfiles folder is judged on the real file.
             var st = stat()
-            if lstat(path, &st) == 0, st.st_mode & 0o077 != 0 { open.append(path) }
+            if stat(path, &st) == 0, st.st_mode & 0o077 != 0 { open.append(path) }
             if kind == .unencrypted { plain.append(name) }
         }
         guard total > 0 else { return c }
@@ -813,8 +852,9 @@ enum SecurityAudit {
         if text.contains("ENCRYPTED") { return .encrypted }
         guard text.contains("OPENSSH PRIVATE KEY") else { return .unencrypted }
         let body = text.split(separator: "\n").dropFirst().prefix { !$0.hasPrefix("-----") }.joined()
-        // The first 48 characters hold the magic and the cipher name: decoded on their own (a multiple of 4).
-        guard let raw = Data(base64Encoded: String(body.prefix(48))) else { return nil }
+        // The first 64 characters hold the magic and the cipher name ("aes256-gcm@openssh.com" included),
+        // decoded on their own (a multiple of 4).
+        guard let raw = Data(base64Encoded: String(body.prefix(64))) else { return nil }
         let magic = Array("openssh-key-v1".utf8) + [0]
         let bytes = [UInt8](raw)
         guard bytes.count > magic.count + 4, Array(bytes.prefix(magic.count)) == magic else { return nil }
@@ -846,12 +886,12 @@ enum SecurityAudit {
             guard let h = FileHandle(forReadingAtPath: path), let data = try? h.read(upToCount: 1 << 20) else { continue }
             try? h.close()
             let text = String(decoding: data, as: UTF8.self)
-            guard text.contains(f.marker) else { continue }
+            guard holdsSecret(text, marker: f.marker) else { continue }
             // Docker: the registries are listed, the secrets themselves are in the keychain.
             if f.name == "Docker", text.contains("credsStore") { continue }
             found.append((f.name, path, f.advice))
             var st = stat()
-            if lstat(path, &st) == 0, st.st_mode & 0o044 != 0 { openFiles.append(path) }
+            if stat(path, &st) == 0, st.st_mode & 0o044 != 0 { openFiles.append(path) }
         }
         guard !found.isEmpty else { return c }
         c.status = .warn
@@ -862,6 +902,15 @@ enum SecurityAudit {
                                 action: .user(openFiles.map { ["/bin/chmod", "600", $0] }))
         }
         return c
+    }
+
+    /// A line with the marker and a real value: `_authToken=${NPM_TOKEN}` reads a variable, nothing is written there.
+    static func holdsSecret(_ text: String, marker: String) -> Bool {
+        text.split(separator: "\n").contains { line in
+            guard let r = line.range(of: marker) else { return false }
+            let value = line[r.upperBound...].drop { $0 == " " || $0 == "=" || $0 == ":" || $0 == "\"" }
+            return !value.isEmpty && !value.hasPrefix("$") && !value.hasPrefix("${")
+        }
     }
 
     /// Tokens and keys pasted in a terminal stay in its history.
@@ -974,6 +1023,19 @@ enum SecurityAudit {
             f.append("Délai de verrouillage mal calculé (\(saver), \(display))")
         }
         for id in catalog.keys where !(1...3).contains(catalog[id]!.weight) { f.append("Poids invalide pour \(id)") }
+        let adBlock: [(ip: String, host: String)] = [("0.0.0.0", "adservice.google.com"), ("0.0.0.0", "watson.telemetry.microsoft.com"),
+                                                     ("127.0.0.1", "ads.example.com")]
+        if !suspiciousHosts(adBlock).isEmpty { f.append("Liste d'un bloqueur de publicité prise pour un détournement") }
+        if suspiciousHosts([("0.0.0.0", "swscan.apple.com")]).isEmpty || suspiciousHosts([("185.1.2.3", "www.paypal.com")]).isEmpty {
+            f.append("Détournement du fichier hosts non repéré")
+        }
+        if holdsSecret("registry=https://r.example\n//r.example/:_authToken=${NPM_TOKEN}\n", marker: "_authToken") {
+            f.append("Jeton npm lu dans une variable pris pour un secret en clair")
+        }
+        if !holdsSecret("//registry.npmjs.org/:_authToken=npm_abcdefghijklmnop\n", marker: "_authToken") { f.append("Jeton npm en clair non repéré") }
+        if isUnknownResolver("192.168.1.1") || isUnknownResolver("1.1.1.1") || !isUnknownResolver("82.163.143.135") {
+            f.append("Classement des serveurs DNS")
+        }
         return f
     }
 }
