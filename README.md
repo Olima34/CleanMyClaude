@@ -39,6 +39,7 @@ L'app s'installe dans Applications et s'ouvre. Ensuite, elle te prévient elle-m
 
 - **Fait de la place** : caches, fichiers oubliés, doublons, apps désinstallées proprement avec tout ce qu'elles laissent derrière elles.
 - **Garde ton Mac en forme** : sécurité, ce qui démarre en douce, mises à jour de tes apps, mémoire qui sature.
+- **Donne toute la puissance à ce que tu fais** : le Boost envoie ce qui tourne en arrière-plan sur les cœurs économes de la puce. Ton jeu ou ton export va plus vite, le Mac chauffe moins, et le benchmark intégré le prouve en chiffres.
 - **Retrouve tout en un éclair** : `⌥ Espace` ouvre un lanceur pour tes apps, tes fichiers, un calcul ou une traduction.
 - **T'évite les petites corvées** : convertir une photo, une vidéo ou un PDF, ouvrir une app d'un raccourci, ranger tes fenêtres, retrouver ce que tu as copié.
 - **Répond à tes questions** : l'assistant Claude t'explique ce qui se passe sur ton Mac, avec ton abonnement Claude.

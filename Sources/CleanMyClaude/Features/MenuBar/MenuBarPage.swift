@@ -110,6 +110,7 @@ struct MenuBarLabelPreview: View {
             case .cpuMemory: Text("\(Int((m.cpu * 100).rounded()))% · \(Int((m.memFraction * 100).rounded()))%")
             case .network: Text("↓\(Fmt.speed(m.netIn)) ↑\(Fmt.speed(m.netOut))")
             case .disk: Text(Fmt.bytes(m.diskFree))
+            case .temperature: Text((app.performance.sensors.current.chipTemp ?? PerformanceSensorReader.shared.quickTemperature()).map { "\(Int($0.rounded()))°" } ?? "—")
             }
         }
         .font(.ui(11.5, .medium))

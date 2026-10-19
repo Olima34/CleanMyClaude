@@ -109,6 +109,7 @@ struct BottomBar: View {
         case .storage where (app.storage.tab == .bigFiles && !app.storage.bigSelection.isEmpty)
             || (app.storage.tab == .duplicates && !app.storage.dupSelection.isEmpty):
             StorageActionBar()
+        case .performance: PerformanceBottomBar()
         case .launcher: LauncherBottomBar()
         case .converter: ConverterBottomBar()
         case .translator: TranslatorBottomBar()

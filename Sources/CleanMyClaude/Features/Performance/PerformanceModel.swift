@@ -65,11 +65,14 @@ struct TaskResult {
 }
 
 enum PerformanceTab: String, CaseIterable, Identifiable {
-    case monitor, startup, maintenance
+    case boost, monitor, bench, tweaks, startup, maintenance
     var id: String { rawValue }
     var title: String {
         switch self {
+        case .boost: return "Boost"
         case .monitor: return "Moniteur"
+        case .bench: return "Benchmark"
+        case .tweaks: return "Fluidité"
         case .startup: return "Démarrage"
         case .maintenance: return "Maintenance"
         }
@@ -85,8 +88,14 @@ enum ProcessSort: String, CaseIterable, Identifiable {
 @Observable
 @MainActor
 final class PerformanceModel {
-    var tab: PerformanceTab = .monitor
+    var tab: PerformanceTab = .boost
     var processes: [ProcessGroup] = []
+    // Boost, sensors, benchmark and Fluidité (PerformanceModule.swift and the files next to it).
+    let sensors = PerformanceSensors()
+    let boost = PerformanceBoost()
+    let bench = PerformanceBenchModel()
+    let tweaks = PerformanceTweaks()
+    var rosetta: [String] = []
     var sort: ProcessSort = .cpu
     var runningTasks: Set<String> = []
     var results: [String: TaskResult] = [:]
@@ -130,6 +139,7 @@ final class PerformanceModel {
         guard !sampling else { return }
         sampling = true
         processes = await Task.detached(priority: .utility) { ProcessList.sample() }.value
+        rosetta = PerformanceDiagnosis.rosettaApps()
         sampling = false
     }
 

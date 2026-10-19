@@ -231,6 +231,7 @@ final class LauncherFileIndex: @unchecked Sendable {
         guard running else { return }
         let deep = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped)
         var seen = Set<String>()
+        var changed = false
         for (raw, flag) in events {
             let path = raw.hasSuffix("/") && raw.count > 1 ? String(raw.dropLast()) : raw
             if flag & FSEventStreamEventFlags(kFSEventStreamEventFlagRootChanged) != 0 {
@@ -240,25 +241,32 @@ final class LauncherFileIndex: @unchecked Sendable {
             guard seen.insert(path).inserted, isIndexable(path) else { continue }
             if flag & deep != 0 {
                 rescanSubtree(path)
-            } else {
-                rescanFolder(path)
+                changed = true
+            } else if rescanFolder(path) {
+                changed = true
             }
         }
-        scheduleSnapshot()
+        // Apps write in ~/Library and in hidden folders all the time, and files change without being renamed:
+        // the whole list is rebuilt only when an indexed name appeared or went away.
+        if changed { scheduleSnapshot() }
     }
 
-    private func rescanFolder(_ dir: String) {
+    /// Reads one folder again. Returns whether its indexed names changed.
+    @discardableResult
+    private func rescanFolder(_ dir: String) -> Bool {
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: dir, isDirectory: &isDir), isDir.boolValue else {
+            let known = tree[dir] != nil
             forget(dir)
-            return
+            return known
         }
         guard tree[dir] != nil else {
             // A folder the index did not know yet (just created or moved in): read it whole.
             rescanSubtree(dir)
-            return
+            return true
         }
         let names = (try? FileManager.default.contentsOfDirectory(atPath: dir)) ?? []
+        let before = (tree[dir] ?? []).map { "\($0.isDir ? "d" : "f")\($0.name)" }
         var oldDirs = Set((tree[dir] ?? []).filter(\.isDir).map(\.name))
         var children: [Child] = []
         for name in names {
@@ -279,6 +287,7 @@ final class LauncherFileIndex: @unchecked Sendable {
         }
         for gone in oldDirs { removeSubtree(dir + "/" + gone) }
         tree[dir] = children
+        return !oldDirs.isEmpty || Set(before) != Set(children.map { "\($0.isDir ? "d" : "f")\($0.name)" })
     }
 
     private func rescanSubtree(_ dir: String) {
@@ -319,7 +328,8 @@ final class LauncherFileIndex: @unchecked Sendable {
     private func scheduleSnapshot() {
         guard !snapshotScheduled else { return }
         snapshotScheduled = true
-        queue.asyncAfter(deadline: .now() + 0.4) { [self] in
+        // A burst of changes (a download, an unzip, a build) costs one rebuild, not one per second.
+        queue.asyncAfter(deadline: .now() + 1.5) { [self] in
             snapshotScheduled = false
             makeSnapshot()
         }

@@ -69,7 +69,7 @@ Tout ce que fait l'app, comment elle protège tes données, et comment la compil
   </tr>
   <tr>
     <td valign="top"><img src="screenshots/storage.png" alt="Stockage : carte proportionnelle du dossier personnel et liste de son contenu"></td>
-    <td valign="top"><img src="screenshots/performance.png" alt="Optimisation : jauges du processeur et de la mémoire, courbes en direct et apps les plus gourmandes"></td>
+    <td valign="top"><img src="screenshots/performance.png" alt="Optimisation : le Boost, température, consommation, fréquences des cœurs, apps passées sur les cœurs économes et diagnostic"></td>
   </tr>
   <tr>
     <th colspan="2">Menu d'état</th>
@@ -94,7 +94,7 @@ Tout ce que fait l'app, comment elle protège tes données, et comment la compil
 | **Tableau de bord** | Score de santé sur 100, stockage, mémoire, processeur, batterie (santé, cycles), activité en direct, **analyse intelligente** qui passe tout en revue en une minute, conseils classés par utilité, et l'état de chaque outil |
 | **Nettoyage du système** | Caches d'apps et de macOS, journaux, fichiers temporaires, Xcode (données dérivées, appareils, archives, simulateurs), caches npm / Yarn / pip / Homebrew / CocoaPods / Go / Cargo…, dépendances de **projets endormis** (`node_modules`, `.build`, `Pods`, `target`), caches de l'**app Claude** et journaux de **Claude Code**, caches des navigateurs et des apps Electron, Corbeille, pièces jointes Mail, installeurs oubliés, sauvegardes d'iPhone |
 | **Protection et confidentialité** | Bilan de sécurité (FileVault, coupe-feu, Gatekeeper, SIP, XProtect, mises à jour, verrouillage, partages), audit des **éléments persistants** avec vérification des signatures, liste des **autorisations** (caméra, micro, écran, disque…), effacement des **traces** (éléments récents, téléchargements, vignettes, Terminal, historique et cookies des navigateurs) |
-| **Optimisation** | Moniteur temps réel, apps les plus gourmandes (processus d'aide regroupés par app), éléments au démarrage activables ou désactivables, tâches de maintenance (mémoire, DNS, Launch Services, Spotlight, instantanés Time Machine…) |
+| **Optimisation** | **Boost** (les apps en arrière-plan passent sur les cœurs économes : modes Intelligent, Performance et Fraîcheur, réflexe thermique, mode Jeu de macOS), **capteurs** sans mot de passe (température du processeur et du GPU, consommation du Mac en watts, fréquences des cœurs, ventilateurs), diagnostic « ce qui ralentit ou chauffe ton Mac », **benchmark** (processeur, GPU en images par seconde, mémoire, SSD, réactivité, test du Boost, endurance thermique, historique), réglages de **fluidité** réversibles (animations, Dock, Finder, compteur FPS des jeux, fréquence des écrans), moniteur temps réel, éléments au démarrage, tâches de maintenance |
 | **Mises à jour** | **Homebrew** en un clic (sortie en direct, annulable ; les paquets qui demandent un mot de passe sont signalés avec la commande à copier), apps **Sparkle** (lecture de leur flux, l'app s'installe elle-même), **App Store** et **macOS** |
 | **Applications** | Inventaire avec taille, version, dernière ouverture, apps **Intel** qui passent par Rosetta, désinstallation **complète** (l'app et tous ses fichiers dans `~/Library`), restes d'apps déjà supprimées |
 | **Espace de stockage** | Carte proportionnelle cliquable de n'importe quel dossier, gros fichiers anciens, **doublons** (comparaison du contenu par SHA-256) |
@@ -119,6 +119,25 @@ Tout ce que fait l'app, comment elle protège tes données, et comment la compil
 | **Automatisations** | Nettoyage planifié (seulement le « sans risque »), purge de la Corbeille au-delà de N jours, **rangement de Téléchargements** par règles, historique de santé du Mac en graphiques, journal. Tout est désactivé au départ et chaque automatisation montre un **aperçu à blanc** avant de s'activer. Elles tournent tant que l'app est ouverte (fenêtre fermée comprise) |
 | **Assistant Claude** | Pose tes questions sur ton Mac en langage naturel : Claude explique et propose jusqu'à trois actions de l'app, que tu lances d'un clic. « Demander à Claude » est aussi dans le clic droit d'un processus, d'un agent de démarrage ou d'un dossier, et dans le lanceur (`?`) |
 | **Menu d'état** | Dans la barre des menus : processeur, mémoire, disque, réseau, batterie, apps gourmandes, interrupteurs (Caféine, presse-papiers, fenêtres) et actions express. Alertes optionnelles si le disque est presque plein ou la mémoire saturée |
+
+## Le Boost, mesuré
+
+macOS range chaque processus dans une bande de priorité. Celle de l'arrière-plan (`PRIO_DARWIN_BG`, celle de `taskpolicy -b`) fait tourner un processus sur les **cœurs économes** de la puce, avec des accès disque et réseau ralentis. Le Boost y place ce que tu ne regardes pas, et rend sa priorité à une app **dès qu'elle revient au premier plan** (sans attendre), dès qu'elle joue ou enregistre du son, ou quand tu changes de mode. Mesuré sur un MacBook Air M2 sans ventilateur, avec huit tâches lourdes en fond :
+
+| | Sans Boost | Avec le Boost |
+| --- | --- | --- |
+| Vitesse de l'app au premier plan | 70 % de sa vitesse seule | 102 % |
+| Consommation du Mac | 17 W | 5,8 W |
+| Température du processeur, après quelques secondes | 83 °C et en hausse | 54 °C |
+| Attente d'une tâche urgente avant d'avoir un cœur (99 % des cas) | 4,7 ms : des images sautent | 0,1 ms |
+
+Les tâches de fond continuent, plus lentement. L'onglet **Benchmark › Test du Boost** refait cette mesure sur ton Mac en dix secondes.
+
+- **Intelligent** : seules les apps qui s'emballent (plus de 15 % de processeur pendant 20 s) passent sur les cœurs économes ; tout l'arrière-plan quand macOS signale que la puce chauffe, et le mode Performance quand un jeu est au premier plan.
+- **Performance** : tout ce qui est en arrière-plan, pour un jeu, un export ou une compilation ; peut forcer le **mode Jeu** de macOS (avec Xcode installé).
+- **Fraîcheur** : comme Performance, et l'économie d'énergie de macOS (mot de passe), remise comme avant en quittant ce mode.
+
+Jamais ralentis : l'app au premier plan et ce qu'elle a lancé (une compilation depuis le Terminal), les apps qui jouent ou enregistrent du son (appels, musique), celles qui surveillent le clavier, le Finder, le Dock et tout composant de macOS, ce que macOS garde déjà lui-même en arrière-plan, et une liste d'apps dont le travail en fond compte (OBS, Final Cut Pro, Logic Pro, DaVinci Resolve, HandBrake, Blender, Xcode, machines virtuelles…), modifiable. Chaque processus déplacé est noté avec son heure de démarrage : un numéro de processus réutilisé n'est jamais touché, tout est rétabli quand l'app quitte, et au lancement suivant après un plantage. Le gouverneur ne travaille qu'une dizaine de millisecondes toutes les dix secondes, et pas du tout quand le Boost est désactivé.
 
 ## Les garde-fous
 
@@ -288,6 +307,9 @@ swift build
 .build/debug/CleanMyClaude --ask "Pourquoi mon Mac chauffe ?" --model haiku   # une question à l'assistant
 .build/debug/CleanMyClaude --translate "Merci pour ton aide" --to en --tone formal   # le traducteur, moteur Claude
 .build/debug/CleanMyClaude --dump --only launcher # construit l'index des fichiers et chronomètre quelques recherches
+.build/debug/CleanMyClaude --dump --only performance   # capteurs, énergie, réglages, et ce que chaque mode du Boost ralentirait
+.build/release/CleanMyClaude --dump --only performance --bench --boost-test   # le benchmark et le test du Boost
+.build/debug/CleanMyClaude --dump --only performance --boost-live-test   # le mode Performance pour de vrai, 3 s, vérifié dans le noyau
 .build/debug/CleanMyClaude --update-check --as-version 0.2.0   # ce que GitHub publie, comparé à une version au choix
 .build/debug/CleanMyClaude --update-install "build/essai/Clean My Claude.app"   # met à jour cette copie de bout en bout (sans relancer)
 .build/debug/CleanMyClaude --demo                 # lance l'app avec des données fictives, sans lire le disque

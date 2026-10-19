@@ -375,6 +375,11 @@ struct Recommendations: View {
                               text: "macOS déborde sur le disque (\(Fmt.bytes(m.swapUsed)) d'échange). Ferme les apps gourmandes repérées dans Optimisation.",
                               tint: Theme.warn, page: .performance, tab: { app.performance.tab = .monitor }))
         }
+        if app.performance.boost.mode == .off {
+            out.append(Advice(id: "boost", symbol: "bolt", title: m.thermal == .nominal ? "Active le Boost" : "Ton Mac chauffe : active le Boost",
+                              text: "Ce qui s'emballe en arrière-plan passe sur les cœurs économes de la puce : un Mac plus frais, et plus de puissance pour ce que tu fais.",
+                              tint: Theme.warn, page: .performance, tab: { app.performance.tab = .boost }))
+        }
         if m.uptime > 14 * 86400 {
             out.append(Advice(id: "uptime", symbol: "arrow.clockwise", title: "Pense à redémarrer",
                               text: "Ton Mac tourne depuis \(Fmt.duration(m.uptime)). Un redémarrage applique les correctifs en attente et remet la mémoire à plat.",
