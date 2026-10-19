@@ -21,6 +21,20 @@ enum Keychain {
         return String(data: data, encoding: .utf8)
     }
 
+    /// Whether the item exists, read from its attributes only: macOS asks nothing, even when the app may not read the secret.
+    static func exists(_ account: String) -> Bool {
+        guard !DemoData.isEnabled else { return false }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: AnyObject?
+        return SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
+    }
+
     @discardableResult
     static func set(_ value: String, for account: String) -> Bool {
         guard !DemoData.isEnabled else { return false }

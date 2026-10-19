@@ -261,6 +261,16 @@ final class AutomationModel: AppModule {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
         sealing = true
         guard let raw = try? Data(contentsOf: DataStore.url(Self.settingsName + ".json")) else { return }
+        // Nothing runs on its own: nothing to protect, and the keychain is left alone (with an ad hoc signature, macOS
+        // would ask for it again after every update). A file switched on behind the app's back is checked next launch.
+        guard settings.cleanupEnabled || settings.trashEnabled || settings.downloadsEnabled else { return }
+        // First launch of a version with seals (no seal, no key yet): the settings, already brought back within what
+        // the page offers, are sealed as they are, so an update does not switch off what the user set up.
+        if sealStore.value.mac.isEmpty, !Keychain.exists(AutomationSeal.keyAccount) {
+            settingsStore.value = settings
+            reseal()
+            return
+        }
         if let key = AutomationSeal.key(create: false), AutomationSeal.isValid(sealStore.value.mac, for: raw, key: key) {
             sealKey = key
             // A folder that became a symbolic link since, for instance.
@@ -273,7 +283,7 @@ final class AutomationModel: AppModule {
         lockdown()
     }
 
-    /// The settings were changed outside the app (or saved by a version without seals): nothing runs on its own any more.
+    /// The settings were changed outside the app (or the keychain refused the key): nothing runs on its own any more.
     private func lockdown() {
         let wereOn = [AutomationKind.cleanup, .trash, .downloads].filter(isEnabled)
         settings.cleanupEnabled = false
@@ -284,7 +294,7 @@ final class AutomationModel: AppModule {
             log(k, automatic: true, title: k.switched(on: false),
                 detail: "Réglages modifiés hors de Clean My Claude : réactive-la après un aperçu à blanc.", setting: true)
         }
-        integrityNotice = "Clean My Claude n'a pas pu vérifier que les réglages des automatisations viennent de lui : ils ont été modifiés en dehors de l'app, ou enregistrés par une version précédente. Par prudence, le nettoyage planifié, la Corbeille et le rangement sont coupés, et le dossier surveillé est revenu à Téléchargements. Relis tes règles, puis réactive ce que tu veux après un aperçu à blanc."
+        integrityNotice = "Clean My Claude n'a pas pu vérifier que les réglages des automatisations viennent de lui : ils ont été modifiés en dehors de l'app. Par prudence, le nettoyage planifié, la Corbeille et le rangement sont coupés, et le dossier surveillé est revenu à Téléchargements. Relis tes règles, puis réactive ce que tu veux après un aperçu à blanc."
     }
 
     /// Seals what is about to be written (the key is made the first time).

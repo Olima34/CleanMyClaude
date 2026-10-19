@@ -5,8 +5,8 @@ import CryptoKit
 // files, when it deletes the Trash for good. Any program of the user can rewrite that file. So every value is checked
 // when it is read (`AutomationSettings.sanitized`), and the file carries a seal: an HMAC-SHA256 of its exact bytes, with
 // a random key kept in the login keychain, written by the app each time it saves the settings. A file that does not
-// match its seal (changed outside the app, or written by a version without seals) turns the automations off: each one
-// comes back only after a new dry run, and the watched folder goes back to Téléchargements.
+// match its seal (changed outside the app) turns the automations off: each one comes back only after a new dry run, and the
+// watched folder goes back to Téléchargements. The first launch of a version with seals seals the settings as they are.
 
 /// The seal of automation.json, in automation-seal.json.
 struct AutomationSealRecord: Codable, Equatable {
