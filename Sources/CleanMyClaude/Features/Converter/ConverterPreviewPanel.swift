@@ -1,6 +1,8 @@
 import SwiftUI
 import AppKit
 import Quartz
+import AVKit
+import UniformTypeIdentifiers
 
 /// « Aperçu du résultat » : the original and what the chosen operation really makes of it, side by side,
 /// before anything is saved. Nothing is done blind.
@@ -29,8 +31,11 @@ struct ConverterPreviewPanel: View {
                         }
                     }
                 }
+                if let op, ConverterPreviewer.usesPiece(op) {
+                    pieceControls(preview)
+                }
                 content(preview)
-                    .frame(height: 330)
+                    .frame(height: 420)
                 footer(preview)
             }
         }
@@ -41,7 +46,10 @@ struct ConverterPreviewPanel: View {
         guard let r = preview.result else { return "Le rendu exact de ce que tu vas obtenir, avant d'enregistrer quoi que ce soit" }
         let names = r.sources.map(\.lastPathComponent)
         let what = names.count > 1 ? "\(names.count) fichiers" : "« \(names.first ?? "") »"
-        if let s = r.excerptSeconds { return "Calculé pour de vrai sur les \(Int(s)) premières secondes de \(what) · rien n'est encore enregistré" }
+        if let s = r.excerptSeconds {
+            let from = r.excerptStart > 0 ? "à partir de \(Self.clock(r.excerptStart))" : "depuis le début"
+            return "Calculé pour de vrai sur \(Int(s)) s \(from) de \(what) · rien n'est encore enregistré"
+        }
         return "Calculé pour de vrai sur \(what) · rien n'est encore enregistré"
     }
 
@@ -62,7 +70,10 @@ struct ConverterPreviewPanel: View {
         case .ready(let r):
             HStack(spacing: 12) {
                 pane(title: "Avant", detail: detailLine(size: r.sourceSize, detail: r.sourceDetail)) {
-                    ConverterPreviewSurface(url: r.sources.first, demo: r.demo, demoAfter: false)
+                    ConverterPreviewSurface(url: r.sources.first, demo: r.demo, demoAfter: false) { seconds in
+                        // The "Avant" player tells where it is: "Depuis 00:44" starts the preview there.
+                        if abs(preview.playhead - seconds) >= 1 { preview.playhead = seconds }
+                    }
                 }
                 Image(systemName: "arrow.right").font(.ui(13, .semibold)).foregroundStyle(Theme.text3)
                 pane(title: "Après", detail: afterDetail(r)) {
@@ -99,6 +110,32 @@ struct ConverterPreviewPanel: View {
         }
     }
 
+    /// "Aperçu sur 10 s · 30 s · 1 min · Tout", and from where in the video.
+    private func pieceControls(_ preview: ConverterPreviewer) -> some View {
+        @Bindable var preview = preview
+        return HStack(spacing: 10) {
+            Text("Aperçu sur").font(.ui(11.5)).foregroundStyle(Theme.text3)
+            PillPicker(options: ConverterPreviewSpan.allCases, selection: $preview.span, label: \.title)
+            if preview.span != .full {
+                Button("Depuis \(Self.clock(preview.playhead))") { preview.start = preview.playhead }
+                    .buttonStyle(SoftButtonStyle(small: true))
+                    .disabled(preview.playhead < 1 || abs(preview.playhead - preview.start) < 1)
+                    .help("Lis la vidéo à gauche jusqu'au passage voulu : l'aperçu partira de là")
+                if preview.start > 0 {
+                    Button("Depuis le début") { preview.start = 0 }.buttonStyle(SoftButtonStyle(small: true))
+                }
+            }
+            Spacer()
+            Text(preview.span == .full ? "Toute la vidéo est convertie : exact, mais plus long." : "La taille du fichier entier est estimée à partir de ce morceau.")
+                .font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
+        }
+    }
+
+    static func clock(_ seconds: Double) -> String {
+        let s = Int(seconds.rounded(.down))
+        return s >= 3600 ? String(format: "%d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60) : String(format: "%02d:%02d", s / 60, s % 60)
+    }
+
     private func listBox(_ lines: [String]) -> some View {
         ScrollArea {
             VStack(alignment: .leading, spacing: 4) {
@@ -121,7 +158,7 @@ struct ConverterPreviewPanel: View {
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.r(10)))
-                .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
+                .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line).allowsHitTesting(false))
         }
         .frame(maxWidth: .infinity)
     }
@@ -217,14 +254,86 @@ struct ConverterPreviewSurface: View {
     var url: URL?
     var demo: Bool
     var demoAfter: Bool
+    /// For videos and sounds: the position of the player, about once a second.
+    var onTime: ((Double) -> Void)? = nil
 
     var body: some View {
         if demo || Snapshot.isActive {
-            ConverterDemoArtwork(after: demoAfter, page: url.map { ["pdf", "docx", "txt", "md", "rtf", "html", "odt", "pages"].contains($0.pathExtension.lowercased()) } ?? false)
+            let ext = url?.pathExtension.lowercased() ?? ""
+            ConverterDemoArtwork(after: demoAfter, page: ["pdf", "docx", "txt", "md", "rtf", "html", "odt", "pages"].contains(ext),
+                                 badge: ["mp4", "mov"].contains(ext) ? "HEVC · 1080p" : (ext == "jpg" ? "JPEG · 82 %" : nil))
+        } else if let url, Self.isMedia(url) {
+            // macOS's own player: play, pause, volume, scrubbing, speed, full screen.
+            ConverterPlayer(url: url, onTime: onTime)
+        } else if let url, url.pathExtension.lowercased() == "pdf" {
+            // PDFKit's own viewer: every page, scrolled with the trackpad, with a page counter.
+            ConverterPDFPane(url: url)
         } else if let url {
             ConverterQuickLook(url: url)
         } else {
             Color.clear
+        }
+    }
+}
+
+extension ConverterPreviewSurface {
+    static func isMedia(_ url: URL) -> Bool {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return false }
+        return type.conforms(to: .audiovisualContent) && !type.conforms(to: .gif)
+    }
+}
+
+/// AVKit's player view, the one QuickTime uses.
+struct ConverterPlayer: NSViewRepresentable {
+    var url: URL
+    var onTime: ((Double) -> Void)?
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeNSView(context: Context) -> AVPlayerView {
+        let view = AVPlayerView()
+        view.controlsStyle = .inline
+        view.showsFullScreenToggleButton = true
+        view.allowsPictureInPicturePlayback = false
+        view.videoGravity = .resizeAspect
+        context.coordinator.onTime = onTime
+        context.coordinator.load(url, into: view)
+        return view
+    }
+
+    func updateNSView(_ view: AVPlayerView, context: Context) {
+        context.coordinator.onTime = onTime
+        if context.coordinator.url != url { context.coordinator.load(url, into: view) }
+    }
+
+    static func dismantleNSView(_ view: AVPlayerView, coordinator: Coordinator) {
+        coordinator.stop()
+        view.player?.pause()
+        view.player = nil
+    }
+
+    final class Coordinator {
+        var url: URL?
+        var onTime: ((Double) -> Void)?
+        private var observer: Any?
+        private weak var player: AVPlayer?
+
+        func load(_ url: URL, into view: AVPlayerView) {
+            stop()
+            view.player?.pause()
+            let player = AVPlayer(url: url)
+            view.player = player
+            self.player = player
+            self.url = url
+            observer = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 1, preferredTimescale: 2), queue: .main) { [weak self] time in
+                guard time.isNumeric else { return }
+                MainActor.assumeIsolated { self?.onTime?(time.seconds) }
+            }
+        }
+
+        func stop() {
+            if let observer, let player { player.removeTimeObserver(observer) }
+            observer = nil
         }
     }
 }
@@ -254,6 +363,7 @@ struct ConverterDemoArtwork: View {
     var after: Bool
     /// A document or a PDF: a sheet of paper instead of a photo.
     var page = false
+    var badge: String? = "JPEG · 82 %"
 
     var body: some View {
         if page { sheet } else { photo }
@@ -299,11 +409,11 @@ struct ConverterDemoArtwork: View {
                 .fill(Color(hex: 0x2C3A5A))
                 .frame(height: 120)
             }
-            if after {
+            if after, let badge {
                 VStack {
                     HStack {
                         Spacer()
-                        Text("JPEG · 82 %").font(.ui(10.5, .semibold)).foregroundStyle(.white)
+                        Text(badge).font(.ui(10.5, .semibold)).foregroundStyle(.white)
                             .padding(.horizontal, 7).padding(.vertical, 3)
                             .background(Capsule().fill(.black.opacity(0.45)))
                     }
@@ -313,5 +423,92 @@ struct ConverterDemoArtwork: View {
             }
         }
         .saturation(after ? 0.92 : 1)
+    }
+}
+
+/// A PDF in the preview: scrolls page after page (trackpad or arrows), "Page 2 sur 4" in the corner.
+struct ConverterPDFPane: View {
+    var url: URL
+    @State private var page = 1
+    @State private var count = 0
+    @State private var go: (Int) -> Void = { _ in }
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            ConverterPDFView(url: url, page: $page, count: $count, go: $go)
+            if count > 0 {
+                HStack(spacing: 8) {
+                    Button { go(page - 1) } label: { Image(systemName: "chevron.up") }
+                        .buttonStyle(.plain).disabled(page <= 1)
+                    Text("Page \(page) sur \(count)").font(.ui(11, .medium)).monospacedDigit()
+                    Button { go(page + 1) } label: { Image(systemName: "chevron.down") }
+                        .buttonStyle(.plain).disabled(page >= count)
+                }
+                .font(.ui(10.5, .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Capsule().fill(.black.opacity(0.55)))
+                .padding(10)
+            }
+        }
+    }
+}
+
+struct ConverterPDFView: NSViewRepresentable {
+    var url: URL
+    @Binding var page: Int
+    @Binding var count: Int
+    @Binding var go: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displaysPageBreaks = true
+        view.backgroundColor = NSColor(white: 0.12, alpha: 1)
+        context.coordinator.attach(view)
+        load(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: PDFView, context: Context) {
+        context.coordinator.parent = self
+        if view.document?.documentURL != url { load(view, context: context) }
+    }
+
+    private func load(_ view: PDFView, context: Context) {
+        let document = PDFDocument(url: url)
+        view.document = document
+        let total = document?.pageCount ?? 0
+        let coordinator = context.coordinator
+        DispatchQueue.main.async { [weak view] in
+            coordinator.parent.count = total
+            coordinator.parent.page = total > 0 ? 1 : 0
+            coordinator.parent.go = { [weak view] n in
+                guard let view, let doc = view.document, n >= 1, n <= doc.pageCount, let p = doc.page(at: n - 1) else { return }
+                view.go(to: p)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var parent: ConverterPDFView
+        private var observer: NSObjectProtocol?
+
+        init(_ parent: ConverterPDFView) { self.parent = parent }
+
+        func attach(_ view: PDFView) {
+            observer = NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak self, weak view] _ in
+                guard let self, let view, let doc = view.document, let current = view.currentPage else { return }
+                let index = doc.index(for: current) + 1
+                MainActor.assumeIsolated { if self.parent.page != index { self.parent.page = index } }
+            }
+        }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 }

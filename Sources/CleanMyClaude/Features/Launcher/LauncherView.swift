@@ -99,6 +99,7 @@ struct LauncherView: View {
                 ForEach(Array(section.items.enumerated()), id: \.offset) { i, item in
                     let index = offsets[si] + i
                     LauncherRow(command: item, selected: index == model.selection, hotkey: app.hotkeys.combo(for: item)?.display)
+                        .modifier(LauncherFileDrag(command: item))
                         .id(index)
                         .onTapGesture { model.selection = index; model.runSelected() }
                         // Every movement of the pointer (not only entering a row): after a trackpad scroll,
@@ -267,5 +268,38 @@ struct LauncherKeyHint: View {
                 .background(RoundedRectangle(cornerRadius: Theme.r(4)).fill(Theme.track))
             Text(label).font(.ui(11)).foregroundStyle(Theme.text3)
         }
+    }
+}
+
+/// A file, a folder or an app of the results can be dragged anywhere (Finder, Mail, a message, the Desktop…).
+struct LauncherFileDrag: ViewModifier {
+    var command: AppCommand
+
+    func body(content: Content) -> some View {
+        if case .file(let path) = command.icon, command.group == .files || command.group == .apps, !DemoData.isEnabled {
+            content.onDrag {
+                let provider = NSItemProvider(object: URL(fileURLWithPath: path) as NSURL)
+                provider.suggestedName = (path as NSString).lastPathComponent
+                return provider
+            } preview: {
+                LauncherDragPreview(path: path)
+            }
+        } else {
+            content
+        }
+    }
+}
+
+/// What follows the pointer while dragging: the file's icon and name.
+struct LauncherDragPreview: View {
+    var path: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            FileIcon(path: path, size: 32)
+            Text((path as NSString).lastPathComponent).font(.ui(12, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.cardRaised))
     }
 }

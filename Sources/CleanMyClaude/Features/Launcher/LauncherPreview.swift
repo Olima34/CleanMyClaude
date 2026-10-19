@@ -25,9 +25,24 @@ struct LauncherPreview: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.r(12)))
             .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.border, lineWidth: Theme.line))
 
-            Text((path as NSString).lastPathComponent)
-                .font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
-                .lineLimit(2).truncationMode(.middle)
+            // The name, with its icon, can be dragged anywhere.
+            HStack(spacing: 8) {
+                FileIcon(path: path, size: 22)
+                Text((path as NSString).lastPathComponent)
+                    .font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                    .lineLimit(2).truncationMode(.middle)
+                Spacer(minLength: 0)
+                Image(systemName: "hand.draw").font(.ui(11)).foregroundStyle(Theme.text3)
+                    .help("Glisse le fichier où tu veux")
+            }
+            .contentShape(Rectangle())
+            .onDrag {
+                let provider = NSItemProvider(object: URL(fileURLWithPath: path) as NSURL)
+                provider.suggestedName = (path as NSString).lastPathComponent
+                return provider
+            } preview: {
+                LauncherDragPreview(path: path)
+            }
             VStack(alignment: .leading, spacing: 5) {
                 row("Type", info.kind)
                 row(info.isDir ? "Contenu" : "Taille", info.size)
