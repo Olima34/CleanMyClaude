@@ -161,11 +161,11 @@ struct SmartScanPanel: View {
                                    value: app.cleanup.hasResults ? Fmt.bytes(app.cleanup.recommendedSize) : "—",
                                    detail: app.cleanup.hasResults ? "à nettoyer sans risque · \(Fmt.bytes(app.cleanup.totalSize)) trouvés en tout" : "Pas encore analysé",
                                    page: .cleanup)
-                    ScanResultTile(symbol: "lock.shield", title: "Sécurité", tint: Theme.good,
-                                   running: app.protection.isAuditing,
-                                   value: app.protection.hasAudit ? "\(app.protection.passedCount)/\(app.protection.scoredCount)" : "—",
-                                   detail: app.protection.hasAudit ? (app.protection.issues.isEmpty ? "Toutes les protections sont actives" : "\(Fmt.plural(app.protection.issues.count, "point", "points")) à vérifier") : "Pas encore analysé",
-                                   page: .protection, tab: { app.protection.tab = .security })
+                    ScanResultTile(symbol: "lock.shield", title: "Sécurité", tint: app.protection.malware.isEmpty ? Theme.good : Theme.bad,
+                                   running: app.protection.isAuditing || app.protection.isScanning,
+                                   value: app.protection.hasAudit ? "\(app.protection.securityScore)/100" : "—",
+                                   detail: securityDetail,
+                                   page: .protection, tab: { app.protection.tab = app.protection.malware.isEmpty ? .security : .threats })
                     ScanResultTile(symbol: "square.grid.2x2", title: "Applications", tint: Theme.palette[4],
                                    running: app.apps.isScanning,
                                    value: app.apps.lastScan != nil ? "\(app.apps.unused.count)" : "—",
@@ -187,10 +187,18 @@ struct SmartScanPanel: View {
         }
     }
 
+    private var securityDetail: String {
+        let p = app.protection
+        if !p.malware.isEmpty { return "\(Fmt.plural(p.malware.count, "menace trouvée", "menaces trouvées")) · note \(p.grade)" }
+        guard p.hasAudit else { return "Pas encore analysé" }
+        let threats = p.scanSummary.map { _ in " · aucune menace" } ?? ""
+        return (p.issues.isEmpty ? "Note \(p.grade), toutes les protections actives" : "Note \(p.grade) · \(Fmt.plural(p.issues.count, "point", "points")) à vérifier") + threats
+    }
+
     private var subtitle: String {
-        if app.smartScanRunning { return "Fichiers inutiles, sécurité, applications et démarrage : j'examine tout en parallèle." }
+        if app.smartScanRunning { return "Fichiers inutiles, sécurité, logiciels malveillants, applications et démarrage : j'examine tout en parallèle." }
         if let d = app.smartScanDate { return "Dernière analyse \(Fmt.relative(d)). Clique sur une carte pour voir le détail." }
-        return "Un bilan complet en une minute : fichiers inutiles, protections de sécurité, apps oubliées et ce qui démarre en douce. Rien n'est supprimé sans ton accord."
+        return "Un bilan complet en une minute : fichiers inutiles, protections de sécurité, logiciels malveillants, apps oubliées et ce qui démarre en douce. Rien n'est supprimé sans ton accord."
     }
 }
 
@@ -339,6 +347,12 @@ struct Recommendations: View {
     private var advices: [Advice] {
         let m = app.monitor
         var out: [Advice] = []
+        let p = app.protection
+        if !p.malware.isEmpty {
+            out.append(Advice(id: "malware", symbol: "ant.fill", title: "\(Fmt.plural(p.malware.count, "menace", "menaces")) sur ton Mac",
+                              text: "Reconnues par les signatures d'Apple ou par leur comportement. Neutralise-les : je les arrête et je les mets à la Corbeille.",
+                              tint: Theme.bad, page: .protection, tab: { app.protection.tab = .threats }))
+        }
         if !app.fullDiskAccess {
             out.append(Advice(id: "fda", symbol: "externaldrive.badge.checkmark", title: "Donne-moi l'accès complet au disque",
                               text: "Sans lui, je ne peux voir ni la Corbeille, ni Mail, ni les autorisations de tes apps.", tint: Theme.accent))
@@ -354,6 +368,19 @@ struct Recommendations: View {
         for c in app.protection.issues.prefix(3) {
             out.append(Advice(id: c.id, symbol: c.symbol, title: c.title, text: c.detail, tint: c.status.color, page: .protection,
                               tab: { app.protection.tab = .security }))
+        }
+        if !p.realtime.anyOn {
+            out.append(Advice(id: "realtime", symbol: "shield.lefthalf.filled.badge.checkmark", title: "Active la protection en temps réel",
+                              text: "Une alerte dès qu'un programme s'ajoute au démarrage, qu'une menace arrive dans Téléchargements ou que la caméra s'allume.",
+                              tint: Theme.good, page: .protection, tab: { app.protection.tab = .realtime }))
+        }
+        if p.scanSummary.map({ Date().timeIntervalSince($0.date) > 14 * 86400 }) ?? true {
+            out.append(Advice(id: "scan", symbol: "ant", title: p.scanSummary == nil ? "Cherche les logiciels malveillants" : "Ta dernière analyse antimalware date",
+                              text: "Les signatures d'Apple appliquées à tout ce qui est sur ton Mac, ouvert ou non : moins d'une minute.",
+                              tint: Theme.accent, page: .protection, tab: {
+                                  app.protection.tab = .threats
+                                  Task { await app.protection.scan(deep: false) }
+                              }))
         }
         if app.cleanup.hasResults && app.cleanup.recommendedSize > 1_000_000_000 {
             out.append(Advice(id: "junk", symbol: "sparkles", title: "\(Fmt.bytes(app.cleanup.recommendedSize)) à récupérer sans risque",

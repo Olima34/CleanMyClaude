@@ -451,7 +451,9 @@ enum UpdatesSelfInstaller {
         // The published app is signed ad hoc: re-signed with the local identity of this copy, if any, macOS keeps its permissions.
         var signedLocally = false
         if let identity = localSigningIdentity(of: currentBundle) {
-            let sign = Shell.run("/usr/bin/codesign", ["--force", "--deep", "--sign", identity, app.path], timeout: 120)
+            // The hardened runtime and the entitlements of the published app are kept.
+            let sign = Shell.run("/usr/bin/codesign", ["--force", "--deep", "--preserve-metadata=entitlements,flags,runtime",
+                                                       "--sign", identity, app.path], timeout: 120)
             signedLocally = sign.ok && Shell.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path], timeout: 120).ok
             // A half-signed app is never installed.
             if !signedLocally { throw Failure.localSign(sign.err.trimmingCharacters(in: .whitespacesAndNewlines)) }

@@ -199,24 +199,9 @@ final class ProtectionYaraRuleset: @unchecked Sendable {
         for global in rules.indices where rules[global].isGlobal {
             if !file.evaluate(rule: global) { return [] }
         }
-        let profile = ProcessInfo.processInfo.environment["CMC_YARA_PROFILE"] != nil
-        var times: [(Double, String)] = []
         for i in rules.indices where !rules[i].isPrivate && !rules[i].isGlobal {
-            let t = ProcessInfo.processInfo.systemUptime
             if file.evaluate(rule: i) { hits.append(rules[i]) }
-            if profile { times.append((ProcessInfo.processInfo.systemUptime - t, rules[i].name)) }
             if file.aborted { return [] }
-        }
-        if profile {
-            for (t, name) in times.sorted(by: { $0.0 > $1.0 }).prefix(5) { print(String(format: "    %.3f s %@", t, name)) }
-            let p = data.bindMemory(to: UInt8.self)
-            var hit = 0, checks = 0
-            for i in 0..<(p.count - 1) {
-                let k = Int(p[i]) | Int(p[i + 1]) << 8
-                let c = Int(bucket[k + 1] - bucket[k])
-                if c > 0 { hit += 1; checks += c }
-            }
-            print("    entrées : \(entries.count), positions touchées : \(hit * 1000 / p.count) ‰, comparaisons : \(checks), sans atome : \(indexed.filter { !$0 }.count) (dont \(anchors.count) par memchr)")
         }
         return hits
     }

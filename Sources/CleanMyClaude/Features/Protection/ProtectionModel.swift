@@ -489,6 +489,8 @@ final class ProtectionModel: AppModule {
             out.append("Extension \(e.browser) : \(e.name)\(e.readsEverything ? " · lit tous les sites" : "")\(e.forced ? " · IMPOSÉE" : "")")
         }
         for a in ProtectionAnchors.scan() { out.append("\(a.kind.title) : \(a.name) — \(a.detail)") }
+        let devices = ProtectionMonitor.devicesInUse()
+        out.append("Caméra \(devices.camera ? "allumée" : "éteinte") · micro \(devices.microphone ? "allumé" : "éteint")")
         return out
     }
 }

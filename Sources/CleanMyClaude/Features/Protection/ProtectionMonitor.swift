@@ -276,6 +276,12 @@ final class ProtectionMonitor {
         if on { Notifier.post(id: "protection.camera", title: "La caméra est allumée", body: "Une app te filme. Le Centre de contrôle indique laquelle.", throttle: 30) }
     }
 
+    /// For `--dump`: whether a camera or a microphone is in use right now.
+    static func devicesInUse() -> (camera: Bool, microphone: Bool) {
+        let m = ProtectionMonitor()
+        return (m.cameraInUse(), m.microphoneInUse())
+    }
+
     private func audioInputDevices() -> [AudioObjectID]? {
         var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyDevices, mScope: kAudioObjectPropertyScopeGlobal,
                                                  mElement: kAudioObjectPropertyElementMain)

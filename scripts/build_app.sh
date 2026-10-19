@@ -124,13 +124,26 @@ if [[ -z "$IDENTITY" ]]; then
   # The SHA-1 of the local certificate (it is self-signed, hence "not trusted": codesign accepts it by its hash).
   IDENTITY="$(security find-identity -p codesigning 2>/dev/null | awk '/"Clean My Claude Dev"/ {print $2; exit}')"
 fi
+# Hardened runtime: macOS refuses any library injected through DYLD_* variables or code patched in memory, so no other
+# program borrows the permissions the user gave the app. Apple Events (Finder, System Events) stay allowed by entitlement.
+ENTITLEMENTS="$(mktemp -d)/entitlements.plist"
+cat > "$ENTITLEMENTS" <<'ENT'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.automation.apple-events</key><true/>
+</dict>
+</plist>
+ENT
 if [[ -n "$IDENTITY" ]]; then
   echo "→ Signature stable (les autorisations de macOS sont conservées)…"
-  codesign --force --deep --sign "$IDENTITY" "$APP"
+  codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign "$IDENTITY" "$APP"
 else
-  codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
+  codesign --force --deep --options runtime --entitlements "$ENTITLEMENTS" --sign - "$APP" >/dev/null 2>&1 || true
   echo "  Astuce : lance une fois ./scripts/setup_signing.sh pour ne plus redonner les autorisations après chaque compilation."
 fi
+rm -f "$ENTITLEMENTS"
 
 if [[ $ZIP -eq 1 ]]; then
   (cd "$BUILD_DIR" && rm -f CleanMyClaude.zip && ditto -c -k --keepParent "$DISPLAY_NAME.app" CleanMyClaude.zip)

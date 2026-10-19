@@ -195,13 +195,15 @@ final class AppModel {
         } else {
             score += 22
         }
+        // A piece of malware outweighs everything else.
+        if !protection.malware.isEmpty { score -= 25 }
         if cleanup.hasResults {
             let junkGB = Double(cleanup.recommendedSize) / 1e9
             score += 20 * (1 - min(1, junkGB / 20))
         } else {
             score += 15
         }
-        return Int(score.rounded())
+        return max(0, Int(score.rounded()))
     }
 
     var healthLabel: String {
