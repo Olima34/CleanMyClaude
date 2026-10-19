@@ -91,12 +91,15 @@ struct OnboardingPanel: View {
         HStack(spacing: Self.gap) {
             ForEach(OnboardingSlide.allCases) { slide in
                 let i = slide.rawValue
-                let d = min(1, abs(CGFloat(i) - position))
+                // 0 in the middle, 1 at the edge (typed apart: Xcode 16 finds `1 - 0.5 * d` ambiguous).
+                let d: CGFloat = min(1, abs(CGFloat(i) - position))
+                let scale: CGFloat = 1 - 0.08 * d
+                let fade: Double = 1 - 0.5 * Double(d)
                 card(slide)
                     .frame(width: Self.cardSize.width, height: Self.cardSize.height)
                     .allowsHitTesting(i == index)
-                    .scaleEffect(1 - 0.08 * d)
-                    .opacity(1 - 0.5 * d)
+                    .scaleEffect(scale)
+                    .opacity(fade)
                     .overlay {
                         // A card at the edge comes to the middle when clicked.
                         if i != index {
