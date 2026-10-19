@@ -11,14 +11,14 @@ struct LauncherActionsPanel: View {
 
     var body: some View {
         @Bindable var model = app.launcher
-        let path = model.actionsFor ?? ""
+        let name = model.actionsTarget?.title ?? ""
         let choosingApp = model.openWithApps != nil
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 if choosingApp {
                     Image(systemName: "chevron.left").font(.ui(10, .semibold)).foregroundStyle(Theme.text3)
                 }
-                Text(choosingApp ? "Ouvrir « \((path as NSString).lastPathComponent) » avec…" : (path as NSString).lastPathComponent)
+                Text(choosingApp ? "Ouvrir « \(name) » avec…" : name)
                     .font(.ui(11.5, .semibold)).foregroundStyle(Theme.text3)
                     .lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 0)
@@ -130,7 +130,7 @@ struct LauncherActionsPanel: View {
 }
 
 struct LauncherActionRow: View {
-    var action: LauncherFileAction
+    var action: LauncherAction
     var selected: Bool
 
     var body: some View {
@@ -144,7 +144,7 @@ struct LauncherActionRow: View {
             }
             Text(action.title).font(.ui(13, selected ? .medium : .regular)).foregroundStyle(tint).lineLimit(1)
             Spacer(minLength: 8)
-            LauncherKeyCaps(keys: action.shortcut.keys)
+            LauncherKeyCaps(keys: action.shortcut?.keys ?? [])
         }
         .padding(.horizontal, 8)
         .frame(height: LauncherActionsPanel.rowHeight)

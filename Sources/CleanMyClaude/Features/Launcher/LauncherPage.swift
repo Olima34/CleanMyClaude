@@ -6,7 +6,7 @@ struct LauncherPage: View {
     private let examples: [(String, String, String)] = [
         ("app.badge", "slack", "Ouvre une app (les plus utilisées remontent en premier)"),
         ("doc.text.magnifyingglass", "facture edf", "Trouve un fichier instantanément, avec son aperçu à côté"),
-        ("command", "⌘K sur un fichier", "Toutes ses actions : coup d'œil, ouvrir avec, partager, déplacer, Corbeille…"),
+        ("command", "⌘K", "Les actions du résultat choisi : une app (quitter, désinstaller…), un fichier (convertir, partager…), une commande"),
         ("folder", "~/Documents/", "Parcourt les dossiers (⇥ entre dans le dossier choisi)"),
         ("text.magnifyingglass", "dans devis cuisine", "Cherche aussi dans le contenu des fichiers (Spotlight)"),
         ("character.bubble", "trad bonjour en anglais", "Traduit sur ton Mac, ou avec Claude"),
@@ -89,9 +89,24 @@ struct LauncherPage: View {
                     }
                 }
             }
+            let hidden = hiddenRows
+            if !hidden.isEmpty {
+                Panel(title: "Masqués de la recherche", subtitle: "Ils ne sortent plus quand tu tapes (⌘K › Masquer de la recherche)", symbol: "eye.slash") {
+                    VStack(spacing: 8) {
+                        ForEach(hidden, id: \.id) { row in
+                            HStack(spacing: 10) {
+                                Text(row.title).font(.ui(12.5)).foregroundStyle(Theme.text).lineLimit(1)
+                                Spacer()
+                                Button("Réafficher") { app.launcher.hiddenIDs.removeAll { $0 == row.id } }
+                                    .buttonStyle(SoftButtonStyle(small: true))
+                            }
+                        }
+                    }
+                }
+            }
             let top = mostUsed
             if !top.isEmpty {
-                Panel(title: "Tes commandes favorites", subtitle: "Elles remontent en tête quand tu tapes", symbol: "star") {
+                Panel(title: "Tes commandes les plus utilisées", subtitle: "Elles remontent en tête quand tu tapes", symbol: "chart.bar") {
                     VStack(spacing: 8) {
                         let maxCount = Double(top.first?.1 ?? 1)
                         ForEach(top, id: \.0) { title, count in
@@ -120,6 +135,13 @@ struct LauncherPage: View {
             if !app.launcher.includeFiles { return "Le lanceur ne cherche que les apps, les réglages et les commandes." }
             return "Pour l'instant, c'est Spotlight qui cherche (une seconde ou plus). L'index instantané lit les noms de tes fichiers une fois ; sans l'accès complet au disque, macOS te demandera d'autoriser Documents, Bureau et Téléchargements."
         }
+    }
+
+    /// The apps and commands taken out of the search, with their names.
+    private var hiddenRows: [(id: String, title: String)] {
+        let all = ModuleRegistry.commands(app) + LauncherAppIndex.commands(app.launcher.installedApps)
+        let titles = Dictionary(all.map { ($0.id, $0.title) }, uniquingKeysWith: { first, _ in first })
+        return app.launcher.hiddenIDs.map { ($0, titles[$0] ?? $0) }
     }
 
     /// The titles of the most used commands, with their counts.

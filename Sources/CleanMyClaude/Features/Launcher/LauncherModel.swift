@@ -59,9 +59,18 @@ final class LauncherModel: AppModule {
     var showDetails = UserDefaults.standard.object(forKey: "launcher.details") as? Bool ?? true {
         didSet { if !DemoData.isEnabled { UserDefaults.standard.set(showDetails, forKey: "launcher.details") } }
     }
-    /// ⌘K: the file or folder whose actions panel is open.
-    var actionsFor: String?
-    @ObservationIgnored var actionsIsFolder = false
+    /// ⌘K: the result whose actions panel is open, and its actions (read once, when it opens).
+    var actionsTarget: LauncherActionTarget?
+    var actionsList: [LauncherAction] = []
+    @ObservationIgnored var actionsCommand: AppCommand?
+    /// Shown first when the search is empty.
+    var favoriteItems = LauncherSaved.favorites.value {
+        didSet { LauncherSaved.favorites.value = favoriteItems }
+    }
+    /// Apps and commands taken out of the search.
+    var hiddenIDs = LauncherSaved.hidden.value {
+        didSet { LauncherSaved.hidden.value = hiddenIDs }
+    }
     /// What is typed in the panel's own search field.
     var actionFilter = "" {
         didSet { if actionFilter != oldValue { actionSelection = 0 } }
@@ -152,16 +161,16 @@ final class LauncherModel: AppModule {
             mode = .assign(target: target, title: target.title)
             assignMessage = "⌃⌥⌘M est déjà utilisé par Monteur : choisis-en un autre."
         case "actions", "openwith", "quicklook", "nodetails":
-            // The first file of the results, its actions panel open (`--query facture --tab actions`).
+            // The first file of the results (or the first result), its actions panel open (`--query facture --tab actions`).
             let items = flat
             guard let i = items.firstIndex(where: { Self.filePath(of: $0).map { !isFolder($0) } ?? false })
-                    ?? items.firstIndex(where: { Self.filePath(of: $0) != nil }) else { return }
+                    ?? items.indices.first else { return }
             selection = i
             if parts[0] == "nodetails" { showDetails = false; return }
             openActions()
-            if let path = actionsFor, parts[0] != "actions",
-               let action = fileActions.first(where: { $0.kind == (parts[0] == "openwith" ? .openWith : .quickLook) }) {
-                perform(action, path: path)
+            if let target = actionsTarget, parts[0] != "actions",
+               let action = actionsList.first(where: { $0.kind == (parts[0] == "openwith" ? .openWith : .quickLook) }) {
+                perform(action, on: target, command: actionsCommand)
             }
             if parts.count > 1 { actionFilter = parts[1] }
         default:
@@ -179,6 +188,11 @@ final class LauncherModel: AppModule {
         }
         demoFiles = LauncherFileIndex.snapshot(paths: LauncherDemoFiles.paths, home: FS.home)
         indexState = .ready(count: 148_312)
+        // A fictional app and file in the favourites, a command taken out of the search.
+        let devis = FS.home + "/Documents/Atelier/Devis Atelier Lumen.pdf"
+        favoriteItems = apps.filter { $0.name == "Monteur" }.map { LauncherFavorite(id: LauncherAppIndex.commandID(for: $0.path)) }
+            + [LauncherFavorite(id: Self.fileID(devis), path: devis)]
+        hiddenIDs = ["sys_screensaver"]
     }
 
     func commands(app: AppModel) -> [AppCommand] {
@@ -269,7 +283,7 @@ final class LauncherModel: AppModule {
         if Fuzzy.score("vsc", in: "Visual Studio Code") == nil { failures.append("recherche par initiales") }
         if LauncherEmoji.search("coeur").isEmpty { failures.append("emoji introuvables") }
         failures += Self.fileIndexChecks()
-        failures += LauncherFileActions.checks()
+        failures += LauncherActions.checks()
         return failures
     }
 
@@ -337,8 +351,11 @@ final class LauncherModel: AppModule {
                 "2,5*(3+1) = \(LauncherCalculator.evaluate("2,5*(3+1)").map(LauncherCalculator.format) ?? "?")",
                 "10 km en miles : \(LauncherUnits.convert("10 km en miles")?.to ?? "?")",
                 "heure Tokyo : \(LauncherWorldClock.answer("heure Tokyo")?.time ?? "?")",
-                "⌘K sur un fichier : " + LauncherFileActions.all(isFolder: false, detailsShown: showDetails)
-                    .map { "\($0.title) \($0.shortcut.keys.joined())" }.joined(separator: " · ")]
+                "⌘K sur un PDF : " + LauncherActions.all(for: .file(path: FS.home + "/Documents/Facture.pdf"), LauncherActionContext())
+                    .map { "\($0.title) \($0.shortcut?.keys.joined() ?? "")" }.joined(separator: " · "),
+                "⌘K sur une app : " + LauncherActions.all(for: .app(path: "/Applications/Exemple.app", name: "Exemple"),
+                                                         LauncherActionContext(bundleID: "fr.exemple", running: true, uninstallable: true))
+                    .map { "\($0.title) \($0.shortcut?.keys.joined() ?? "")" }.joined(separator: " · ")]
     }
 
     /// Fills the results as if the user had typed `text` (for `--snapshot`).
@@ -447,13 +464,13 @@ final class LauncherModel: AppModule {
     }
 
     private func searchKey(_ event: NSEvent) -> NSEvent? {
-            if actionsFor != nil { return actionsKey(event) }
+            if actionsTarget != nil { return actionsKey(event) }
             if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "k" {
-                // A file gets its actions panel; any other result, a keyboard shortcut.
-                if selectedFile != nil { openActions() } else { startAssign() }
+                // The actions of the selected result: an app, a file, a folder or a command each get their own.
+                openActions()
                 return nil
             }
-            if fileShortcut(event) { return nil }
+            if resultShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_DownArrow:
                 self.move(1); return nil
@@ -592,7 +609,7 @@ final class LauncherModel: AppModule {
 
     /// A row under the pointer: selected when the pointer moved, not when the list scrolled under it.
     func hover(_ index: Int) {
-        guard actionsFor == nil, selection != index, Date().timeIntervalSince(lastScroll) > 0.15 else { return }
+        guard actionsTarget == nil, selection != index, Date().timeIntervalSince(lastScroll) > 0.15 else { return }
         scrollToSelection = false
         selection = index
     }
@@ -617,6 +634,13 @@ final class LauncherModel: AppModule {
         if let known = fileKinds[path] { return known }
         return DemoData.isEnabled ? (path as NSString).pathExtension.isEmpty : HotkeysModel.isPlainFolder(path)
     }
+
+    /// A fixed result of the catalogue (not one that changes with what is typed).
+    func inCatalog(_ id: String) -> Bool {
+        catalog.contains { $0.id == id }
+    }
+
+    var catalogIDs: Set<String> { Set(catalog.map(\.id)) }
 
     /// Where the share menu is anchored.
     var panelView: NSView? { panel?.contentView }
@@ -680,7 +704,8 @@ final class LauncherModel: AppModule {
             fileResultsQuery = q
         }
         var scored: [(AppCommand, Double)] = []
-        for c in catalog {
+        let hidden = Set(hiddenIDs)
+        for c in catalog where !hidden.contains(c.id) {
             if let s = Fuzzy.best(q, title: c.title, keywords: c.keywords + [c.subtitle ?? ""]) {
                 scored.append((c, s + CommandRunner.frecency(c.id) + c.boost))
             }
@@ -721,15 +746,29 @@ final class LauncherModel: AppModule {
     }
 
     private func suggestions() -> [LauncherSection] {
-        let used = catalog.filter { CommandRunner.frecency($0.id) > 0 }
+        let favorites = favoriteCommands()
+        let skip = Set(hiddenIDs + favorites.map(\.id))
+        let shown = catalog.filter { !skip.contains($0.id) }
+        let used = shown.filter { CommandRunner.frecency($0.id) > 0 }
             .sorted { CommandRunner.frecency($0.id) > CommandRunner.frecency($1.id) }
             .prefix(6)
         let picks = ["act_smart_scan", "open_converter", "open_clipboard", "sys_darkmode", "sys_empty_trash", "act_free_ram"]
-        let defaults = picks.compactMap { id in catalog.first { $0.id == id } }.filter { d in !used.contains { $0.id == d.id } }
+        let defaults = picks.compactMap { id in shown.first { $0.id == id } }.filter { d in !used.contains { $0.id == d.id } }
         var out: [LauncherSection] = []
+        if !favorites.isEmpty { out.append(LauncherSection(id: "favorites", title: "Favoris", items: favorites)) }
         if !used.isEmpty { out.append(LauncherSection(id: "recent", title: "Les plus utilisés", items: Array(used))) }
         out.append(LauncherSection(id: "ideas", title: "Suggestions", items: Array(defaults.prefix(6 - min(used.count, 3)))))
         return out
+    }
+
+    /// The favourites still there: an app or a command of the catalogue, a file or a folder that was not moved.
+    private func favoriteCommands() -> [AppCommand] {
+        favoriteItems.compactMap { f in
+            guard let path = f.path else { return catalog.first { $0.id == f.id } }
+            guard DemoData.isEnabled || FS.exists(path) else { return nil }
+            fileKinds[path] = f.isDir
+            return fileCommand(path, isDir: f.isDir, boost: 0)
+        }
     }
 
     // MARK: Files

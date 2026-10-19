@@ -28,7 +28,7 @@ struct LauncherView: View {
             if mode == .search { DispatchQueue.main.async { focused = true } }
         }
         // The actions panel closed: the keyboard goes back to the search.
-        .onChange(of: app.launcher.actionsFor == nil) { _, closed in
+        .onChange(of: app.launcher.actionsTarget == nil) { _, closed in
             if closed { DispatchQueue.main.async { focused = true } }
         }
     }
@@ -69,7 +69,7 @@ struct LauncherView: View {
             }
             .frame(height: Self.height - 58 - 38 - 2, alignment: .top)
             .overlay(alignment: .bottomTrailing) {
-                if model.actionsFor != nil {
+                if model.actionsTarget != nil {
                     ZStack(alignment: .bottomTrailing) {
                         // A click beside the panel closes it.
                         Rectangle().fill(.clear).contentShape(Rectangle())
@@ -117,7 +117,7 @@ struct LauncherView: View {
                         .modifier(LauncherFileDrag(command: item))
                         .id(index)
                         .onTapGesture {
-                            if model.actionsFor != nil { model.closeActions(); return }
+                            if model.actionsTarget != nil { model.closeActions(); return }
                             model.selection = index
                             model.runSelected()
                         }
@@ -135,6 +135,7 @@ struct LauncherView: View {
     private var footer: some View {
         let model = app.launcher
         let onFile = model.selectedFile != nil
+        let primary = model.selectedPrimary
         return HStack(spacing: 14) {
             // Opens the app on the dashboard.
             Button {
@@ -155,22 +156,24 @@ struct LauncherView: View {
             if !onFile { hint("⌘↩", "Action secondaire") }
             hint("⎋", "Fermer")
             Spacer()
-            HStack(spacing: 6) {
-                Text(onFile ? "Ouvrir" : "Lancer").font(.ui(12, .medium)).foregroundStyle(Theme.text)
-                LauncherKeyCaps(keys: ["↩"])
-            }
-            Rectangle().fill(Theme.border).frame(width: 1, height: 16)
-            Button {
-                if onFile || model.actionsFor != nil { model.toggleActions() } else { model.startAssign() }
-            } label: {
+            if let primary {
                 HStack(spacing: 6) {
-                    Text(onFile ? "Actions" : "Raccourci").font(.ui(12, .medium)).foregroundStyle(Theme.text2)
-                    LauncherKeyCaps(keys: ["⌘", "K"])
+                    Text(primary).font(.ui(12, .medium)).foregroundStyle(Theme.text)
+                    LauncherKeyCaps(keys: ["↩"])
                 }
-                .contentShape(Rectangle())
+                Rectangle().fill(Theme.border).frame(width: 1, height: 16)
+                Button {
+                    model.toggleActions()
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("Actions").font(.ui(12, .medium)).foregroundStyle(Theme.text2)
+                        LauncherKeyCaps(keys: ["⌘", "K"])
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Toutes les actions sur ce résultat")
             }
-            .buttonStyle(.plain)
-            .help(onFile ? "Toutes les actions sur ce fichier" : "Donner un raccourci clavier à ce résultat")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 8)
