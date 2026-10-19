@@ -30,7 +30,7 @@ struct ConverterPreviewPanel: View {
                     }
                 }
                 content(preview)
-                    .frame(height: 330)
+                    .frame(height: 420)
                 footer(preview)
             }
         }
@@ -121,7 +121,7 @@ struct ConverterPreviewPanel: View {
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipShape(RoundedRectangle(cornerRadius: Theme.r(10)))
-                .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
+                .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line).allowsHitTesting(false))
         }
         .frame(maxWidth: .infinity)
     }
@@ -221,6 +221,9 @@ struct ConverterPreviewSurface: View {
     var body: some View {
         if demo || Snapshot.isActive {
             ConverterDemoArtwork(after: demoAfter, page: url.map { ["pdf", "docx", "txt", "md", "rtf", "html", "odt", "pages"].contains($0.pathExtension.lowercased()) } ?? false)
+        } else if let url, url.pathExtension.lowercased() == "pdf" {
+            // PDFKit's own viewer: every page, scrolled with the trackpad, with a page counter.
+            ConverterPDFPane(url: url)
         } else if let url {
             ConverterQuickLook(url: url)
         } else {
@@ -313,5 +316,92 @@ struct ConverterDemoArtwork: View {
             }
         }
         .saturation(after ? 0.92 : 1)
+    }
+}
+
+/// A PDF in the preview: scrolls page after page (trackpad or arrows), "Page 2 sur 4" in the corner.
+struct ConverterPDFPane: View {
+    var url: URL
+    @State private var page = 1
+    @State private var count = 0
+    @State private var go: (Int) -> Void = { _ in }
+
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            ConverterPDFView(url: url, page: $page, count: $count, go: $go)
+            if count > 0 {
+                HStack(spacing: 8) {
+                    Button { go(page - 1) } label: { Image(systemName: "chevron.up") }
+                        .buttonStyle(.plain).disabled(page <= 1)
+                    Text("Page \(page) sur \(count)").font(.ui(11, .medium)).monospacedDigit()
+                    Button { go(page + 1) } label: { Image(systemName: "chevron.down") }
+                        .buttonStyle(.plain).disabled(page >= count)
+                }
+                .font(.ui(10.5, .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background(Capsule().fill(.black.opacity(0.55)))
+                .padding(10)
+            }
+        }
+    }
+}
+
+struct ConverterPDFView: NSViewRepresentable {
+    var url: URL
+    @Binding var page: Int
+    @Binding var count: Int
+    @Binding var go: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayMode = .singlePageContinuous
+        view.displaysPageBreaks = true
+        view.backgroundColor = NSColor(white: 0.12, alpha: 1)
+        context.coordinator.attach(view)
+        load(view, context: context)
+        return view
+    }
+
+    func updateNSView(_ view: PDFView, context: Context) {
+        context.coordinator.parent = self
+        if view.document?.documentURL != url { load(view, context: context) }
+    }
+
+    private func load(_ view: PDFView, context: Context) {
+        let document = PDFDocument(url: url)
+        view.document = document
+        let total = document?.pageCount ?? 0
+        let coordinator = context.coordinator
+        DispatchQueue.main.async { [weak view] in
+            coordinator.parent.count = total
+            coordinator.parent.page = total > 0 ? 1 : 0
+            coordinator.parent.go = { [weak view] n in
+                guard let view, let doc = view.document, n >= 1, n <= doc.pageCount, let p = doc.page(at: n - 1) else { return }
+                view.go(to: p)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var parent: ConverterPDFView
+        private var observer: NSObjectProtocol?
+
+        init(_ parent: ConverterPDFView) { self.parent = parent }
+
+        func attach(_ view: PDFView) {
+            observer = NotificationCenter.default.addObserver(forName: .PDFViewPageChanged, object: view, queue: .main) { [weak self, weak view] _ in
+                guard let self, let view, let doc = view.document, let current = view.currentPage else { return }
+                let index = doc.index(for: current) + 1
+                MainActor.assumeIsolated { if self.parent.page != index { self.parent.page = index } }
+            }
+        }
+
+        deinit {
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+        }
     }
 }
