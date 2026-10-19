@@ -27,7 +27,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
 
     var purpose: String {
         switch self {
-        case .notifications: return "Alertes de disque ou de mémoire, bilan des automatisations"
+        case .notifications: return "Alertes de disque, de mémoire ou de batterie, bilan des automatisations"
         case .location: return "Afficher le nom du réseau Wi-Fi (ta position n'est jamais lue)"
         case .finder: return "Mettre à la Corbeille les apps installées par un administrateur, vider la Corbeille"
         case .systemEvents: return "Mode sombre, redémarrer, éteindre, masquer les autres apps depuis le lanceur"

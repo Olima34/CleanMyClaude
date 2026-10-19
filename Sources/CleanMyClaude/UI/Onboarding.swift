@@ -644,7 +644,7 @@ struct OnboardingPermissionsCard: View {
         case .fullDiskAccess: return "Voir la Corbeille, Mail et Safari"
         case .accessibility: return "Ranger les fenêtres au clavier"
         case .folders: return "Chercher tes fichiers depuis la barre"
-        case .notifications: return "Te prévenir si le disque ou la mémoire sature"
+        case .notifications: return "Te prévenir si le disque ou la mémoire sature, ou si la batterie faiblit"
         case .location: return "Afficher le nom du Wi-Fi (jamais ta position)"
         case .finder: return "Mettre certaines apps à la Corbeille"
         case .systemEvents: return "Mode sombre, redémarrer… depuis la barre"

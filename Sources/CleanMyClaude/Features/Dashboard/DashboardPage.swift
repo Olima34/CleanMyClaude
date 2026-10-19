@@ -273,7 +273,11 @@ struct ToolsOverview: View {
                      value: app.clipboard.isActive ? Fmt.int(app.clipboard.items.count) : "En pause",
                      detail: app.clipboard.isActive ? "éléments dans l'historique, mots de passe ignorés" : "Historique désactivé tant que tu ne l'actives pas")
                 tile(.toolbox, tint: Theme.warn, value: app.toolbox.sidebarBadge ?? "Caféine",
-                     detail: "Couleurs, mots de passe, empreintes, JSON, Base64 et compagnie")
+                     detail: "Couleurs, mots de passe, JSON, Caféine, curseur caché et compagnie")
+                if let r = app.battery.reading {
+                    tile(.battery, tint: Theme.good, value: app.battery.activeLimit.map { $0 < 100 ? "Limite \($0) %" : "\(r.percent) %" } ?? "\(r.percent) %",
+                         detail: "Limite de recharge, alerte de batterie faible et santé")
+                }
                 tile(.windows, tint: Theme.palette[1],
                      value: !app.windows.enabled ? "Inactif" : (app.windows.trusted ? "Actif" : "À autoriser"),
                      detail: "Moitiés, tiers et quarts d'écran au clavier (⌃⌥ + flèches)")

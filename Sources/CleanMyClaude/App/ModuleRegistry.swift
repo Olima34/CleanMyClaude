@@ -56,6 +56,7 @@ enum ModuleRegistry {
         // One append per module: a single literal of existentials takes Xcode 16's type checker too long.
         var list: [(page: Page, module: any AppModule)] = []
         list.append((.performance, app.performance))
+        list.append((.battery, app.battery))
         list.append((.launcher, app.launcher))
         list.append((.hotkeys, app.hotkeys))
         list.append((.converter, app.converter))

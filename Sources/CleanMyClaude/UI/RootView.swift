@@ -78,6 +78,7 @@ struct PageView: View {
         case .cleanup: CleanupPage()
         case .protection: ProtectionPage()
         case .performance: PerformancePage()
+        case .battery: BatteryPage()
         case .apps: AppsPage()
         case .storage: StoragePage()
         case .menubar: MenuBarPage()
@@ -112,6 +113,7 @@ struct BottomBar: View {
             || (app.storage.tab == .duplicates && !app.storage.dupSelection.isEmpty):
             StorageActionBar()
         case .performance: PerformanceBottomBar()
+        case .battery: BatteryBottomBar()
         case .launcher: LauncherBottomBar()
         case .converter: ConverterBottomBar()
         case .translator: TranslatorBottomBar()
