@@ -415,7 +415,7 @@ enum SelfTest {
         }
         // Module checks (calculator, conversions, command ids…).
         let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() }
-        for f in moduleFailures + ThemeChecks.run() + Shell.selfTest() + thirdPartyTools() {
+        for f in moduleFailures + ThemeChecks.run() + Shell.selfTest() + LoginItem.selfTest() + thirdPartyTools() {
             print("✗ \(f)")
             ok = false
         }

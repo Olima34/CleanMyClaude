@@ -106,10 +106,36 @@ enum LoginItem {
     }
 
     /// True when macOS opened the app at login (no window then, just the menu bar and the shortcuts).
-    static var launchedAtLogin: Bool {
-        guard let event = NSAppleEventManager.shared().currentAppleEvent else { return false }
-        return event.eventID == AEEventID(kAEOpenApplication)
-            && event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
+    /// Only meaningful in `applicationDidFinishLaunching`: AppKit sends it while handling the launch event,
+    /// which does not exist yet in `applicationWillFinishLaunching` and is gone right after.
+    static var launchedAtLogin: Bool { isLoginLaunch(NSAppleEventManager.shared().currentAppleEvent) }
+
+    /// The "open application" event that macOS sends to a login item carries `keyAELaunchedAsLogInItem`.
+    static func isLoginLaunch(_ event: NSAppleEventDescriptor?) -> Bool {
+        guard let event, event.eventClass == AEEventClass(kCoreEventClass), event.eventID == AEEventID(kAEOpenApplication) else { return false }
+        return event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue == OSType(keyAELaunchedAsLogInItem)
+    }
+
+    static func selfTest() -> [String] {
+        func openApp(_ prop: OSType?) -> NSAppleEventDescriptor {
+            let e = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEOpenApplication),
+                                           targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID),
+                                           transactionID: AETransactionID(kAnyTransactionID))
+            if let prop { e.setParam(NSAppleEventDescriptor(enumCode: prop), forKeyword: AEKeyword(keyAEPropData)) }
+            return e
+        }
+        let reopen = NSAppleEventDescriptor(eventClass: AEEventClass(kCoreEventClass), eventID: AEEventID(kAEReopenApplication),
+                                            targetDescriptor: nil, returnID: AEReturnID(kAutoGenerateReturnID),
+                                            transactionID: AETransactionID(kAnyTransactionID))
+        reopen.setParam(NSAppleEventDescriptor(enumCode: OSType(keyAELaunchedAsLogInItem)), forKeyword: AEKeyword(keyAEPropData))
+        var failures: [String] = []
+        if !isLoginLaunch(openApp(OSType(keyAELaunchedAsLogInItem))) { failures.append("ouverture à la connexion non reconnue") }
+        for (name, event) in [("sans événement", nil), ("ouverture normale", openApp(nil)),
+                              ("ouverture comme service", openApp(OSType(keyAELaunchedAsServiceItem))), ("réouverture", reopen)]
+        where isLoginLaunch(event) {
+            failures.append("ouverture à la connexion reconnue à tort (\(name))")
+        }
+        return failures
     }
 }
 
@@ -118,19 +144,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: StatusItemController?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
-        // Read now: the launch event is gone once the app has finished launching.
-        atLogin = LoginItem.launchedAtLogin
         // Before the first window: a theme that is always light or dark sets the appearance of every window.
         MainActor.assumeIsolated { ThemeStore.shared.applyAppearance() }
     }
 
-    private var atLogin = false
-
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Read first: the launch event is only there while AppKit handles it (not before, nor after this method).
+        let atLogin = LoginItem.launchedAtLogin
         MainActor.assumeIsolated {
             AppContext.applyDockIcon()
             if atLogin {
-                // Opened at login: stay in the background, like Raycast.
+                // Opened at login: stay in the background, like Raycast. SwiftUI opens no window then;
+                // one that macOS would restore anyway closes too.
                 DispatchQueue.main.async { AppContext.mainWindow?.close() }
             } else {
                 NSApp.activate(ignoringOtherApps: true)
