@@ -486,13 +486,15 @@ enum UpdatesSelfInstaller {
     }
 }
 
-/// Ed25519 signature of the published archives, in preparation: the CI will publish CleanMyClaude.zip.sig (the base64
-/// of a signature of CleanMyClaude.zip by a private key kept out of the repository) next to the archive. While
-/// `publicKey` is nil nothing is checked; once it is set, an archive without a valid signature is never installed.
-/// GitHub's SHA-256 only proves the archive is the one published; the signature proves who published it.
+/// Ed25519 signature of the published archives: the CI publishes CleanMyClaude.zip.sig (the base64 of a signature of
+/// CleanMyClaude.zip by a private key kept in GitHub's secrets, never in the repository) next to the archive, and an
+/// archive without a valid signature is never installed. GitHub's SHA-256 only proves the archive is the one published;
+/// the signature proves who published it.
 enum UpdatesSelfSignature {
-    /// Base64 of the raw 32-byte Ed25519 public key (`Curve25519.Signing.PublicKey.rawRepresentation`). Not set yet.
-    static let publicKey: String? = nil
+    /// Base64 of the raw 32-byte Ed25519 public key (`Curve25519.Signing.PublicKey.rawRepresentation`), the same as in
+    /// scripts/install.sh. The CI reads it from this line and refuses to publish an archive signed by another key.
+    /// nil: nothing is checked.
+    static let publicKey: String? = "BrZ97S0xVjos9xHFjqhiRzFXLLJAJdo9VTdGFTQX09w="
 
     /// The signature published with `release`, or nil while no public key is set (nothing is downloaded then).
     static func fetch(for release: UpdatesSelfRelease, publicKey: String? = publicKey) async throws -> Data? {
@@ -521,9 +523,12 @@ enum UpdatesSelfSignature {
     }
 
     /// With a key pair made for the test: a good signature passes; a changed archive, another key or no signature do not;
-    /// without a public key, nothing is required.
+    /// without a public key, nothing is required. The key of the published versions must be readable.
     static func selfTest() -> [String] {
         var f: [String] = []
+        if let publicKey, (Data(base64Encoded: publicKey).flatMap { try? Curve25519.Signing.PublicKey(rawRepresentation: $0) }) == nil {
+            f.append("Clé publique des versions illisible")
+        }
         let key = Curve25519.Signing.PrivateKey()
         let publicKey = key.publicKey.rawRepresentation.base64EncodedString()
         let archive = Data("PK archive de Clean My Claude".utf8)

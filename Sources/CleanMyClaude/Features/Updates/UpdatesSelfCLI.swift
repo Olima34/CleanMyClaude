@@ -86,7 +86,7 @@ enum UpdatesSelfCLI {
             }
             let signature = try await UpdatesSelfSignature.fetch(for: r)
             print("→ Vérification : empreinte comparée à celle de GitHub, "
-                  + (UpdatesSelfSignature.publicKey == nil ? "signature Ed25519 pas encore exigée" : "signature Ed25519 vérifiée") + ", contenu, signature de l'app")
+                  + (UpdatesSelfSignature.publicKey == nil ? "signature Ed25519 pas encore exigée" : "signature Ed25519") + ", contenu, signature de l'app")
             let prepared = try UpdatesSelfInstaller.prepare(zip: zip, folder: folder, release: r, signature: signature, currentBundle: target.path,
                                                             isCancelled: { false })
             print("  " + (prepared.signedLocally ? "Re-signée avec le certificat local de la copie remplacée" : "Signature publiée gardée (ad hoc)"))

@@ -51,10 +51,15 @@ jobs:
         run: |
           set -euo pipefail
           ZIP=build/CleanMyClaude.zip
-          # The public key the app already checks against, if any (base64 of the raw 32 bytes).
-          EXPECTED="$(sed -nE 's/^ *static let publicKey: String\? = "([A-Za-z0-9+\/=]{44})".*/\1/p' Sources/CleanMyClaude/Features/Updates/UpdatesSelf.swift)"
+          SOURCE=Sources/CleanMyClaude/Features/Updates/UpdatesSelf.swift
+          key_in() { sed -nE 's/^ *static let publicKey: String\? = "([A-Za-z0-9+\/=]{44})".*/\1/p'; }
+          # The public key (base64 of the raw 32 bytes) the installed copies check against: that of the previous version.
+          PREVIOUS="$(git tag --merged HEAD --no-contains HEAD --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p || true)"
+          TRUSTED="$([[ -n "$PREVIOUS" ]] && git show "$PREVIOUS:$SOURCE" 2>/dev/null | key_in || true)"
+          # The one this version will check the next ones against (a new one when the key changes).
+          NEXT="$(key_in < "$SOURCE")"
           if [[ -z "$CMC_UPDATE_KEY" ]]; then
-            if [[ -n "$EXPECTED" ]]; then
+            if [[ -n "$TRUSTED$NEXT" ]]; then
               echo "::error::Secret CMC_UPDATE_KEY absent : les copies installées refuseraient une version sans signature."
               exit 1
             fi
@@ -68,9 +73,12 @@ jobs:
           openssl pkey -in "$KEY" -pubout -out "$RUNNER_TEMP/update_key.pub"
           rm -f "$KEY"
           PUBLIC="$(openssl pkey -pubin -in "$RUNNER_TEMP/update_key.pub" -outform DER | tail -c 32 | openssl base64 -A)"
-          if [[ -n "$EXPECTED" && "$PUBLIC" != "$EXPECTED" ]]; then
-            echo "::error::CMC_UPDATE_KEY ne correspond pas à la clé publique de l'app ($EXPECTED) : rien n'est publié."
+          if [[ -n "$TRUSTED" && "$PUBLIC" != "$TRUSTED" ]]; then
+            echo "::error::CMC_UPDATE_KEY n'est pas la clé que vérifient les copies installées ($PREVIOUS : $TRUSTED) : rien n'est publié."
             exit 1
+          fi
+          if [[ -n "$NEXT" && "$PUBLIC" != "$NEXT" ]]; then
+            echo "::warning::Cette version passe à la clé $NEXT : remplace le secret CMC_UPDATE_KEY avant de publier la suivante."
           fi
           openssl pkeyutl -verify -pubin -inkey "$RUNNER_TEMP/update_key.pub" -rawin -in "$ZIP" -sigfile "$RUNNER_TEMP/zip.sig"
           { openssl base64 -A -in "$RUNNER_TEMP/zip.sig" && echo; } > "$ZIP.sig"

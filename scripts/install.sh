@@ -7,8 +7,8 @@ REPO="Olima34/CleanMyClaude"
 APP="Clean My Claude.app"
 BUNDLE_ID="io.github.olima34.cleanmyclaude"
 # The Ed25519 public key of the published versions, the one the app checks its updates against
-# (UpdatesSelfSignature.publicKey): base64 of its raw 32 bytes. Empty: signatures are not checked yet.
-PUBLIC_KEY=""
+# (UpdatesSelfSignature.publicKey): base64 of its raw 32 bytes.
+PUBLIC_KEY="BrZ97S0xVjos9xHFjqhiRzFXLLJAJdo9VTdGFTQX09w="
 # Tests: CMC_INSTALL_DIR installs elsewhere, without closing or opening the installed app; CMC_ZIP_URL (and
 # CMC_SIG_URL, by default the same address followed by .sig) installs another archive.
 TEST_DIR="${CMC_INSTALL_DIR:-}"
