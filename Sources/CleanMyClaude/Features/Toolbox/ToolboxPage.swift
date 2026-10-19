@@ -8,13 +8,14 @@ struct ToolboxPage: View {
         @Bindable var model = app.toolbox
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "wrench.and.screwdriver", title: "Boîte à outils",
-                     subtitle: "Les petits outils du quotidien : couleurs, mots de passe, empreintes, texte, dates et Caféine. Tout se calcule sur ton Mac, et presque tout répond aussi dans le lanceur.",
+                     subtitle: "Les petits outils du quotidien : couleurs, mots de passe, empreintes, texte, dates, Caféine et curseur caché. Tout se calcule sur ton Mac, et presque tout répond aussi dans le lanceur.",
                      tint: Theme.palette[7], seed: 71) {
                 ToolboxCaffeinePill()
             }
             PillPicker(options: ToolboxTab.allCases, selection: $model.tab, label: { $0.title }, badge: { tab in
                 switch tab {
                 case .caffeine: return model.caffeineActive ? "●" : nil
+                case .cursor: return model.cursor.enabled ? "●" : nil
                 case .hashes: return model.hashRunning ? "…" : (model.hashJobs.isEmpty ? nil : "\(model.hashJobs.count)")
                 case .colors: return model.settings.colors.isEmpty ? nil : "\(model.settings.colors.count)"
                 default: return nil
@@ -27,6 +28,7 @@ struct ToolboxPage: View {
             case .text: ToolboxTextTab()
             case .time: ToolboxTimeTab()
             case .caffeine: ToolboxCaffeineTab()
+            case .cursor: ToolboxCursorTab()
             }
         }
     }

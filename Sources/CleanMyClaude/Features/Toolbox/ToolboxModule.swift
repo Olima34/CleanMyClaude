@@ -1,9 +1,10 @@
 import SwiftUI
 import AppKit
 import IOKit.pwr_mgt
+import UniformTypeIdentifiers
 
 enum ToolboxTab: String, CaseIterable, Identifiable {
-    case colors, passwords, hashes, text, time, caffeine
+    case colors, passwords, hashes, text, time, caffeine, cursor
 
     var id: String { rawValue }
 
@@ -15,6 +16,7 @@ enum ToolboxTab: String, CaseIterable, Identifiable {
         case .text: return "Texte"
         case .time: return "Dates et UUID"
         case .caffeine: return "Caféine"
+        case .cursor: return "Curseur"
         }
     }
 }
@@ -149,10 +151,23 @@ final class ToolboxModel: AppModule {
     var caffeineEnd: Date?
     /// Refreshed every minute while Caféine runs, for the sidebar badge and the menu bar.
     var minuteTick = Date()
+    // Pointer
+    var cursor = ToolboxCursorSettings() {
+        didSet {
+            cursorStore.value = cursor
+            if started { cursorHider.update(cursor) }
+        }
+    }
+    /// The pointer is hidden right now.
+    var cursorHidden = false
 
     /// The general pasteboard; the live tests swap in a private one so the user's clipboard is never touched.
     @ObservationIgnored var pasteboard = NSPasteboard.general
     @ObservationIgnored private let store = JSONStore<ToolboxSettings>("toolbox", default: ToolboxSettings())
+    @ObservationIgnored private let cursorStore = JSONStore<ToolboxCursorSettings>("toolbox-cursor", default: ToolboxCursorSettings())
+    @ObservationIgnored let cursorHider = ToolboxCursorHider()
+    /// `start()` ran: the pointer may be hidden from now on (never during the first-launch cards).
+    @ObservationIgnored private var started = false
     @ObservationIgnored private var assertions: [IOPMAssertionID] = []
     @ObservationIgnored private var endTimer: Timer?
     @ObservationIgnored private var tickTimer: Timer?
@@ -163,6 +178,7 @@ final class ToolboxModel: AppModule {
 
     init() {
         settings = store.value
+        cursor = cursorStore.value
         password = ToolboxPassword.generate(settings.password)
         passphrase = ToolboxPassword.passphrase(settings.passphrase)
     }
@@ -178,6 +194,9 @@ final class ToolboxModel: AppModule {
 
     func start(app: AppModel) {
         self.app = app
+        started = true
+        cursorHider.onChange = { [weak self] hidden in self?.cursorHidden = hidden }
+        cursorHider.update(cursor)
         terminateObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
                                                                    object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.stop() }
@@ -186,8 +205,10 @@ final class ToolboxModel: AppModule {
 
     func stop() {
         stopCaffeine()
+        cursorHider.halt()
         for job in hashJobs { job.cancel.cancel() }
         store.flush()
+        cursorStore.flush()
     }
 
     func applySnapshotTab(_ tab: String) {
@@ -199,6 +220,9 @@ final class ToolboxModel: AppModule {
         let title = caffeineActive ? "Caféine · " + (caffeineEnd == nil ? "∞" : caffeineShortRemaining(Date())) : "Caféine"
         return [QuickToggle(id: "tool_caffeine", title: title, symbol: "cup.and.saucer.fill", isOn: caffeineActive) { [weak self] in
             self?.toggleCaffeine()
+        }, QuickToggle(id: "tool_cursor", title: cursor.enabled ? "Curseur caché · \(ToolboxCursorRule.label(cursor.delay))" : "Cacher le curseur",
+                       symbol: "cursorarrow.slash", isOn: cursor.enabled) { [weak self] in
+            self?.cursor.enabled.toggle()
         }]
     }
 
@@ -472,6 +496,50 @@ final class ToolboxModel: AppModule {
     /// The IOKit assertions currently held (for `dump()`).
     var heldAssertions: Int { assertions.count }
 
+    // MARK: Pointer
+
+    /// The apps open right now that could be added to the list (not this one, not those already there).
+    func cursorCandidates() -> [ToolboxCursorApp] {
+        guard !DemoData.isEnabled else {
+            return [ToolboxCursorApp(bundleID: "com.pixelune.Pixelune", name: "Pixelune", path: "/Applications/Pixelune.app")]
+        }
+        let chosen = Set(cursor.apps.map(\.bundleID))
+        var seen = Set<String>()
+        return NSWorkspace.shared.runningApplications.compactMap { r -> ToolboxCursorApp? in
+            guard r.activationPolicy == .regular, let id = r.bundleIdentifier, id != Bundle.main.bundleIdentifier,
+                  !chosen.contains(id), seen.insert(id).inserted else { return nil }
+            return ToolboxCursorApp(bundleID: id, name: r.localizedName ?? id, path: r.bundleURL?.path)
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    func addCursorApp(_ a: ToolboxCursorApp) {
+        guard !cursor.apps.contains(where: { $0.bundleID == a.bundleID }) else { return }
+        cursor.apps.append(a)
+        cursor.apps.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// An app picked in the Applications folder (one that is not open).
+    func chooseCursorApp() {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Choisis une app"
+        panel.prompt = "Ajouter"
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowsMultipleSelection = true
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls {
+            guard let b = Bundle(url: url), let id = b.bundleIdentifier else { continue }
+            let name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+            addCursorApp(ToolboxCursorApp(bundleID: id, name: name, path: url.path))
+        }
+    }
+
+    func removeCursorApp(_ id: String) {
+        cursor.apps.removeAll { $0.bundleID == id }
+    }
+
     // MARK: Demo
 
     func loadDemo() {
@@ -502,6 +570,13 @@ final class ToolboxModel: AppModule {
         caffeineStart = Date().addingTimeInterval(-18 * 60)
         caffeineEnd = Date().addingTimeInterval(42 * 60)
         settings.caffeineMinutes = 60
+        var c = ToolboxCursorSettings()
+        c.enabled = true
+        c.delay = 3
+        c.onlyApps = true
+        c.apps = [ToolboxCursorApp(bundleID: "fr.carnetdebord.app", name: "Carnet de bord", path: "/Applications/Carnet de bord.app"),
+                  ToolboxCursorApp(bundleID: "com.monteur.studio", name: "Monteur", path: "/Applications/Monteur.app")]
+        cursor = c
     }
 
     // MARK: Checks
@@ -526,7 +601,12 @@ final class ToolboxModel: AppModule {
             "camelCase(Été à la plage) = \(ToolboxText.convertCase("Été à la plage", to: .camel))",
             "Maintenant : \(ToolboxTime.unix(now)) · \(ToolboxTime.isoString(now))",
             "Caféine : \(caffeineActive ? "active" + (caffeineEnd.map { " jusqu'à \(Fmt.clock($0))" } ?? " sans limite") : "inactive") · assertions IOKit tenues : \(heldAssertions)",
-            "Empreintes en mémoire : \(hashJobs.count)"
+            "Empreintes en mémoire : \(hashJobs.count)",
+            "Curseur : \(cursor.enabled ? "se cache après \(ToolboxCursorRule.label(cursor.delay))" : "toujours visible")"
+                + (cursor.onlyApps ? " dans \(cursor.apps.map(\.name).joined(separator: ", "))" : " dans toutes les apps")
+                + " · caché maintenant : \(cursorHidden ? "oui" : "non")"
+                + " · masquage en arrière-plan : \(ToolboxCursorHider.backgroundAllowed.map { $0 ? "permis" : "refusé" } ?? "pas encore essayé")"
+                + (DemoData.isEnabled ? "" : " · souris immobile depuis \(Int(ToolboxCursorHider.idleSeconds())) s")
         ]
     }
 }

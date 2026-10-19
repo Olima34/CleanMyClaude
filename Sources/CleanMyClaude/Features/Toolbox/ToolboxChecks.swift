@@ -165,6 +165,50 @@ enum ToolboxChecks {
         for noise in ["safari", "facade", "bonjour", "2024", "12 + 4"] where !ToolboxLauncher.results(noise, model: m).isEmpty {
             f.append("le lanceur répond à « \(noise) »")
         }
+
+        // The hidden pointer.
+        f += cursor(m)
+        return f
+    }
+
+    private static func cursor(_ m: ToolboxModel) -> [String] {
+        var f: [String] = []
+        func equal<T: Equatable>(_ got: T, _ want: T, _ label: String) {
+            if got != want { f.append("curseur : \(label) « \(got) », attendu « \(want) »") }
+        }
+        var s = ToolboxCursorSettings()
+        s.enabled = true
+        s.delay = 5
+        equal(ToolboxCursorRule.next(idle: 6, settings: s, frontmost: "com.x"), .hide, "immobile depuis 6 s")
+        equal(ToolboxCursorRule.next(idle: 1, settings: s, frontmost: "com.x"), .check(after: 4), "immobile depuis 1 s")
+        // Never a busy loop: a clock just short of the delay still waits a quarter second.
+        equal(ToolboxCursorRule.next(idle: 4.99, settings: s, frontmost: nil), .check(after: 0.25), "juste avant le délai")
+        s.onlyApps = true
+        s.apps = [ToolboxCursorApp(bundleID: "com.livres", name: "Livres")]
+        equal(ToolboxCursorRule.next(idle: 60, settings: s, frontmost: "com.autre"), .waitForApp, "app non choisie au premier plan")
+        equal(ToolboxCursorRule.next(idle: 60, settings: s, frontmost: nil), .waitForApp, "aucune app au premier plan")
+        equal(ToolboxCursorRule.next(idle: 60, settings: s, frontmost: "com.livres"), .hide, "app choisie au premier plan")
+        s.apps = []
+        equal(ToolboxCursorRule.next(idle: 60, settings: s, frontmost: "com.livres"), .waitForApp, "liste d'apps vide")
+        equal(ToolboxCursorRule.label(5), "5 s", "étiquette")
+        equal(ToolboxCursorRule.label(60), "1 min", "étiquette d'une minute")
+        equal(ToolboxCursorRule.label(90), "90 s", "étiquette de 90 s")
+        for (text, want) in [("", ToolboxCursorRequest.on), ("off", .off), ("Arrêter", .off), ("10", .seconds(10)), ("10 s", .seconds(10)),
+                             ("10s", .seconds(10)), ("2 min", .seconds(120)), ("1 minute", .seconds(60))] as [(String, ToolboxCursorRequest)] {
+            equal(ToolboxCursorRule.parse(text), want, "lanceur « curseur \(text) »")
+        }
+        for bad in ["0", "-3", "abc", "10 h", "99999999999999999999", "700", "11 min"] {
+            equal(ToolboxCursorRule.parse(bad), nil, "lanceur « curseur \(bad) » accepté")
+        }
+        // An older or damaged file keeps what it can, and a delay out of range comes back within bounds.
+        let decoded = try? JSONDecoder.store.decode(ToolboxCursorSettings.self, from: Data(#"{"enabled":true,"delay":-4}"#.utf8))
+        equal(decoded?.enabled, true, "réglage relu")
+        equal(decoded?.delay, 1, "délai négatif relu")
+        equal(decoded?.apps.count, 0, "liste d'apps absente")
+        for (input, id) in [("curseur 10 s", "tool_r_cursor_delay"), ("curseur off", "tool_r_cursor_off"), ("curseur", "tool_r_cursor_on")] {
+            let r = ToolboxLauncher.results(input, model: m)
+            if !r.contains(where: { $0.id == id }) { f.append("curseur : lanceur « \(input) » sans \(id) (\(r.map(\.id)))") }
+        }
         return f
     }
 }

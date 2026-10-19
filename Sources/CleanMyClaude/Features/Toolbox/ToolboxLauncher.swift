@@ -86,6 +86,26 @@ enum ToolboxLauncher {
             m.stopCaffeine()
             return .message("Caféine arrêtée")
         })
+        let cursorWords = ["curseur", "pointeur", "souris", "cacher", "masquer", "invisible", "cursor", "hide", "lecture", "vidéo"]
+        list.append(AppCommand(id: "tool_cursor_on", title: "Cacher le curseur quand la souris ne bouge plus",
+                               subtitle: "Après \(ToolboxCursorRule.label(m.cursor.delay))" + (m.cursor.onlyApps ? " dans les apps choisies" : " dans toutes les apps"),
+                               keywords: cursorWords, icon: .symbol("cursorarrow.slash", tint), group: .tools, assistantSafe: true) { _ in
+            m.cursor.enabled = true
+            return .message("Le curseur se cachera après \(ToolboxCursorRule.label(m.cursor.delay)) sans bouger la souris")
+        })
+        list.append(AppCommand(id: "tool_cursor_off", title: "Ne plus cacher le curseur",
+                               subtitle: m.cursor.enabled ? "Il restera toujours visible" : "Le curseur reste déjà visible",
+                               keywords: cursorWords + ["arrêter", "stop", "afficher"], icon: .symbol("cursorarrow", tint), group: .tools,
+                               assistantSafe: true) { _ in
+            m.cursor.enabled = false
+            return .message("Le curseur reste visible")
+        })
+        list.append(AppCommand(id: "tool_cursor", title: "Réglages du curseur caché", subtitle: "Délai et apps concernées",
+                               keywords: cursorWords + ["délai", "réglages"], icon: .symbol("cursorarrow.motionlines", tint), group: .tools,
+                               assistantSafe: true, urlSafe: true) { ctx in
+            open(m, ctx.app, tab: .cursor)
+            return .done
+        })
         return list
     }
 
@@ -177,6 +197,10 @@ enum ToolboxLauncher {
             if let d = ToolboxTime.duration(rest) {
                 out.append(caffeine(d, m))
             }
+        case "curseur", "pointeur", "cursor":
+            if let r = ToolboxCursorRule.parse(rest) {
+                out.append(cursor(r, m))
+            }
         case "compter", "mots", "count", "wc":
             guard !rest.isEmpty else { break }
             let c = ToolboxText.counts(rest)
@@ -247,6 +271,35 @@ enum ToolboxLauncher {
             let value = row.1
             return AppCommand(id: "tool_r_time_\(row.0)", title: value, subtitle: row.2, icon: .symbol("calendar", tint),
                               group: .convert, hint: "Copier", boost: boost - Double(i)) { _ in m.copy(value) }
+        }
+    }
+
+    private static func cursor(_ r: ToolboxCursorRequest, _ m: ToolboxModel) -> AppCommand {
+        switch r {
+        case .off:
+            return AppCommand(id: "tool_r_cursor_off", title: "Ne plus cacher le curseur",
+                              subtitle: m.cursor.enabled ? "Il restera toujours visible" : "Le curseur reste déjà visible",
+                              icon: .symbol("cursorarrow", tint), group: .tools, boost: 1800) { _ in
+                m.cursor.enabled = false
+                return .message("Le curseur reste visible")
+            }
+        case .on:
+            let label = ToolboxCursorRule.label(m.cursor.delay)
+            return AppCommand(id: "tool_r_cursor_on", title: "Cacher le curseur après \(label) sans bouger la souris",
+                              subtitle: m.cursor.enabled ? "Déjà actif" : "Il revient dès que tu bouges la souris",
+                              icon: .symbol("cursorarrow.slash", tint), group: .tools, boost: 1800) { _ in
+                m.cursor.enabled = true
+                return .message("Le curseur se cachera après \(label)")
+            }
+        case .seconds(let n):
+            let label = ToolboxCursorRule.label(n)
+            return AppCommand(id: "tool_r_cursor_delay", title: "Cacher le curseur après \(label) sans bouger la souris",
+                              subtitle: "Il revient dès que tu bouges la souris", icon: .symbol("cursorarrow.slash", tint),
+                              group: .tools, boost: 1800) { _ in
+                m.cursor.delay = n
+                m.cursor.enabled = true
+                return .message("Le curseur se cachera après \(label)")
+            }
         }
     }
 
