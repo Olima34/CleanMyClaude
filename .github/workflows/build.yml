@@ -42,48 +42,29 @@ jobs:
           name: CleanMyClaude
           path: build/CleanMyClaude.zip
 
-  publish:
+  # The app signed with the release certificate (codesign needs macOS), then handed to publish, which signs the
+  # archive on Linux (its openssl knows Ed25519). Like publish, it compiles and runs nothing from the repository.
+  sign:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # macOS: codesign signs the app.
     runs-on: macos-15
-    # The secrets CMC_CODESIGN_IDENTITY, the certificate that signs the app, and CMC_UPDATE_KEY, the Ed25519 key that signs
-    # the archive, live in this environment: only main and the vX.Y.Z tags reach them, and only this job, which compiles
-    # and runs nothing from the repository before signing.
+    # The secret CMC_CODESIGN_IDENTITY, like CMC_UPDATE_KEY (see publish).
     environment: release
-    permissions:
-      contents: write
-    # One publication at a time, in order; of several pushes waiting, only the latest is published (it holds the others).
-    concurrency:
-      group: publish
-      cancel-in-progress: false
     steps:
-      # gh creates the release and its tag with GH_TOKEN: git itself never pushes, so the checkout keeps no credentials.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 0
+          fetch-depth: 0 # the previous version, whose certificate the installed copies have
           persist-credentials: false
-      - name: Already published?
-        id: published
-        run: |
-          # A version tag already holds this commit: pushed by hand with it (release.yml publishes it), or a later push went first.
-          TAGS="$(git tag --contains HEAD --list 'v[0-9]*' | tr '\n' ' ')"
-          if [[ -n "$TAGS" ]]; then
-            echo "Déjà dans $TAGS: rien à publier."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          fi
       - name: Download the app
-        if: steps.published.outputs.skip != 'true'
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: CleanMyClaude
           path: build
-      # Written here and not in a script, like the next step; the same step is in release.yml.
+      # Written here and not in a script, like the archive's signature; the same step is in release.yml.
       # One certificate signs every version: macOS ties the permissions (Full Disk Access, Accessibility…) and the app's
       # keychain items to it, so an update keeps them. Self-signed, made once by scripts/setup_release_signing.sh, its key
       # only in the secret CMC_CODESIGN_IDENTITY. Before the archive is signed, which covers the app signed here.
       - name: Sign the app
-        if: steps.published.outputs.skip != 'true'
         env:
           CMC_CODESIGN_IDENTITY: ${{ secrets.CMC_CODESIGN_IDENTITY }}
         run: |
@@ -150,6 +131,47 @@ jobs:
           rm -f "$ZIP"
           (cd "$WORK/app" && ditto -c -k --keepParent "Clean My Claude.app" "$ZIP")
           echo "App signée par le certificat $HASH"
+      - name: Upload the signed app
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: CleanMyClaude-signed
+          path: build/CleanMyClaude.zip
+
+  publish:
+    needs: [build, sign]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # The secrets CMC_UPDATE_KEY, the Ed25519 key that signs the archive, and CMC_CODESIGN_IDENTITY, the certificate that
+    # signs the app (in sign), live in this environment: only main and the vX.Y.Z tags reach them, and only these two
+    # jobs, which compile and run nothing from the repository before signing.
+    environment: release
+    permissions:
+      contents: write
+    # One publication at a time, in order; of several pushes waiting, only the latest is published (it holds the others).
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    steps:
+      # gh creates the release and its tag with GH_TOKEN: git itself never pushes, so the checkout keeps no credentials.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Already published?
+        id: published
+        run: |
+          # A version tag already holds this commit: pushed by hand with it (release.yml publishes it), or a later push went first.
+          TAGS="$(git tag --contains HEAD --list 'v[0-9]*' | tr '\n' ' ')"
+          if [[ -n "$TAGS" ]]; then
+            echo "Déjà dans $TAGS: rien à publier."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download the app
+        if: steps.published.outputs.skip != 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: CleanMyClaude-signed
+          path: build
       # Written here and not in a script: changing what sees the key takes a token allowed to change the workflows.
       # The same step is in release.yml.
       - name: Sign the archive

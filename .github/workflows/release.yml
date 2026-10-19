@@ -27,25 +27,24 @@ jobs:
           name: CleanMyClaude
           path: build/CleanMyClaude.zip
 
-  publish:
+  # The app signed with the release certificate (codesign needs macOS), then handed to publish, which signs the
+  # archive on Linux (its openssl knows Ed25519). Like publish, it compiles and runs nothing from the repository.
+  sign:
     needs: build
-    # macOS: codesign signs the app.
     runs-on: macos-15
-    # The signing key, like in build.yml: this job compiles and runs nothing from the repository before signing.
+    # The signing certificate, like in build.yml.
     environment: release
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 0 # the previous version, for the notes
+          fetch-depth: 0 # the previous version, whose certificate the installed copies have
           persist-credentials: false
       - name: Download the app
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: CleanMyClaude
           path: build
-      # The same steps as in build.yml.
+      # The same step as in build.yml.
       # One certificate signs every version: macOS ties the permissions (Full Disk Access, Accessibility…) and the app's
       # keychain items to it, so an update keeps them. Self-signed, made once by scripts/setup_release_signing.sh, its key
       # only in the secret CMC_CODESIGN_IDENTITY. Before the archive is signed, which covers the app signed here.
@@ -116,6 +115,29 @@ jobs:
           rm -f "$ZIP"
           (cd "$WORK/app" && ditto -c -k --keepParent "Clean My Claude.app" "$ZIP")
           echo "App signée par le certificat $HASH"
+      - name: Upload the signed app
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: CleanMyClaude-signed
+          path: build/CleanMyClaude.zip
+
+  publish:
+    needs: [build, sign]
+    runs-on: ubuntu-latest
+    # The signing key, like in build.yml: this job compiles and runs nothing from the repository before signing.
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # the previous version, for the notes
+          persist-credentials: false
+      - name: Download the app
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: CleanMyClaude-signed
+          path: build
       # The same step as in build.yml.
       - name: Sign the archive
         env:
