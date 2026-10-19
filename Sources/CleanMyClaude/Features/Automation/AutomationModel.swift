@@ -494,7 +494,7 @@ final class AutomationModel: AppModule {
         busy.insert(.health)
         defer { busy.remove(.health) }
         let m = app.monitor
-        if !DemoData.isEnabled { m.sampleDisk() }
+        m.refresh()
         var junk: Int64?
         if let scanned = app.cleanup.lastScan, Date().timeIntervalSince(scanned) < 86400 {
             junk = app.cleanup.recommendedSize

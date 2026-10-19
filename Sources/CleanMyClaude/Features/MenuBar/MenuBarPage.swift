@@ -71,7 +71,7 @@ struct MenuBarPage: View {
                         .controlSize(.small)
                     }
                     Callout(symbol: "leaf", title: "Léger par conception",
-                            text: "Les mesures viennent directement du noyau (quelques appels système toutes les \(Int(refresh)) s). La liste des processus n'est lue que lorsque le panneau est ouvert.",
+                            text: "Les mesures viennent directement du noyau (quelques appels système toutes les \(Int(refresh)) s), et seulement quand quelque chose les affiche : fenêtre, panneau ou chiffre dans la barre des menus. La liste des processus n'est lue que lorsque le panneau est ouvert.",
                             tint: Theme.good)
                 }
             }

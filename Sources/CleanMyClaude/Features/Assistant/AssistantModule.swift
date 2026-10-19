@@ -446,6 +446,7 @@ final class AssistantModel: AppModule {
 
     static func statusText(_ app: AppModel) -> String {
         let m = app.monitor
+        m.refresh()
         var lines = [
             "Processeur : \(Fmt.pct(m.cpu)) (\(m.coreCount) cœurs, charge \(Fmt.dec(m.loadAverage)))",
             "Mémoire : \(Fmt.bytes(m.memUsed)) utilisés sur \(Fmt.bytes(m.memTotal)), pression \(m.pressure.label.lowercased()), échange \(Fmt.bytes(m.swapUsed))",

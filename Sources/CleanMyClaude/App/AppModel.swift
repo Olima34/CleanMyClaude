@@ -135,7 +135,9 @@ final class AppModel {
         } else if liveMonitor {
             let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self else { return }
+                    guard let self, Alerts.isOn else { return }
+                    // With nothing on screen the monitor is paused: it samples once for the check.
+                    self.monitor.refresh()
                     Alerts.check(self.monitor)
                 }
             }

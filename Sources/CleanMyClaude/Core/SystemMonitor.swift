@@ -27,11 +27,17 @@ enum MemoryPressure: Int {
     }
 }
 
-/// Live system metrics, sampled every couple of seconds. Cheap syscalls only.
+/// Live system metrics, sampled every couple of seconds while something shows them. Cheap syscalls only.
 @Observable
 @MainActor
 final class SystemMonitor {
     static let historyLength = 60
+
+    /// What shows the live values. The timer runs only while one of them is on screen: with the window closed and the
+    /// icon alone in the menu bar, the monitor costs nothing, and `refresh()` still gives fresh values on demand.
+    enum Viewer: Hashable {
+        case window, panel, menuBar
+    }
 
     // CPU
     var cpu: Double = 0
@@ -77,6 +83,11 @@ final class SystemMonitor {
     var lastSample = Date()
 
     @ObservationIgnored private var timer: Timer?
+    /// False for the one-shot monitors (diagnostic, snapshots, self-tests): they never sample on a timer.
+    @ObservationIgnored private var live = false
+    @ObservationIgnored private var viewers: Set<Viewer> = []
+    /// Called after each sample (the menu bar text follows the values).
+    @ObservationIgnored var onSample: (@MainActor () -> Void)?
     @ObservationIgnored private var prevTicks: [UInt32]?
     @ObservationIgnored private var prevNet: (bytesIn: UInt64, bytesOut: UInt64, at: Date)?
     @ObservationIgnored private var tick = 0
@@ -88,6 +99,7 @@ final class SystemMonitor {
     }()
 
     var interval: TimeInterval = 2
+    var isSampling: Bool { timer != nil }
 
     init(start: Bool = true) {
         bootDate = Self.readBootDate()
@@ -95,11 +107,56 @@ final class SystemMonitor {
         if start { self.start() }
     }
 
+    /// Goes live: samples every `interval` (read again from the settings) while something shows the values.
     func start() {
-        timer?.invalidate()
+        live = true
         let saved = UserDefaults.standard.double(forKey: Preferences.refreshKey)
         interval = saved > 0 ? saved : 2
-        let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
+        if timer != nil {
+            schedule(firstIn: interval)
+        } else if !viewers.isEmpty {
+            resume()
+        }
+    }
+
+    /// `viewer` appeared or went away: the timer stops when nothing shows the values any more, and starts again
+    /// (with a sample right away if the values are old) as soon as something does.
+    func show(_ viewer: Viewer, _ visible: Bool) {
+        if visible { viewers.insert(viewer) } else { viewers.remove(viewer) }
+        guard live else { return }
+        if viewers.isEmpty {
+            timer?.invalidate()
+            timer = nil
+        } else if timer == nil {
+            resume()
+        }
+    }
+
+    /// Fresh values for a reader that does not watch the screen (alerts, the health history, the assistant):
+    /// one sample right away when the timer is paused, kept out of the curves so they keep their pace.
+    func refresh() {
+        if DemoData.isEnabled { return }
+        if timer != nil { sampleDisk() } else { sample(record: false, everything: true) }
+    }
+
+    private func resume() {
+        let age = Date().timeIntervalSince(lastSample)
+        guard age > interval * 1.5 else {
+            // Still fresh (a window that flickers between Spaces): the timer just picks up the pace.
+            schedule(firstIn: max(0.1, interval - age))
+            return
+        }
+        // CPU and network are rates: over the pause they would be averages, not what happens now. They restart from
+        // here and the next sample comes soon; memory, disk and battery are read right away.
+        prevTicks = nil
+        prevNet = nil
+        sample(record: true, everything: true)
+        schedule(firstIn: min(0.5, interval))
+    }
+
+    private func schedule(firstIn delay: TimeInterval) {
+        timer?.invalidate()
+        let t = Timer(fire: Date().addingTimeInterval(delay), interval: interval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.sample() }
         }
         t.tolerance = interval * 0.2
@@ -108,16 +165,22 @@ final class SystemMonitor {
     }
 
     func sample() {
+        sample(record: true, everything: false)
+    }
+
+    /// `record` adds the values to the curves; `everything` also reads the disk and the battery, which change slowly.
+    private func sample(record: Bool, everything: Bool) {
         tick += 1
+        defer { onSample?() }
         if DemoData.isEnabled {
             DemoData.sample(self, tick: tick)
             return
         }
-        sampleCPU()
-        sampleMemory()
-        sampleNetwork()
-        if tick % 5 == 1 { sampleDisk() }
-        if tick % 15 == 1 { battery = Self.readBattery() }
+        sampleCPU(record: record)
+        sampleMemory(record: record)
+        sampleNetwork(record: record)
+        if everything || tick % 5 == 1 { sampleDisk() }
+        if everything || tick % 15 == 1 { battery = Self.readBattery() }
         thermal = ProcessInfo.processInfo.thermalState
         var loads = [Double](repeating: 0, count: 3)
         if getloadavg(&loads, 3) > 0 { loadAverage = loads[0] }
@@ -131,7 +194,7 @@ final class SystemMonitor {
 
     // MARK: CPU
 
-    private func sampleCPU() {
+    private func sampleCPU(record: Bool) {
         var info = host_cpu_load_info()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info_data_t>.stride / MemoryLayout<integer_t>.stride)
         let kr = withUnsafeMutablePointer(to: &info) {
@@ -150,12 +213,12 @@ final class SystemMonitor {
         cpuUser = (d[0] + d[3]) / total
         cpuSystem = d[1] / total
         cpu = min(1, cpuUser + cpuSystem)
-        push(cpu, to: &cpuHistory)
+        if record { push(cpu, to: &cpuHistory) }
     }
 
     // MARK: Memory
 
-    private func sampleMemory() {
+    private func sampleMemory(record: Bool) {
         var stats = vm_statistics64()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride)
         let kr = withUnsafeMutablePointer(to: &stats) {
@@ -172,7 +235,7 @@ final class SystemMonitor {
             memCompressed = UInt64(stats.compressor_page_count) * p
             memCached = (UInt64(stats.external_page_count) + purgeable) * p
             memFree = UInt64(stats.free_count) * p
-            push(memFraction, to: &memHistory)
+            if record { push(memFraction, to: &memHistory) }
         }
 
         var swap = xsw_usage()
@@ -204,7 +267,7 @@ final class SystemMonitor {
 
     // MARK: Network
 
-    private func sampleNetwork() {
+    private func sampleNetwork(record: Bool) {
         guard let (bytesIn, bytesOut) = Self.readInterfaceBytes() else { return }
         let now = Date()
         if let prev = prevNet {
@@ -212,8 +275,10 @@ final class SystemMonitor {
             if dt > 0, bytesIn >= prev.bytesIn, bytesOut >= prev.bytesOut {
                 netIn = Double(bytesIn - prev.bytesIn) / dt
                 netOut = Double(bytesOut - prev.bytesOut) / dt
-                push(netIn, to: &netInHistory)
-                push(netOut, to: &netOutHistory)
+                if record {
+                    push(netIn, to: &netInHistory)
+                    push(netOut, to: &netOutHistory)
+                }
             }
         }
         netTotalIn = bytesIn
@@ -295,6 +360,26 @@ final class SystemMonitor {
         var size = MemoryLayout<timeval>.size
         guard sysctlbyname("kern.boottime", &tv, &size, nil, 0) == 0 else { return nil }
         return Date(timeIntervalSince1970: TimeInterval(tv.tv_sec))
+    }
+
+    /// The timer runs only while something shows the values, and never for a one-shot monitor.
+    static func selfTest() -> [String] {
+        var failures: [String] = []
+        let oneShot = SystemMonitor(start: false)
+        oneShot.show(.window, true)
+        if oneShot.isSampling { failures.append("moniteur : un moniteur ponctuel échantillonne en continu") }
+        let m = SystemMonitor(start: true)
+        defer { m.show(.window, false); m.show(.panel, false); m.show(.menuBar, false) }
+        if m.isSampling { failures.append("moniteur : échantillonne alors que rien ne l'affiche") }
+        m.show(.window, true)
+        m.show(.panel, true)
+        m.show(.window, false)
+        if !m.isSampling { failures.append("moniteur : arrêté alors que le panneau du menu d'état est ouvert") }
+        m.show(.panel, false)
+        if m.isSampling { failures.append("moniteur : continue une fois la fenêtre et le panneau fermés") }
+        m.show(.menuBar, true)
+        if !m.isSampling { failures.append("moniteur : ne reprend pas pour la barre des menus") }
+        return failures
     }
 
     var thermalLabel: String {

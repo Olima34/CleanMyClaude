@@ -257,10 +257,12 @@ enum QuickActions {
 enum Alerts {
     static var available: Bool { Notifier.available }
 
+    static var isOn: Bool { available && UserDefaults.standard.bool(forKey: Preferences.alertsKey) }
+
     static func requestPermission() { Notifier.requestPermission() }
 
     static func check(_ m: SystemMonitor) {
-        guard available, UserDefaults.standard.bool(forKey: Preferences.alertsKey) else { return }
+        guard isOn else { return }
         if m.diskTotal > 0, m.diskUsedFraction > 0.92 {
             Notifier.post(id: "disk", title: "Ton disque est presque plein", body: "Il ne reste que \(Fmt.bytes(m.diskFree)). Un petit nettoyage ?")
         }

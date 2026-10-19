@@ -363,7 +363,7 @@ enum SelfTest {
             ok = false
         }
         // Module checks (calculator, conversions, command ids…).
-        let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) }
+        let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() }
         for f in moduleFailures + ThemeChecks.run() {
             print("✗ \(f)")
             ok = false

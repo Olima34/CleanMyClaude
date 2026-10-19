@@ -18,15 +18,21 @@ extension MenuMetric {
 
 /// The menu bar item, built with AppKit. Changing its text is a cheap property update,
 /// whereas a SwiftUI `MenuBarExtra` label rebuilds the whole app menu at every refresh (measured: ~2 % of CPU).
+/// The text follows the monitor's samples; with the icon alone, the item keeps the monitor running only while its
+/// panel is open.
 @MainActor
 final class StatusItemController: NSObject, NSPopoverDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private let app: AppModel
-    private var timer: Timer?
+    private var metric = StatusItemController.savedMetric
     private static let icon = ClaudeSpark.templateImage(size: 15)
     private let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular)
     private var lastText = "-"
+
+    nonisolated private static var savedMetric: MenuMetric {
+        MenuMetric(rawValue: UserDefaults.standard.string(forKey: Preferences.menuMetricKey) ?? "") ?? .cpuMemory
+    }
 
     init(app: AppModel) {
         self.app = app
@@ -40,18 +46,24 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
         popover.behavior = .transient
         popover.delegate = self
+        app.monitor.onSample = { [weak self] in self?.update() }
+        app.monitor.show(.menuBar, metric != .icon)
         update()
-        let t = Timer(timeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.update() }
+        // The metric is picked in the settings and on the Menu d'état page.
+        NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.metricMayHaveChanged() }
         }
-        t.tolerance = 0.5
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+    }
+
+    private func metricMayHaveChanged() {
+        let saved = Self.savedMetric
+        guard saved != metric else { return }
+        metric = saved
+        app.monitor.show(.menuBar, metric != .icon)
+        update()
     }
 
     private func update() {
-        let raw = UserDefaults.standard.string(forKey: Preferences.menuMetricKey) ?? ""
-        let metric = MenuMetric(rawValue: raw) ?? .cpuMemory
         let text = metric.text(app.monitor)
         guard text != lastText, let button = item.button else { return }
         lastText = text
@@ -72,11 +84,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         let host = NSHostingController(rootView: MenuBarPanel().environment(app))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
+        app.monitor.show(.panel, true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
 
     func popoverDidClose(_ notification: Notification) {
         popover.contentViewController = nil
+        app.monitor.show(.panel, false)
     }
 }

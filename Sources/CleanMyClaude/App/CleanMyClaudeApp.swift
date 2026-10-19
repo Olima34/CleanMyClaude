@@ -27,6 +27,15 @@ enum AppContext {
         }
     }
 
+    /// The system monitor samples only while something shows its values: here, the main window on screen
+    /// (not closed, minimised, hidden, on another Space or fully covered).
+    static func noteMainWindowVisibility(closing: Bool = false) {
+        let onScreen = !closing && NSApp.windows.contains { w in
+            (w.identifier?.rawValue.hasPrefix("main") ?? false) && w.isVisible && w.occlusionState.contains(.visible)
+        }
+        model?.monitor.show(.window, onScreen)
+    }
+
     /// No Dock icon by default, like Raycast: the app lives in the menu bar and behind its shortcut.
     static func applyDockIcon(windowClosing: Bool = false) {
         let windowOpen = !windowClosing && mainWindow != nil
@@ -124,6 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 MainActor.assumeIsolated {
                     if w.identifier?.rawValue.hasPrefix("main") ?? false {
                         AppContext.applyDockIcon(windowClosing: true)
+                        AppContext.noteMainWindowVisibility(closing: true)
                     } else if !(w is NSPanel), w.styleMask.contains(.titled), w.isKeyWindow {
                         // Without a Dock icon, closing the settings would send the app behind the others and hide its
                         // main window: it comes back to the front instead.
@@ -139,6 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }
                 MainActor.assumeIsolated { AppContext.applyDockIcon() }
             }
+            NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { note in
+                guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }
+                MainActor.assumeIsolated { AppContext.noteMainWindowVisibility() }
+            }
         }
         MainActor.assumeIsolated {
             Notifier.setUp()
@@ -146,6 +160,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSUpdateDynamicServices()
             if let app = AppContext.model {
                 statusItem = StatusItemController(app: app)
+                AppContext.noteMainWindowVisibility()
                 ModuleRegistry.startAll(app)
             }
             NotificationCenter.default.addObserver(forName: .openMainWindow, object: nil, queue: .main) { _ in
