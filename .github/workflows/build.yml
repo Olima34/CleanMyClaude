@@ -1,5 +1,8 @@
 name: Build
 
+# Every push on main that builds and passes its self-tests becomes a version on the Releases page: v0.3.N, N being the
+# number of commits since the v0.3.0 tag (scripts/version.sh, the number a local build of the same commit carries too).
+# The apps already installed find it at launch or within 6 h; the README's button and scripts/install.sh serve it.
 on:
   push:
     branches: [main]
@@ -8,14 +11,62 @@ on:
 jobs:
   build:
     runs-on: macos-15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the tags and commits the version number is counted from
       - name: Toolchain
         run: swift --version
+      - name: Version
+        id: version
+        run: echo "version=$(./scripts/version.sh)" >> "$GITHUB_OUTPUT"
       - name: Build the app bundle
-        run: ./scripts/build_app.sh --no-install --zip
+        env:
+          CMC_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ARGS=(--no-install --zip)
+          # What gets published runs on Apple Silicon and Intel.
+          [[ "$GITHUB_EVENT_NAME" == push ]] && ARGS+=(--universal)
+          ./scripts/build_app.sh "${ARGS[@]}"
       - name: Upload the app
         uses: actions/upload-artifact@v4
         with:
           name: CleanMyClaude
           path: build/CleanMyClaude.zip
+
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # One publication at a time, in order; of several pushes waiting, only the latest is published (it holds the others).
+    concurrency:
+      group: publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Already published?
+        id: published
+        run: |
+          # A version tag already holds this commit: pushed by hand with it (release.yml publishes it), or a later push went first.
+          TAGS="$(git tag --contains HEAD --list 'v[0-9]*' | tr '\n' ' ')"
+          if [[ -n "$TAGS" ]]; then
+            echo "Déjà dans $TAGS: rien à publier."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Download the app
+        if: steps.published.outputs.skip != 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: CleanMyClaude
+          path: build
+      - name: Publish the release
+        if: steps.published.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/publish_release.sh "${{ needs.build.outputs.version }}" build/CleanMyClaude.zip

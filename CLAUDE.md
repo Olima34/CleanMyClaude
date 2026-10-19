@@ -15,6 +15,8 @@ swift build                                         # sans erreur ni avertisseme
 
 Relis toujours la capture PNG de ta page. `./scripts/build_app.sh` installe l'app dans `~/Applications` : **ne le lance pas depuis une copie de travail parallèle** (toutes partagent la même app installée et les mêmes autorisations macOS).
 
+Chaque push sur `main` dont la CI réussit est publié comme nouvelle version (`v0.3.N`, numéro donné par `scripts/version.sh`), puis proposé aux apps déjà installées : ne pousse que du code prêt.
+
 ## Architecture
 
 - `Core/` : services partagés. Toute suppression passe par `Remover` (`removeInternal` pour les fichiers de l'app dans `DataStore`, `discardOutput` pour une sortie à moitié écrite), toute écriture de fichier par `FileOps` (jamais d'écrasement, `makeDirectory` pour un dossier), tout accès réseau par `HTTP` (HTTPS, sur action de l'utilisateur ; seule exception, désactivable : la recherche des nouvelles versions de l'app, `Features/Updates/UpdatesSelf*`, au lancement puis toutes les 6 h), tout processus par `Shell` (`run`, `stream`, `which`, `runAsAdmin`). Commandes du lanceur : `Core/Commands.swift` (`CommandRunner.copy(_:concealed:)` pour un secret). Raccourcis globaux : `HotKeyCenter`. Panneaux flottants et messages furtifs : `FloatingPanel`, `HUD`. Persistance : `JSONStore` (dossier `DataStore`). Secrets : `Keychain`. Notifications : `Notifier`. Tâches périodiques : `Scheduler`. Autorisations : `AppPermission` + `PermissionCard` ; l'état de toutes et « Tout autoriser » : `PermissionCenter` (ajoute-y toute nouvelle autorisation).

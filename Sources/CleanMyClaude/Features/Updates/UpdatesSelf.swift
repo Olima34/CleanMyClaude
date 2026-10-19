@@ -1,9 +1,9 @@
 import Foundation
 import CryptoKit
 
-// Clean My Claude's own updates: the latest version published on GitHub (a `vX.Y.Z` tag, built by
-// .github/workflows/release.yml into CleanMyClaude.zip), what changed since this copy (the commits in between),
-// and the replacement of this copy by the new one.
+// Clean My Claude's own updates: the latest version published on GitHub (a `vX.Y.Z` tag with CleanMyClaude.zip, published
+// by .github/workflows/build.yml after every green push on main, numbered by scripts/version.sh like a local build of the
+// same commit), what changed since this copy (the commits in between), and the replacement of this copy by the new one.
 
 /// This copy of Clean My Claude: the version and the commit that scripts/build_app.sh wrote in its Info.plist.
 struct UpdatesSelfBuild: Equatable {

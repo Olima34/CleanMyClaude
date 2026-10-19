@@ -2,7 +2,7 @@
 # Builds "Clean My Claude.app" (release) and installs it in ~/Applications.
 # Usage: ./scripts/build_app.sh [--no-install] [--zip] [--universal]
 #   --universal : Apple Silicon et Intel dans la même app (pour les versions publiées).
-#   CMC_VERSION=0.3.0 : numéro de version (sinon celui de la dernière étiquette vX.Y.Z, sinon celui ci-dessous).
+#   CMC_VERSION=0.3.0 : numéro de version (sinon celui de scripts/version.sh : dernière étiquette vX.Y.Z + commits depuis).
 set -euo pipefail
 
 ROOT="${0:A:h:h}"
@@ -12,13 +12,9 @@ EXEC="CleanMyClaude"
 DISPLAY_NAME="Clean My Claude"
 BUILD_DIR="$ROOT/build"
 APP="$BUILD_DIR/$DISPLAY_NAME.app"
-# The version: CMC_VERSION (the Release workflow passes its tag), else the latest vX.Y.Z tag of this checkout.
-VERSION="${CMC_VERSION:-}"
-if [[ -z "$VERSION" ]]; then
-  TAG="$(git -C "$ROOT" describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || true)"
-  VERSION="${TAG#v}"
-fi
-VERSION="${VERSION:-0.3.0}"
+# The version: CMC_VERSION (the CI passes the one it publishes), else that of this commit: the latest vX.Y.Z tag plus
+# the commits since, the number the CI gives the same commit.
+VERSION="${CMC_VERSION:-$("$ROOT/scripts/version.sh")}"
 # The commit the app is built from: compared with GitHub, it tells which changes a new version brings.
 COMMIT="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
 COMMIT_KEY=""

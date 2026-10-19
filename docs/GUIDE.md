@@ -166,7 +166,7 @@ Comme Raycast, Clean My Claude n'a pas d'icône dans le Dock : il vit dans la ba
 
 ## Mises à jour de Clean My Claude
 
-Au lancement, puis toutes les 6 h tant que l'app tourne en arrière-plan, Clean My Claude demande à GitHub le numéro de sa **dernière version publiée** (la dernière étiquette `vX.Y.Z` de la [page des versions](https://github.com/Olima34/CleanMyClaude/releases/latest)). S'il est plus récent que le tien, la fenêtre de Clean My Claude s'ouvre avec un panneau en son centre, l'app légèrement assombrie derrière : tant que tu n'y as pas répondu (ou fermé avec Échap), le reste de la fenêtre ne réagit plus. Le panneau liste **ce qui a changé**, c'est-à-dire les commits entre ta version et la nouvelle (les fusions sont laissées de côté, les points « - … » des messages deviennent des détails).
+Au lancement, puis toutes les 6 h tant que l'app tourne en arrière-plan, Clean My Claude demande à GitHub le numéro de sa **dernière version publiée** (la plus récente de la [page des versions](https://github.com/Olima34/CleanMyClaude/releases/latest)). Chaque push sur `main` en devient une : une fois la compilation et les autotests réussis sur GitHub, la CI publie l'app sous un nouveau numéro, environ 7 minutes après le push. S'il est plus récent que le tien, la fenêtre de Clean My Claude s'ouvre avec un panneau en son centre, l'app légèrement assombrie derrière : tant que tu n'y as pas répondu (ou fermé avec Échap), le reste de la fenêtre ne réagit plus. Le panneau liste **ce qui a changé**, c'est-à-dire les commits entre ta version et la nouvelle (les fusions sont laissées de côté, les points « - … » des messages deviennent des détails).
 
 <p align="center"><img src="screenshots/selfupdate-window-panel.png" alt="La fenêtre de Clean My Claude assombrie, avec au centre le panneau de nouvelle version : ce qui change, puis Ignorer cette version, Plus tard et Mettre à jour" width="760"></p>
 
@@ -176,7 +176,9 @@ Au lancement, puis toutes les 6 h tant que l'app tourne en arrière-plan, Clean 
 - **Les autorisations de macOS.** La version publiée est signée « ad hoc » (pas de certificat de développeur Apple) : macOS peut redemander l'Accessibilité ou l'accès complet au disque après la mise à jour. Si ta copie est signée avec le certificat local de `scripts/setup_signing.sh`, la nouvelle version est re-signée avec lui et garde ses autorisations.
 - **Quand la mise à jour sur place est impossible** (app lancée depuis le code source, depuis une image disque, ou dans un dossier qui demande un mot de passe administrateur), le panneau le dit et propose la page de la version ou la commande d'installation à copier.
 
-La vérification automatique se coupe dans **Réglages › Général** ou sur la page **Mises à jour**, où « Vérifier » la relance à la main. Un commit poussé sur `main` sans étiquette n'est pas proposé : seules les versions publiées le sont.
+La vérification automatique se coupe dans **Réglages › Général** ou sur la page **Mises à jour**, où « Vérifier » la relance à la main.
+
+**Les numéros de version.** Une version porte le numéro de la dernière étiquette `vX.Y.Z` augmenté du nombre de commits faits depuis : la v0.3.0 suivie de 6 commits donne la 0.3.6, puis chaque push avance le dernier chiffre (0.3.7, 0.3.8… 0.3.10). Une copie compilée chez toi avec `./scripts/build_app.sh` porte le même numéro que la version que GitHub publie pour le même commit. Elle n'est donc pas invitée à « se mettre à jour » vers ce qu'elle contient déjà, et une copie compilée sur un commit plus récent non plus. Si plusieurs pushes arrivent pendant qu'une version se publie, seul le dernier est publié : il contient les autres.
 
 ## Compiler toi-même
 
@@ -190,9 +192,9 @@ cd CleanMyClaude
 ./scripts/build_app.sh
 ```
 
-Le script compile en release, vérifie les garde-fous, génère l'icône, assemble `Clean My Claude.app` et l'installe dans `~/Applications` (`--no-install` la laisse dans `build/`, `--zip` produit une archive, `--universal` compile pour Apple Silicon et Intel). Le numéro de version vient de `CMC_VERSION`, sinon de la dernière étiquette `vX.Y.Z` du dépôt ; le commit compilé est noté dans l'app (`CMCCommit`), qui s'en sert pour lister ce qu'une nouvelle version change et pour ne pas proposer une version plus ancienne que ce qu'elle contient.
+Le script compile en release, vérifie les garde-fous, génère l'icône, assemble `Clean My Claude.app` et l'installe dans `~/Applications` (`--no-install` la laisse dans `build/`, `--zip` produit une archive, `--universal` compile pour Apple Silicon et Intel). Le numéro de version vient de `CMC_VERSION`, sinon de `scripts/version.sh` (la dernière étiquette `vX.Y.Z` plus les commits depuis) ; le commit compilé est noté dans l'app (`CMCCommit`), qui s'en sert pour lister ce qu'une nouvelle version change et pour ne pas proposer une version plus ancienne que ce qu'elle contient.
 
-Publier une version : pousser une étiquette `vX.Y.Z` (`git tag v0.4.0 && git push origin v0.4.0`). Le workflow `Release` compile l'app universelle et la dépose sur la page des versions, où le bouton du README et `scripts/install.sh` vont la chercher, et où les apps déjà installées la trouvent au lancement ou dans les 6 h.
+Publier une version : il suffit de pousser sur `main`. Le workflow `Build` compile l'app universelle (Apple Silicon et Intel) et vérifie ses garde-fous. S'il réussit, il la dépose sur la page des versions sous le numéro suivant, avec en notes la liste des commits depuis la version précédente. Le bouton du README et `scripts/install.sh` vont l'y chercher, et les apps déjà installées la trouvent au lancement ou dans les 6 h. Pour changer de numéro mineur ou majeur, pousse une étiquette avec le commit : `git tag v0.4.0 && git push origin main v0.4.0`. Le workflow `Release` publie alors la 0.4.0, et les pushes suivants donnent 0.4.1, 0.4.2…
 
 ### Les autorisations
 

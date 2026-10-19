@@ -441,7 +441,7 @@ extension UpdatesSelfModel {
         var f: [String] = []
         for (a, b, newer) in [("v0.3.1", "0.3.0", true), ("0.3.0", "0.3.0", false), ("v0.3.0", "0.3.1", false), ("0.4.0", "0.3.12", true),
                               ("0.10.0", "0.9.9", true), ("1.0.0", "1.0.0-rc.1", true), ("1.0.0-rc.1", "0.9", true), ("V2.0", "1.9", true),
-                              ("0.3.0", "0.3.0.1", false)]
+                              ("0.3.0", "0.3.0.1", false), ("0.3.10", "0.3.9", true), ("v0.3.9", "0.3.12", false), ("0.4.1", "0.3.48", true)]
         where UpdatesSelfGitHub.isNewer(a, than: b) != newer {
             f.append("Mise à jour de l'app : \(a) contre \(b) donne \(!newer), attendu \(newer)")
         }
@@ -525,6 +525,23 @@ extension UpdatesSelfModel {
         var dev = local
         dev.version = nil
         if UpdatesSelfGitHub.isUpdate(latest, for: dev, compare: ahead, fromCommit: true) { f.append("Mise à jour de l'app : proposée à une version de développement") }
+
+        // One version per push on main (scripts/version.sh): a local build carries the number the CI gives its commit.
+        let pushed = UpdatesSelfRelease(version: "0.3.6", tag: "v0.3.6", title: "Clean My Claude 0.3.6", pageURL: "")
+        let identical = UpdatesSelfCompare(status: "identical", aheadBy: 0, changes: [], total: 0)
+        let sameCommit = UpdatesSelfBuild(version: "0.3.6", commit: local.commit, bundlePath: local.bundlePath)
+        let nextCommit = UpdatesSelfBuild(version: "0.3.7", commit: local.commit, bundlePath: local.bundlePath)
+        let published = UpdatesSelfBuild(version: "0.3.5", commit: local.commit, bundlePath: local.bundlePath)
+        if UpdatesSelfGitHub.isUpdate(pushed, for: sameCommit, compare: identical, fromCommit: true)
+            || UpdatesSelfGitHub.isUpdate(pushed, for: nextCommit, compare: nil, fromCommit: false)
+            || !UpdatesSelfGitHub.isUpdate(pushed, for: published, compare: UpdatesSelfCompare(status: "ahead", aheadBy: 1, changes: [], total: 1), fromCommit: true) {
+            f.append("Mise à jour de l'app : version d'un push mal départagée d'une copie compilée en local")
+        }
+        // Built before the CI published its own commit, with no tag to count from: the commits decide.
+        let untagged = UpdatesSelfBuild(version: "0.3.0", commit: local.commit, bundlePath: local.bundlePath)
+        if UpdatesSelfGitHub.isUpdate(pushed, for: untagged, compare: identical, fromCommit: true) {
+            f.append("Mise à jour de l'app : sa propre version proposée à une copie compilée sans étiquette")
+        }
 
         // Where the app can replace itself.
         if UpdatesSelfInstaller.blocker(bundlePath: FS.home + "/Applications/Clean My Claude.app", readOnly: false, writable: true) != nil
