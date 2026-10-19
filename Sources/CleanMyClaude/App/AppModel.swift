@@ -5,7 +5,7 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, cleanup, protection, performance, battery, updates, apps, storage
-    case converter, translator, toolbox, clipboard, network, adblock
+    case converter, translator, toolbox, clipboard, network, adblock, darkmode
     case launcher, hotkeys, windows, automation
     case assistant, menubar
 
@@ -28,6 +28,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .clipboard: return "Presse-papiers"
         case .network: return "Réseau"
         case .adblock: return "Bloqueur de pub"
+        case .darkmode: return "Sombre partout"
         case .launcher: return "Lanceur"
         case .windows: return "Fenêtres"
         case .automation: return "Automatisations"
@@ -53,6 +54,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .clipboard: return "doc.on.clipboard"
         case .network: return "network"
         case .adblock: return "hand.raised"
+        case .darkmode: return "moon.stars"
         case .launcher: return "command"
         case .windows: return "rectangle.split.2x1"
         case .automation: return "clock.arrow.2.circlepath"
@@ -65,7 +67,7 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage]),
-        ("Outils", [.converter, .translator, .toolbox, .clipboard, .network, .adblock]),
+        ("Outils", [.converter, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
         ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
@@ -121,6 +123,7 @@ final class AppModel {
     let hotkeys = HotkeysModel()
     let battery = BatteryModel()
     let adblock = AdBlockModel()
+    let darkmode = DarkModeModel()
     var history = DemoData.isEnabled ? DemoData.history : CleanupHistory.load()
     var fullDiskAccess = Permissions.hasFullDiskAccess
     var showOnboarding = !DemoData.isEnabled && !UserDefaults.standard.bool(forKey: Preferences.onboardedKey)

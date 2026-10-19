@@ -127,6 +127,11 @@ enum Entry {
             while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
             return
         }
+        if let i = args.firstIndex(of: "--darkmode") {
+            // Dark mode everywhere from the command line: the style sheet, the apps that stay light, the browsers.
+            MainActor.assumeIsolated { DarkModeCLI.run(Array(args[(i + 1)...])) }
+            return
+        }
         if let i = args.firstIndex(of: "--xprotect") {
             ProtectionCLI.run(Array(args[(i + 1)...]))
             return

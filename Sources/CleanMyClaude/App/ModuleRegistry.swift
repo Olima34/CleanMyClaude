@@ -66,6 +66,7 @@ enum ModuleRegistry {
         list.append((.updates, app.updates))
         list.append((.network, app.network))
         list.append((.adblock, app.adblock))
+        list.append((.darkmode, app.darkmode))
         list.append((.windows, app.windows))
         list.append((.automation, app.automation))
         list.append((.assistant, app.assistant))
