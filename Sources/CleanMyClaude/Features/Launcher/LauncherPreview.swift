@@ -51,7 +51,7 @@ struct LauncherPreview: View {
                 row("Dossier", FS.pretty((path as NSString).deletingLastPathComponent))
             }
             Spacer(minLength: 0)
-            Text(info.isDir ? "↩ Ouvrir · ⇥ Entrer · ⌘↩ Finder · ⌘⇧C Chemin" : "↩ Ouvrir · ⌘↩ Afficher dans le Finder · ⌘⇧C Chemin")
+            Text(info.isDir ? "↩ Ouvrir · ⇥ Entrer · ⌘↩ Finder · ⌘K Actions" : "↩ Ouvrir · ⌘Y Coup d'œil · ⌘K Actions")
                 .font(.ui(10.5)).foregroundStyle(Theme.text3)
         }
         .padding(14)
@@ -126,9 +126,11 @@ struct LauncherFileInfo {
 /// Quick Look's own view: the same preview as the space bar in the Finder, drawn by macOS.
 struct LauncherQuickLook: NSViewRepresentable {
     var url: URL
+    /// `.normal` for "Coup d'œil": the whole document, with its own controls.
+    var style: QLPreviewViewStyle = .compact
 
     func makeNSView(context: Context) -> QLPreviewView {
-        let view = QLPreviewView(frame: .zero, style: .compact) ?? QLPreviewView()
+        let view = QLPreviewView(frame: .zero, style: style) ?? QLPreviewView()
         view.autostarts = true
         view.shouldCloseWithWindow = false
         view.previewItem = url as NSURL

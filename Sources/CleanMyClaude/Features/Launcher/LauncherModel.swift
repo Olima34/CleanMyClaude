@@ -7,6 +7,8 @@ enum LauncherMode: Equatable {
     case search
     case translator
     case assign(target: HotkeysTarget, title: String)
+    /// "Coup d'œil": the whole panel shows the file, like the space bar in the Finder.
+    case quickLook(path: String)
 }
 
 /// One block of the results list.
@@ -53,8 +55,23 @@ final class LauncherModel: AppModule {
     var indexConsent = UserDefaults.standard.bool(forKey: "launcher.indexConsent") {
         didSet { if !DemoData.isEnabled { UserDefaults.standard.set(indexConsent, forKey: "launcher.indexConsent") } }
     }
+    /// The pane with the preview and the details of the selected file (⇧⌘D).
+    var showDetails = UserDefaults.standard.object(forKey: "launcher.details") as? Bool ?? true {
+        didSet { if !DemoData.isEnabled { UserDefaults.standard.set(showDetails, forKey: "launcher.details") } }
+    }
+    /// ⌘K: the file or folder whose actions panel is open.
+    var actionsFor: String?
+    @ObservationIgnored var actionsIsFolder = false
+    /// What is typed in the panel's own search field.
+    var actionFilter = "" {
+        didSet { if actionFilter != oldValue { actionSelection = 0 } }
+    }
+    var actionSelection = 0
+    /// "Ouvrir avec…": the panel lists the apps instead of the actions.
+    var openWithApps: [LauncherOpenWithApp]?
+    @ObservationIgnored var shareDelegate: NSObject?
 
-    @ObservationIgnored private weak var app: AppModel?
+    @ObservationIgnored weak var app: AppModel?
     @ObservationIgnored private var panel: FloatingPanel?
     @ObservationIgnored private var keyMonitor: Any?
     @ObservationIgnored private var catalog: [AppCommand] = []
@@ -125,13 +142,28 @@ final class LauncherModel: AppModule {
     }
 
     func applySnapshotTab(_ tab: String) {
-        switch tab {
+        // "actions:corb": the panel open, its search field holding "corb".
+        let parts = tab.split(separator: ":", maxSplits: 1).map(String.init)
+        switch parts.first ?? tab {
         case "translator":
             mode = .translator
         case "assign":
             let target = apps.first.map { HotkeysTarget.app(path: $0.path, name: $0.name) } ?? .command(id: "open_translator", title: "Traducteur")
             mode = .assign(target: target, title: target.title)
             assignMessage = "⌃⌥⌘M est déjà utilisé par Monteur : choisis-en un autre."
+        case "actions", "openwith", "quicklook", "nodetails":
+            // The first file of the results, its actions panel open (`--query facture --tab actions`).
+            let items = flat
+            guard let i = items.firstIndex(where: { Self.filePath(of: $0).map { !isFolder($0) } ?? false })
+                    ?? items.firstIndex(where: { Self.filePath(of: $0) != nil }) else { return }
+            selection = i
+            if parts[0] == "nodetails" { showDetails = false; return }
+            openActions()
+            if let path = actionsFor, parts[0] != "actions",
+               let action = fileActions.first(where: { $0.kind == (parts[0] == "openwith" ? .openWith : .quickLook) }) {
+                perform(action, path: path)
+            }
+            if parts.count > 1 { actionFilter = parts[1] }
         default:
             break
         }
@@ -237,6 +269,7 @@ final class LauncherModel: AppModule {
         if Fuzzy.score("vsc", in: "Visual Studio Code") == nil { failures.append("recherche par initiales") }
         if LauncherEmoji.search("coeur").isEmpty { failures.append("emoji introuvables") }
         failures += Self.fileIndexChecks()
+        failures += LauncherFileActions.checks()
         return failures
     }
 
@@ -303,7 +336,9 @@ final class LauncherModel: AppModule {
         return lines + ["\(apps.count) apps indexées : \(apps.prefix(8).map(\.name).joined(separator: ", "))…",
                 "2,5*(3+1) = \(LauncherCalculator.evaluate("2,5*(3+1)").map(LauncherCalculator.format) ?? "?")",
                 "10 km en miles : \(LauncherUnits.convert("10 km en miles")?.to ?? "?")",
-                "heure Tokyo : \(LauncherWorldClock.answer("heure Tokyo")?.time ?? "?")"]
+                "heure Tokyo : \(LauncherWorldClock.answer("heure Tokyo")?.time ?? "?")",
+                "⌘K sur un fichier : " + LauncherFileActions.all(isFolder: false, detailsShown: showDetails)
+                    .map { "\($0.title) \($0.shortcut.keys.joined())" }.joined(separator: " · ")]
     }
 
     /// Fills the results as if the user had typed `text` (for `--snapshot`).
@@ -362,6 +397,7 @@ final class LauncherModel: AppModule {
     private func leaveMode() {
         mode = .search
         assignMessage = nil
+        closeActions()
         app?.translator.panelActive = false
     }
 
@@ -405,15 +441,19 @@ final class LauncherModel: AppModule {
             case .search: return self.searchKey(event)
             case .translator: return self.translatorKey(event)
             case .assign(let target, let title): return self.assignKey(event, target: target, title: title)
+            case .quickLook(let path): return self.quickLookKey(event, path: path)
             }
         }
     }
 
     private func searchKey(_ event: NSEvent) -> NSEvent? {
+            if actionsFor != nil { return actionsKey(event) }
             if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "k" {
-                startAssign()
+                // A file gets its actions panel; any other result, a keyboard shortcut.
+                if selectedFile != nil { openActions() } else { startAssign() }
                 return nil
             }
+            if fileShortcut(event) { return nil }
             switch Int(event.keyCode) {
             case kVK_DownArrow:
                 self.move(1); return nil
@@ -428,13 +468,6 @@ final class LauncherModel: AppModule {
                 // Tab enters the selected folder ("~/Documents/Factures/"), or completes a path being typed.
                 if let path = self.selectedFile, self.isPathQuery(self.query) || self.fileKinds[path] == true {
                     self.query = FS.pretty(path) + (self.fileKinds[path] == true ? "/" : "")
-                    return nil
-                }
-                return event
-            case kVK_ANSI_C where event.modifierFlags.contains([.command, .shift]):
-                if let path = self.selectedFile {
-                    _ = CommandRunner.copy(path)
-                    HUD.show("Chemin copié", symbol: "doc.on.clipboard.fill")
                     return nil
                 }
                 return event
@@ -467,6 +500,41 @@ final class LauncherModel: AppModule {
             return nil
         case kVK_Escape:
             if t.sourceText.isEmpty { backToSearch() } else { t.sourceText = ""; t.resultText = "" }
+            return nil
+        default:
+            return event
+        }
+    }
+
+    /// ⎋ or ⌘Y closes the preview, ↑↓ go to the previous or next file, ↩ opens it, ⌘↩ shows it in the Finder.
+    private func quickLookKey(_ event: NSEvent, path: String) -> NSEvent? {
+        let press = LauncherKeyPress(event)
+        let plain = !press.command && !press.option && !press.control && !press.shift
+        if press.command, press.base.lowercased() == "y" {
+            leaveMode()
+            return nil
+        }
+        switch Int(event.keyCode) {
+        case kVK_Escape:
+            leaveMode()
+            return nil
+        case kVK_DownArrow where plain, kVK_UpArrow where plain:
+            let items = flat
+            var i = selection
+            for _ in items.indices {
+                i = (i + (Int(event.keyCode) == kVK_DownArrow ? 1 : -1) + items.count) % items.count
+                if let next = Self.filePath(of: items[i]) {
+                    selection = i
+                    scrollToSelection = true
+                    mode = .quickLook(path: next)
+                    break
+                }
+            }
+            return nil
+        case kVK_Return, kVK_ANSI_KeypadEnter:
+            if let i = flat.firstIndex(where: { Self.filePath(of: $0) == path }) { selection = i }
+            mode = .search
+            runSelected(alternate: press.command)
             return nil
         default:
             return event
@@ -524,7 +592,7 @@ final class LauncherModel: AppModule {
 
     /// A row under the pointer: selected when the pointer moved, not when the list scrolled under it.
     func hover(_ index: Int) {
-        guard selection != index, Date().timeIntervalSince(lastScroll) > 0.15 else { return }
+        guard actionsFor == nil, selection != index, Date().timeIntervalSince(lastScroll) > 0.15 else { return }
         scrollToSelection = false
         selection = index
     }
@@ -542,6 +610,20 @@ final class LauncherModel: AppModule {
         guard items.indices.contains(selection), items[selection].group == .files,
               case .file(let path) = items[selection].icon else { return nil }
         return path
+    }
+
+    /// A plain folder (an app or another package is opened, not entered).
+    func isFolder(_ path: String) -> Bool {
+        if let known = fileKinds[path] { return known }
+        return DemoData.isEnabled ? (path as NSString).pathExtension.isEmpty : HotkeysModel.isPlainFolder(path)
+    }
+
+    /// Where the share menu is anchored.
+    var panelView: NSView? { panel?.contentView }
+
+    /// The panel takes the keyboard back after an alert.
+    func refocus() {
+        if isOpen { panel?.makeKeyAndOrderFront(nil) }
     }
 
     func runSelected(alternate: Bool = false) {
@@ -689,14 +771,25 @@ final class LauncherModel: AppModule {
             dir = (expanded as NSString).deletingLastPathComponent
             partial = (expanded as NSString).lastPathComponent
         }
-        guard !DemoData.isEnabled, let names = try? FileManager.default.contentsOfDirectory(atPath: dir.isEmpty ? "/" : dir) else { return [] }
+        let folder = dir.isEmpty ? "/" : dir
+        let names: [String]
+        // The demo browses its fictional files, never this Mac's.
+        let demoDirs = DemoData.isEnabled ? Set(LauncherDemoFiles.paths.filter(\.isDir).map(\.path)) : []
+        if DemoData.isEnabled {
+            names = LauncherDemoFiles.paths.map(\.path).filter { ($0 as NSString).deletingLastPathComponent == folder }
+                .map { ($0 as NSString).lastPathComponent }
+        } else {
+            guard let found = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return [] }
+            names = found
+        }
         let wanted = Fuzzy.fold(partial)
         var rows: [(name: String, isDir: Bool, score: Int)] = []
         for name in names where partial.hasPrefix(".") || !name.hasPrefix(".") {
             let folded = Fuzzy.fold(name)
             let score = wanted.isEmpty ? 1 : (folded.hasPrefix(wanted) ? 2 : (folded.contains(wanted) ? 1 : 0))
             guard score > 0 else { continue }
-            rows.append((name, FS.isDirectory((dir == "/" ? "" : dir) + "/" + name), score))
+            let full = (dir == "/" ? "" : dir) + "/" + name
+            rows.append((name, DemoData.isEnabled ? demoDirs.contains(full) : FS.isDirectory(full), score))
         }
         rows.sort { ($0.score, $0.isDir ? 1 : 0, $1.name.lowercased()) > ($1.score, $1.isDir ? 1 : 0, $0.name.lowercased()) }
         return rows.prefix(40).enumerated().map { rank, row in

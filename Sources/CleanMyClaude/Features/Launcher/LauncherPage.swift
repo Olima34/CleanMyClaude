@@ -6,6 +6,7 @@ struct LauncherPage: View {
     private let examples: [(String, String, String)] = [
         ("app.badge", "slack", "Ouvre une app (les plus utilisées remontent en premier)"),
         ("doc.text.magnifyingglass", "facture edf", "Trouve un fichier instantanément, avec son aperçu à côté"),
+        ("command", "⌘K sur un fichier", "Toutes ses actions : coup d'œil, ouvrir avec, partager, déplacer, Corbeille…"),
         ("folder", "~/Documents/", "Parcourt les dossiers (⇥ entre dans le dossier choisi)"),
         ("text.magnifyingglass", "dans devis cuisine", "Cherche aussi dans le contenu des fichiers (Spotlight)"),
         ("character.bubble", "trad bonjour en anglais", "Traduit sur ton Mac, ou avec Claude"),
