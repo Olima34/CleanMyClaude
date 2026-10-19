@@ -11,6 +11,8 @@ enum AppContext {
 
     /// Brings the main window to the front, recreating it if it was closed.
     static func showMainWindow() {
+        // The pages come back before the window does, so it never shows up empty.
+        setMainWindowOpen(true)
         if DockIconMode.current == .whileWindowOpen { NSApp.setActivationPolicy(.regular) }
         if let w = mainWindow {
             if w.isMiniaturized { w.deminiaturize(nil) }
@@ -29,11 +31,17 @@ enum AppContext {
 
     /// The system monitor samples only while something shows its values: here, the main window on screen
     /// (not closed, minimised, hidden, on another Space or fully covered).
+    /// The pages, though, stay drawn until the window closes, so that they keep their state off screen.
     static func noteMainWindowVisibility(closing: Bool = false) {
-        let onScreen = !closing && NSApp.windows.contains { w in
-            (w.identifier?.rawValue.hasPrefix("main") ?? false) && w.isVisible && w.occlusionState.contains(.visible)
-        }
-        model?.monitor.show(.window, onScreen)
+        let windows = closing ? [] : NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("main") ?? false }
+        // Closing is the only way to lose the pages; any way back on screen (Dock, menu bar, Window menu) brings them back.
+        if closing { setMainWindowOpen(false) } else if windows.contains(where: \.isVisible) { setMainWindowOpen(true) }
+        model?.monitor.show(.window, windows.contains { $0.isVisible && $0.occlusionState.contains(.visible) })
+    }
+
+    private static func setMainWindowOpen(_ open: Bool) {
+        guard let model, model.mainWindowOpen != open else { return }
+        model.mainWindowOpen = open
     }
 
     /// No Dock icon by default, like Raycast: the app lives in the menu bar and behind its shortcut.
@@ -147,7 +155,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { note in
                 guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }
-                MainActor.assumeIsolated { AppContext.applyDockIcon() }
+                MainActor.assumeIsolated {
+                    AppContext.applyDockIcon()
+                    AppContext.noteMainWindowVisibility()
+                }
             }
             NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { note in
                 guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }

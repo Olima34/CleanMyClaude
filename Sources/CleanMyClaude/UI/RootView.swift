@@ -7,13 +7,21 @@ struct RootView: View {
 
     var body: some View {
         @Bindable var app = app
-        HStack(spacing: 0) {
-            Sidebar()
-                .frame(width: 248)
-            Rectangle().fill(Theme.border).frame(width: 1)
-            ZStack {
-                Theme.bg
-                PageContainer()
+        Group {
+            // A closed window would keep redrawing its pages and running their timers (processes, network):
+            // they go away with it, so their onDisappear runs, and come back when it reopens.
+            if app.mainWindowOpen {
+                HStack(spacing: 0) {
+                    Sidebar()
+                        .frame(width: 248)
+                    Rectangle().fill(Theme.border).frame(width: 1)
+                    ZStack {
+                        Theme.bg
+                        PageContainer()
+                    }
+                }
+            } else {
+                Color.clear
             }
         }
         .ignoresSafeArea()

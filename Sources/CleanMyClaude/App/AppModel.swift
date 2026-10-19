@@ -118,6 +118,9 @@ final class AppModel {
     var history = DemoData.isEnabled ? DemoData.history : CleanupHistory.load()
     var fullDiskAccess = Permissions.hasFullDiskAccess
     var showOnboarding = !DemoData.isEnabled && !UserDefaults.standard.bool(forKey: Preferences.onboardedKey)
+    /// False once the main window is closed, not when it is only covered, minimised or on another Space.
+    /// A closed SwiftUI window keeps its views alive and redrawn: RootView drops the pages until it reopens.
+    var mainWindowOpen = true
     var smartScanRunning = false
     var smartScanDate: Date?
 
