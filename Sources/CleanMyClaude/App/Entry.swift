@@ -31,6 +31,10 @@ enum Entry {
             return
         }
         let args = arguments
+        if args.contains(UpdatesSelfKeychain.flag) {
+            // Launched by the previous version during an update: takes over its keychain items, nothing else.
+            exit(UpdatesSelfKeychain.adopt())
+        }
         if args.contains("--selftest") {
             exit(SelfTest.run() ? 0 : 1)
         }

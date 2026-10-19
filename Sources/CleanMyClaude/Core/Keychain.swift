@@ -60,4 +60,22 @@ enum Keychain {
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
     }
+
+    /// Every item of the app, account → secret. macOS asks only for an item this copy may not read.
+    static func all() -> [String: String] {
+        guard !DemoData.isEnabled else { return [:] }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+        var result: AnyObject?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let items = result as? [[String: Any]] else { return [:] }
+        var secrets: [String: String] = [:]
+        for account in items.compactMap({ $0[kSecAttrAccount as String] as? String }) {
+            if let value = get(account) { secrets[account] = value }
+        }
+        return secrets
+    }
 }

@@ -439,16 +439,19 @@ final class UpdatesSelfModel {
         step = .installing
         Task {
             let result = await Task.detached(priority: .userInitiated) {
-                Result { () throws -> URL in
+                Result { () throws -> (URL, Int) in
+                    // The keychain items go to the new version first: it then reads them without macOS asking.
+                    let adopted = UpdatesSelfKeychain.handOver(to: staged)
                     if case .applications(let target, let leftover) = place {
-                        return try UpdatesSelfInstaller.install(staged, at: URL(fileURLWithPath: target),
-                                                                leftover: leftover.map { URL(fileURLWithPath: $0) })
+                        return (try UpdatesSelfInstaller.install(staged, at: URL(fileURLWithPath: target),
+                                                                 leftover: leftover.map { URL(fileURLWithPath: $0) }), adopted)
                     }
-                    return try UpdatesSelfInstaller.replace(current, with: staged)
+                    return (try UpdatesSelfInstaller.replace(current, with: staged), adopted)
                 }
             }.value
             switch result {
-            case .success(let installed):
+            case .success(let (installed, adopted)):
+                if adopted > 0 { ActionLog.write("MISE À JOUR trousseau : \(Fmt.plural(adopted, "clé reprise", "clés reprises")) par la nouvelle version") }
                 store.value.updatedFrom = from
                 store.value.release = nil
                 if case .applications = place { store.value.loginItemAfterMove = LoginItem.isEnabled }
@@ -652,6 +655,7 @@ extension UpdatesSelfModel {
         }
         f += UpdatesSelfSignature.selfTest()
         f += UpdatesSelfSigning.selfTest()
+        f += UpdatesSelfKeychain.selfTest()
         // A pre-release, a tag that is no version, an archive outside GitHub or still uploading: not offered.
         let prerelease = #"{"tag_name":"v0.5.0-beta","html_url":"https://github.com/x/y","prerelease":true,"assets":[]}"#
         let notVersion = #"{"tag_name":"nightly","html_url":"https://github.com/x/y","assets":[]}"#
