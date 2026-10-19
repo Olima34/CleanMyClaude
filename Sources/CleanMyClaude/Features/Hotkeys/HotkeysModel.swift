@@ -71,6 +71,8 @@ final class HotkeysModel: AppModule {
     }
     /// Shortcuts macOS refused (already taken by another app), by binding.
     var refused: Set<UUID> = []
+    /// What a shortcut takes from the apps or from macOS while it is on (⌘Q no longer quits…), by binding: a warning, not a refusal.
+    var takeovers: [UUID: String] = [:]
     var siteDraft = ""
     var showCommandPicker = false
 
@@ -109,8 +111,12 @@ final class HotkeysModel: AppModule {
             HotkeysBinding(target: app(3), combo: Self.hyper("S")),
             HotkeysBinding(target: .folder(path: FS.home + "/Documents/Atelier"), combo: Self.hyper("A")),
             HotkeysBinding(target: .website(url: "https://claude.ai"), combo: Self.hyper("C")),
+            HotkeysBinding(target: .command(id: "sys_screenshot", title: "Capture d'écran"),
+                           combo: Self.keyCode(for: "Q").map { KeyCombo(keyCode: $0, modifiers: UInt32(cmdKey)) }),
             HotkeysBinding(target: .command(id: "act_smart_scan", title: "Analyse intelligente"), combo: nil)
         ]
+        takeovers = [:]
+        for b in bindings { takeovers[b.id] = b.combo.flatMap { Self.takeoverNote($0, system: []) } }
     }
 
     func commands(app: AppModel) -> [AppCommand] {
@@ -169,9 +175,29 @@ final class HotkeysModel: AppModule {
         list = Self.upserting(.app(path: "/Applications/Essai.app", name: "Essai"), combo: k1, into: list)
         if Self.conflict(k1, among: list, exceptKey: "cmd:open_translator") != "Essai" { failures.append("raccourcis : conflit non vu") }
         if Self.conflict(k1, among: list, exceptKey: "app:/Applications/Essai.app") != nil { failures.append("raccourcis : faux conflit avec soi-même") }
-        if Self.reservedReason(KeyCombo(keyCode: 8, modifiers: UInt32(cmdKey))) == nil { failures.append("raccourcis : ⌘C global aurait dû être refusé") }
-        if Self.reservedReason(KeyCombo(keyCode: 8, modifiers: UInt32(cmdKey | shiftKey))) == nil { failures.append("raccourcis : ⌘⇧C global aurait dû être refusé") }
+        // ⌘ alone is accepted (like Raycast), with a warning; only ⌘⇥ stays with macOS.
+        let cmdQ = KeyCombo(keyCode: Self.keyCode(for: "Q") ?? UInt32(kVK_ANSI_Q), modifiers: UInt32(cmdKey))
+        let cmdShiftC = KeyCombo(keyCode: Self.keyCode(for: "C") ?? UInt32(kVK_ANSI_C), modifiers: UInt32(cmdKey | shiftKey))
+        if Self.reservedReason(cmdQ) != nil || Self.reservedReason(cmdShiftC) != nil { failures.append("raccourcis : ⌘Q et ⌘⇧C doivent être acceptés") }
         if Self.reservedReason(k1) != nil || Self.reservedReason(k2) != nil { failures.append("raccourcis : ⌥⌘ et ⌃⌥ doivent être acceptés") }
+        for mods in [cmdKey, cmdKey | shiftKey] where Self.reservedReason(KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(mods))) == nil {
+            failures.append("raccourcis : ⌘⇥ ne se déclenche jamais, il aurait dû être refusé")
+        }
+        if Self.reservedReason(KeyCombo(keyCode: UInt32(kVK_Tab), modifiers: UInt32(controlKey | optionKey))) != nil { failures.append("raccourcis : ⌃⌥⇥ refusé à tort") }
+        let noteQ = Self.takeoverNote(cmdQ, system: [])
+        if noteQ?.contains("ne quitte plus") != true || noteQ?.contains("menu") != true { failures.append("raccourcis : ⌘Q sans avertissement clair (\(noteQ ?? "aucun"))") }
+        if Self.takeoverNote(KeyCombo(keyCode: UInt32(kVK_F5), modifiers: UInt32(cmdKey | shiftKey)), system: []) == nil { failures.append("raccourcis : ⌘⇧ sans avertissement") }
+        if Self.takeoverNote(k1, system: []) != nil { failures.append("raccourcis : avertissement inutile sur ⌥⌘") }
+        if Self.takeoverNote(k2, system: [k2]) == nil { failures.append("raccourcis : raccourci de macOS remplacé sans avertissement") }
+        // Réglages Système › Clavier › Raccourcis: the arrows carry fn there, a recorded ⌃↑ does not.
+        let symbolic: [[String: Any]] = [
+            [kHISymbolicHotKeyCode as String: kVK_UpArrow, kHISymbolicHotKeyModifiers as String: 0x21000, kHISymbolicHotKeyEnabled as String: true],
+            [kHISymbolicHotKeyCode as String: kVK_ANSI_D, kHISymbolicHotKeyModifiers as String: optionKey | cmdKey, kHISymbolicHotKeyEnabled as String: false],
+            [kHISymbolicHotKeyCode as String: 65535, kHISymbolicHotKeyModifiers as String: 0, kHISymbolicHotKeyEnabled as String: true]
+        ]
+        if Self.systemShortcuts(from: symbolic) != [KeyCombo(keyCode: UInt32(kVK_UpArrow), modifiers: UInt32(controlKey))] {
+            failures.append("raccourcis : lecture des raccourcis de macOS (\(Self.systemShortcuts(from: symbolic).map(\.display)))")
+        }
         if Self.normalizedURL("javascript:alert(1)") != nil { failures.append("raccourcis : seules les adresses web sont acceptées") }
         return failures
     }
@@ -184,10 +210,12 @@ final class HotkeysModel: AppModule {
 
     private func registerAll() {
         refused = []
-        for b in bindings { register(b) }
+        let system = Self.systemShortcuts()
+        for b in bindings { register(b, system: system) }
     }
 
-    private func register(_ b: HotkeysBinding) {
+    private func register(_ b: HotkeysBinding, system: Set<KeyCombo>? = nil) {
+        takeovers[b.id] = b.combo.flatMap { Self.takeoverNote($0, system: system ?? Self.systemShortcuts()) }
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
         let id = b.id
         let ok = HotKeyCenter.shared.register(b.hotKeyID, combo: b.combo) { [weak self] in self?.fire(id) }
@@ -229,10 +257,65 @@ final class HotkeysModel: AppModule {
         return out
     }
 
-    /// ⌘ alone (or ⌘⇧) belongs to the apps: a global ⌘C or ⌘K would stop working everywhere else.
+    /// What can never work. A Carbon shortcut passes before the menus of every app (Clean My Claude's own included)
+    /// and before most of macOS's (⌃⌘Espace, ⌘`…), but ⌘⇥ and ⌘⇧⇥ always go to the app switcher:
+    /// macOS accepts them and never sends them.
     static func reservedReason(_ combo: KeyCombo) -> String? {
-        combo.modifiers & UInt32(controlKey | optionKey) == 0
-            ? "les apps (⌘ seul est réservé à leurs raccourcis : ajoute ⌃ ou ⌥)" : nil
+        let mods = combo.modifiers & UInt32(cmdKey | optionKey | controlKey | shiftKey)
+        if combo.keyCode == UInt32(kVK_Tab), mods == UInt32(cmdKey) || mods == UInt32(cmdKey | shiftKey) {
+            return "macOS (⌘⇥ change d'app, il ne le laisse à personne)"
+        }
+        return nil
+    }
+
+    /// What `combo` takes away while it is on, or nil. ⌘ alone (or ⌘⇧) replaces the apps' shortcut everywhere,
+    /// Clean My Claude included; `system` holds the shortcuts of Réglages Système › Clavier, which it replaces too.
+    static func takeoverNote(_ combo: KeyCombo, system: Set<KeyCombo>) -> String? {
+        let mods = combo.modifiers & UInt32(cmdKey | optionKey | controlKey | shiftKey)
+        if mods & UInt32(cmdKey) != 0, mods & UInt32(controlKey | optionKey) == 0 {
+            let key = character(combo.keyCode)
+            if key == "Q", mods == UInt32(cmdKey) {
+                return "Tant qu'il est actif, ⌘Q ne quitte plus les apps : Clean My Claude se quitte par son menu"
+            }
+            let action = mods == UInt32(cmdKey) ? appActions[key] : (key == "Z" ? "Rétablir" : nil)
+            if let action { return "Tant qu'il est actif, \(combo.display) ne fait plus « \(action) » dans les apps, Clean My Claude compris" }
+            return "Tant qu'il est actif, \(combo.display) passe devant le raccourci des apps, Clean My Claude compris"
+        }
+        let plain = KeyCombo(keyCode: combo.keyCode, modifiers: mods)
+        return system.contains(plain) ? "Remplace un raccourci de macOS (Réglages Système › Clavier › Raccourcis clavier)" : nil
+    }
+
+    /// The usual ⌘ + key of the apps' menus, by the character the key types (layout-independent).
+    private static let appActions: [String: String] = [
+        "Q": "Quitter", "W": "Fermer", "C": "Copier", "V": "Coller", "X": "Couper", "Z": "Annuler", "A": "Tout sélectionner",
+        "S": "Enregistrer", "N": "Nouveau", "O": "Ouvrir", "P": "Imprimer", "F": "Rechercher", "T": "Nouvel onglet",
+        "H": "Masquer", "M": "Placer dans le Dock", ",": "Réglages"
+    ]
+
+    /// The character `code` types on this keyboard; without layout information (command line), the US letter.
+    private static func character(_ code: UInt32) -> String {
+        let name = KeyCombo.keyName(code)
+        guard name.hasPrefix("#"), let i = letterCodes.firstIndex(of: code), let scalar = UnicodeScalar(65 + i) else { return name }
+        return String(Character(scalar))
+    }
+
+    /// The enabled shortcuts of Réglages Système › Clavier › Raccourcis clavier (nothing in demo mode: not this Mac's).
+    static func systemShortcuts() -> Set<KeyCombo> {
+        guard !DemoData.isEnabled else { return [] }
+        var list: Unmanaged<CFArray>?
+        guard CopySymbolicHotKeys(&list) == noErr, let all = list?.takeRetainedValue() as? [[String: Any]] else { return [] }
+        return systemShortcuts(from: all)
+    }
+
+    static func systemShortcuts(from list: [[String: Any]]) -> Set<KeyCombo> {
+        // Arrows and function keys carry fn there; a recorded shortcut never does.
+        let kept = UInt32(cmdKey | optionKey | controlKey | shiftKey)
+        return Set(list.compactMap { entry -> KeyCombo? in
+            guard entry[kHISymbolicHotKeyEnabled as String] as? Bool == true,
+                  let code = entry[kHISymbolicHotKeyCode as String] as? Int, code >= 0, code < 0xFFFF,
+                  let mods = entry[kHISymbolicHotKeyModifiers as String] as? Int else { return nil }
+            return KeyCombo(keyCode: UInt32(code), modifiers: UInt32(truncatingIfNeeded: mods) & kept)
+        })
     }
 
     /// Gives `target` this shortcut, creating it if needed. Returns what already uses the keys, or nil when it worked.
@@ -299,6 +382,7 @@ final class HotkeysModel: AppModule {
         HotKeyCenter.shared.unregister(b.hotKeyID)
         bindings.removeAll { $0.id == id }
         refused.remove(id)
+        takeovers[id] = nil
     }
 
     /// Adds a target with a free ⌃⌥⌘ + letter already set (changeable), and registers it.

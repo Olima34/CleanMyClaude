@@ -104,6 +104,9 @@ private struct HotkeysRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(binding.target.title).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
                 Text(warning ?? binding.target.kind).font(.ui(11)).foregroundStyle(warning == nil ? Theme.text3 : Theme.warn).lineLimit(1)
+                if warning == nil, let note = model.takeovers[binding.id] {
+                    Text(note).font(.ui(11)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
             if case .app = binding.target {
@@ -250,6 +253,8 @@ private struct HotkeysCatalogPanel: View {
                 if let new {
                     if let other = app.hotkeys.bind(row.target, combo: new) {
                         HUD.show("\(new.display) est déjà utilisé par \(other)", symbol: "exclamationmark.triangle.fill")
+                    } else if let id = app.hotkeys.binding(for: row.target)?.id, let note = app.hotkeys.takeovers[id] {
+                        HUD.show(note, symbol: "exclamationmark.triangle.fill")
                     }
                 } else {
                     app.hotkeys.unbind(row.target)
