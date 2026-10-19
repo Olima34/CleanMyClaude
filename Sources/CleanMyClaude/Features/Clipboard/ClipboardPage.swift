@@ -11,7 +11,12 @@ struct ClipboardPage: View {
             PageHero(symbol: "doc.on.clipboard", title: "Presse-papiers",
                      subtitle: "Tout ce que tu as copié, retrouvable en un instant : texte, liens, images et fichiers. Tout reste sur ce Mac, et les mots de passe ne sont jamais gardés.",
                      tint: Theme.palette[4], seed: 37) {
-                if !intro { ClipboardStatePill() }
+                if !intro {
+                    HStack(spacing: 10) {
+                        ClipboardStatePill()
+                        ScanButton(title: "Ouvrir la fenêtre", symbol: "macwindow") { m.window.show() }
+                    }
+                }
             }
             if intro {
                 ClipboardIntro()
@@ -105,7 +110,7 @@ struct ClipboardIntro: View {
                             point("lock.shield", "Il ignore les mots de passe : tout ce qu'un gestionnaire marque comme confidentiel, ce qui est copié pendant que 1Password, Bitwarden, Mots de passe ou une autre app de ta liste est au premier plan, et ce qui ressemble à un secret (clé d'API, jeton, clé privée, code à usage unique).")
                             point("internaldrive", "Tout reste sur ce Mac, dans le dossier de Clean My Claude. Rien n'est envoyé nulle part.")
                             point("slider.horizontal.3", "Tu choisis combien garder (200 éléments, 200 Mo et 30 jours par défaut), tu épingles, tu effaces quand tu veux.")
-                            point("command", "Depuis le lanceur, tape « cb » et quelques mots pour retrouver un élément et le recoller.")
+                            point("macwindow", "Son raccourci (ou « cb » dans le lanceur) ouvre sa propre fenêtre : tu cherches, tu vois l'élément en entier, ↩ le recolle.")
                         }
                         HStack(spacing: 10) {
                             Button {
@@ -249,7 +254,7 @@ struct ClipboardHistoryColumn: View {
                 if let id = m.selection { m.delete(id) }
                 return .handled
             }
-            Text("Clic ou ↩ pour recopier · ↑ ↓ pour choisir · ⌫ pour supprimer" + (m.combo.map { " · \($0.display) ouvre l'historique dans le lanceur" } ?? ""))
+            Text("Clic ou ↩ pour recopier · ↑ ↓ pour choisir · ⌫ pour supprimer" + (m.combo.map { " · \($0.display) ouvre la fenêtre de l'historique" } ?? ""))
                 .font(.ui(11)).foregroundStyle(Theme.text3)
         }
         .onChange(of: m.search) { _, _ in limit = 60 }
@@ -506,7 +511,7 @@ struct ClipboardSideColumn: View {
                 VStack(spacing: 10) {
                     ClipboardSwitch(title: "Garder les images", detail: "Captures, photos copiées : enregistrées en PNG dans le dossier de l'app.", isOn: $m.settings.keepImages)
                     ClipboardSwitch(title: "Garder les fichiers", detail: "Seul le chemin est gardé, pas une copie du fichier.", isOn: $m.settings.keepFiles)
-                    ClipboardSwitch(title: "Coller directement depuis le lanceur", detail: "Sinon, l'élément est copié et tu colles avec ⌘V.", isOn: $m.settings.pasteDirectly)
+                    ClipboardSwitch(title: "Coller directement depuis la fenêtre", detail: "Sinon, l'élément est copié et tu colles avec ⌘V.", isOn: $m.settings.pasteDirectly)
                     ClipboardSwitch(title: "Ignorer les secrets probables",
                                     detail: "Clés d'API, jetons, clés privées, codes à usage unique, mots de passe copiés depuis un navigateur ou un terminal : reconnus à leur forme, ils ne sont pas enregistrés.",
                                     isOn: $m.settings.skipSecrets)
@@ -515,7 +520,7 @@ struct ClipboardSideColumn: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Raccourci de l'historique").font(.ui(12.5)).foregroundStyle(Theme.text)
-                        Text("Ouvre le lanceur sur « cb »").font(.ui(11)).foregroundStyle(Theme.text3)
+                        Text("Ouvre sa fenêtre, partout").font(.ui(11)).foregroundStyle(Theme.text3)
                     }
                     Spacer()
                     ShortcutRecorder(combo: m.combo) { m.setCombo($0) }
@@ -523,7 +528,7 @@ struct ClipboardSideColumn: View {
             }
             if m.settings.pasteDirectly {
                 PermissionCard(permission: .accessibility,
-                               reason: "Pour coller directement dans l'app au premier plan quand tu choisis un élément dans le lanceur. Sans elle, l'élément est simplement copié.")
+                               reason: "Pour coller directement dans l'app au premier plan quand tu choisis un élément dans la fenêtre de l'historique. Sans elle, l'élément est simplement copié.")
             }
             ClipboardAccessCard(access: ClipboardAccess.current)
             Panel(title: "Apps ignorées", subtitle: "Rien de ce que tu copies dans ces apps n'est gardé", symbol: "eye.slash", tint: Theme.palette[4]) {

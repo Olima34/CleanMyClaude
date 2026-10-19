@@ -116,6 +116,8 @@ enum ModuleRegistry {
         for (page, m) in modules(app) {
             failures += m.selfTest().map { "[\(page.title)] \($0)" }
         }
+        // Each floating window keeps to its own job: the launcher, the file window, the clipboard history.
+        if DemoData.isEnabled { failures += LauncherModel.windowChecks(app).map { "[Lanceur] \($0)" } }
         var seen = Set<String>()
         for c in commands(app) {
             if !AppCommand.isValidID(c.id) { failures.append("Identifiant de commande invalide : \(c.id)") }

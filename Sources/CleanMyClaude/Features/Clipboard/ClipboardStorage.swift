@@ -71,6 +71,18 @@ enum ClipboardStorage {
         return try? Data(contentsOf: folder.appendingPathComponent(name))
     }
 
+    /// A sharper copy of a kept image for the history window (1 400 px at most), read off the main thread.
+    static func previewImage(_ name: String) -> CGImage? {
+        guard isPlainName(name), !DemoData.isEnabled,
+              let source = CGImageSourceCreateWithURL(folder.appendingPathComponent(name) as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: 1400
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+    }
+
     /// Deletes one of the module's own files. Only a bare file name is accepted: nothing outside the folder can be reached.
     static func remove(_ name: String) {
         guard isPlainName(name), !DemoData.isEnabled, !Snapshot.isActive else { return }

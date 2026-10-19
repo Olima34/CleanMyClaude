@@ -327,8 +327,13 @@ enum Snapshot {
         }
         if everything || only == .launcher {
             // The floating panel, as if the user had typed `--query` (default: a calculation).
+            // `--tab files` shows the file window instead (`--query ""` for its first screen).
             model.launcher.preview(Entry.value(after: "--query") ?? "1250*1,2", app: model)
             shots.append(("launcher-panel", AnyView(LauncherView())))
+        }
+        if everything || only == .clipboard {
+            // The history's own window (`--tab fenetre:lumiere` with a search typed, `--tab images` filtered).
+            shots.append(("clipboard-window-panel", AnyView(ClipboardWindowView())))
         }
         if let tab = Entry.value(after: "--tab") {
             model.protection.tab = ProtectionTab(rawValue: tab) ?? model.protection.tab
@@ -341,7 +346,8 @@ enum Snapshot {
             if let p = Page(rawValue: name) { model.page = p }
             let content = view
                 .environment(model)
-                .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "appearance-panel": AppearanceSettings.width,
+                .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "clipboard-window-panel": ClipboardWindow.width,
+                               "appearance-panel": AppearanceSettings.width,
                                "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180][name]
                        ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))
                 .padding(name.hasSuffix("-panel") ? 0 : 32)

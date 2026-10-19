@@ -198,4 +198,11 @@ enum LauncherDemoFiles {
         ]
         return dirs.map { (h + "/" + $0, true) } + files.map { (h + "/" + $0, false) }
     }
+
+    /// What Camille opened lately: the file window's first screen.
+    static var recent: [(path: String, isDir: Bool)] {
+        ["Desktop/Notes réunion lundi.md", "Documents/Atelier/Boussole/Maquettes Boussole v3.fig", "Documents/Atelier/Devis Atelier Lumen.pdf",
+         "Downloads/rapport-annuel-2025.pdf", "Documents/Atelier/Planning printemps.numbers", "Pictures/Vacances Bretagne/Plage de Pen Hat.jpg",
+         "Desktop/Présentation client.key"].map { (FS.home + "/" + $0, false) }
+    }
 }

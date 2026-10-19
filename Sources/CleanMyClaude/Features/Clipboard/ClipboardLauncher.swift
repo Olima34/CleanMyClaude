@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// What the clipboard history gives the launcher: `clip_…` commands, and the history itself
-/// ("cb" followed by words, or any search of three letters or more).
+/// What the clipboard history gives the launcher: `clip_…` commands, and a way into its own window
+/// ("cb" followed by words opens it with those words already typed). The items themselves stay in that window.
 @MainActor
 enum ClipboardLauncher {
     private static let tint = Theme.palette[4]
@@ -10,9 +10,11 @@ enum ClipboardLauncher {
     static func commands(_ m: ClipboardModel) -> [AppCommand] {
         let words = ["presse-papiers", "historique", "clipboard", "copier", "coller", "copié"]
         return [
-            AppCommand(id: "clip_search", title: "Rechercher dans le presse-papiers", subtitle: m.isActive ? "Tape « cb » puis quelques mots" : "L'historique n'est pas activé",
-                       keywords: words + ["cb"], icon: .symbol("doc.on.clipboard", tint), group: .clipboard, assistantSafe: true, urlSafe: true) { ctx in
-                if m.isActive { m.showInLauncher() } else { m.openPage() }
+            AppCommand(id: "clip_search", title: "Historique du presse-papiers", subtitle: m.isActive ? "Tout ce que tu as copié, dans sa fenêtre" : "L'historique n'est pas activé",
+                       keywords: words + ["cb", "rechercher", "fenêtre"], icon: .symbol("doc.on.clipboard", tint), group: .clipboard,
+                       assistantSafe: true, urlSafe: true, hint: "Ouvrir", staysInLauncher: true) { _ in
+                // Its window replaces the launcher (which closes itself): `staysInLauncher` keeps the launcher from closing first.
+                m.window.show()
                 return .done
             },
             AppCommand(id: "clip_toggle", title: m.isActive ? "Mettre en pause l'historique du presse-papiers" : "Activer l'historique du presse-papiers",
@@ -48,43 +50,27 @@ enum ClipboardLauncher {
         ]
     }
 
+    /// "cb" or "cb mots": one row that opens the window, the words already typed in its search.
     static func results(_ raw: String, model m: ClipboardModel) -> [AppCommand] {
-        let q = Fuzzy.fold(raw.trimmingCharacters(in: .whitespaces))
-        let prefixed = q == "cb" || q.hasPrefix("cb ")
-        if prefixed {
-            guard m.isActive || !m.items.isEmpty else {
-                return [AppCommand(id: "clip_r_enable", title: "Activer l'historique du presse-papiers", subtitle: "Il est désactivé : la page t'explique tout",
-                                   icon: .symbol("doc.on.clipboard", tint), group: .clipboard, boost: 1900) { _ in
-                    m.openPage()
-                    return .done
-                }]
-            }
-            let term = String(q.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-            let found = ClipboardHistory.search(m.items, query: term, keys: m.key, limit: 9, pinnedFirst: term.isEmpty)
-            if found.isEmpty {
-                return [AppCommand(id: "clip_r_none", title: "Rien de tel dans l'historique", subtitle: "Essaie d'autres mots",
-                                   icon: .symbol("magnifyingglass", Theme.text3), group: .clipboard, boost: 1900) { _ in .done }]
-            }
-            return found.enumerated().map { i, item in command(item, rank: i, boost: 1900 - Double(i), m) }
+        let trimmed = raw.trimmingCharacters(in: .whitespaces)
+        let q = Fuzzy.fold(trimmed)
+        guard q == "cb" || q.hasPrefix("cb ") else { return [] }
+        let term = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+        let found = term.isEmpty ? m.items.count : ClipboardHistory.search(m.items, query: Fuzzy.fold(term), keys: m.key, limit: 99).count
+        let subtitle: String
+        if !m.settings.acknowledged {
+            subtitle = "L'historique n'est pas encore activé : la fenêtre t'explique tout"
+        } else if term.isEmpty {
+            subtitle = Fmt.plural(m.items.count, "élément", "éléments") + (m.isActive ? "" : " · en pause")
+        } else {
+            subtitle = found == 0 ? "Rien de tel pour l'instant" : (found >= 99 ? "99 éléments ou plus" : Fmt.plural(found, "élément trouvé", "éléments trouvés"))
         }
-        guard m.isActive, q.count >= 3 else { return [] }
-        return ClipboardHistory.search(m.items, query: q, keys: m.key, limit: 3)
-            .enumerated().map { i, item in command(item, rank: i, boost: 120 - Double(i), m) }
-    }
-
-    private static func command(_ item: ClipboardItem, rank: Int, boost: Double, _ m: ClipboardModel) -> AppCommand {
-        var details: [String] = []
-        if item.pinned { details.append("Épinglé") }
-        if let a = item.appName { details.append(a) }
-        details.append(Fmt.relative(item.date))
-        if item.kind == .text, let t = item.text {
-            let lines = ClipboardText.lineCount(t)
-            if lines > 1 { details.append(Fmt.plural(lines, "ligne", "lignes")) }
-        }
-        return AppCommand(id: "clip_r_\(rank)", title: item.title, subtitle: details.joined(separator: " · "), icon: icon(item),
-                          group: .clipboard, hint: m.canPaste ? "Coller · ⌘ Copier" : "Copier", boost: boost) { ctx in
-            m.recopy(item, paste: !ctx.alternate)
-        }
+        return [AppCommand(id: "clip_r_open", title: term.isEmpty ? "Ouvrir l'historique du presse-papiers" : "Chercher « \(term) » dans le presse-papiers",
+                           subtitle: subtitle, icon: .symbol("doc.on.clipboard", tint), group: .clipboard, hint: "Ouvrir la fenêtre",
+                           boost: 1900, staysInLauncher: true) { _ in
+            m.window.show(query: term)
+            return .done
+        }]
     }
 
     static func icon(_ item: ClipboardItem) -> CommandIcon {

@@ -104,6 +104,8 @@ final class ClipboardModel: AppModule {
     var watching = false
     /// For `--snapshot --tab intro`: the page as it looks before the user turns the history on.
     var showIntro = false
+    /// The history in its own floating window (shortcut, « cb » in the launcher).
+    let window = ClipboardWindow()
 
     /// The general pasteboard; the live tests swap in a private one so the user's clipboard is never touched.
     @ObservationIgnored var pasteboard = NSPasteboard.general
@@ -119,6 +121,7 @@ final class ClipboardModel: AppModule {
     init() {
         settings = settingsStore.value
         items = historyStore.value
+        window.model = self
     }
 
     var isActive: Bool { settings.enabled && settings.acknowledged }
@@ -134,7 +137,7 @@ final class ClipboardModel: AppModule {
         self.app = app
         started = true
         combo = HotKeyCenter.shared.combo(for: Self.hotKeyID, fallback: nil)
-        HotKeyCenter.shared.register(Self.hotKeyID, combo: combo) { [weak self] in self?.showInLauncher() }
+        HotKeyCenter.shared.register(Self.hotKeyID, combo: combo) { [weak self] in self?.window.toggle() }
         prune()
         let names = Set(items.compactMap(\.image).flatMap { [$0.file, $0.thumb] })
         _ = ClipboardStorage.removeOrphans(keeping: names)
@@ -153,7 +156,9 @@ final class ClipboardModel: AppModule {
 
     func applySnapshotTab(_ tab: String) {
         if tab == "intro" { showIntro = true }
-        if let f = ClipboardFilterTab(rawValue: tab) { filter = f }
+        if let f = ClipboardFilterTab(rawValue: tab) { filter = f; window.filter = f }
+        // "fenetre:lumiere": the window with that search typed.
+        if tab.hasPrefix("fenetre:") { window.query = String(tab.dropFirst(8)) }
     }
 
     var quickToggles: [QuickToggle] {
@@ -188,12 +193,6 @@ final class ClipboardModel: AppModule {
         NotificationCenter.default.post(name: .openMainWindow, object: nil)
     }
 
-    func showInLauncher() {
-        guard let app = app ?? AppContext.model else { return }
-        app.launcher.show()
-        app.launcher.query = "cb "
-    }
-
     func setCombo(_ c: KeyCombo?) {
         // A shortcut already used elsewhere in Clean My Claude would answer only one of the two.
         if let c, let other = (app ?? AppContext.model)?.hotkeys.owner(of: c, except: .clipboard) {
@@ -201,7 +200,7 @@ final class ClipboardModel: AppModule {
             return
         }
         combo = c
-        HotKeyCenter.shared.change(Self.hotKeyID, to: c) { [weak self] in self?.showInLauncher() }
+        HotKeyCenter.shared.change(Self.hotKeyID, to: c) { [weak self] in self?.window.toggle() }
     }
 
     // MARK: Watching
@@ -501,6 +500,8 @@ final class ClipboardModel: AppModule {
         ]
         skipped = 4
         selection = items.first?.id
+        // The window shows a text of several lines, the kind that needs the whole preview.
+        window.selection = items.first { $0.text?.hasPrefix("Bien à toi") == true }?.id
     }
 
     // MARK: Checks

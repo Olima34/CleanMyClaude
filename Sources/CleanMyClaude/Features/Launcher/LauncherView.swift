@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The floating search panel.
+/// The floating search panel: the launcher, or the file search in its own window (`LauncherScope`).
 struct LauncherView: View {
     static let width: CGFloat = 860
     static let height: CGFloat = 500
@@ -23,7 +23,13 @@ struct LauncherView: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.r(18), style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: Theme.line))
         .clipShape(RoundedRectangle(cornerRadius: Theme.r(18), style: .continuous))
         .background(TranslatorHost(channel: .launcher))
-        .onAppear { DispatchQueue.main.async { focused = true } }
+        .onAppear {
+            DispatchQueue.main.async {
+                focused = true
+                // A search typed elsewhere ("Chercher « facture » dans les fichiers") goes on, instead of being replaced.
+                DispatchQueue.main.async { app.launcher.moveCursorToEnd() }
+            }
+        }
         .onChange(of: app.launcher.mode) { _, mode in
             if mode == .search { DispatchQueue.main.async { focused = true } }
         }
@@ -35,14 +41,21 @@ struct LauncherView: View {
 
     private var search: some View {
         @Bindable var model = app.launcher
+        let files = model.scope == .files
+        let placeholder = files ? "Rechercher un fichier ou un dossier…" : "Apps, calculs, traductions, commandes…"
         return VStack(spacing: 0) {
             HStack(spacing: 12) {
-                ClaudeSpark(size: 22)
+                if files {
+                    CommandIconView(icon: .symbol("doc.text.magnifyingglass", Theme.accent), size: 26)
+                } else {
+                    ClaudeSpark(size: 22)
+                }
                 if Snapshot.isActive {
-                    Text(model.query).font(.ui(21)).foregroundStyle(Theme.text)
+                    Text(model.query.isEmpty ? placeholder : model.query).font(.ui(21))
+                        .foregroundStyle(model.query.isEmpty ? Theme.text3 : Theme.text)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
-                    TextField("Apps, fichiers, calculs, traductions, commandes…", text: $model.query)
+                    TextField(placeholder, text: $model.query)
                         .textFieldStyle(.plain)
                         .font(.ui(21))
                         .foregroundStyle(Theme.text)
@@ -54,6 +67,7 @@ struct LauncherView: View {
                     }
                     .buttonStyle(.plain)
                 }
+                if files { LauncherIndexBadge() }
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 15)
@@ -104,8 +118,12 @@ struct LauncherView: View {
         let offsets = Self.offsets(model.sections)
         return VStack(alignment: .leading, spacing: 0) {
             if model.sections.isEmpty {
-                Text("Aucun résultat.")
-                    .font(.ui(12.5)).foregroundStyle(Theme.text3).padding(18)
+                if model.scope == .files {
+                    LauncherFilesEmpty()
+                } else {
+                    Text("Aucun résultat.")
+                        .font(.ui(12.5)).foregroundStyle(Theme.text3).padding(18)
+                }
             }
             ForEach(Array(model.sections.enumerated()), id: \.element.id) { si, section in
                 Text(section.title.uppercased())
@@ -137,10 +155,10 @@ struct LauncherView: View {
         let onFile = model.selectedFile != nil
         let primary = model.selectedPrimary
         return HStack(spacing: 14) {
-            // Opens the app on the dashboard.
+            // Opens the app on the dashboard (from the file window: on the Lanceur page, where its index is set up).
             Button {
                 model.hide()
-                app.page = .dashboard
+                app.page = model.scope == .files ? .launcher : .dashboard
                 NotificationCenter.default.post(name: .openMainWindow, object: nil)
             } label: {
                 HStack(spacing: 5) {
@@ -151,9 +169,11 @@ struct LauncherView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help("Ouvrir Clean My Claude sur le tableau de bord")
+            .help(model.scope == .files ? "Réglages de la recherche de fichiers" : "Ouvrir Clean My Claude sur le tableau de bord")
             hint("↑↓", "Naviguer")
             if !onFile { hint("⌘↩", "Action secondaire") }
+            if onFile, model.selectedFile.map(model.isFolder) == true { hint("⇥", "Entrer") }
+            if onFile { hint("⌘Y", "Coup d'œil") }
             hint("⎋", "Fermer")
             Spacer()
             if let primary {
@@ -339,5 +359,63 @@ struct LauncherDragPreview: View {
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.cardRaised))
+    }
+}
+
+/// The file window's index, at the right of its search field: instant, being built, or Spotlight.
+struct LauncherIndexBadge: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        switch app.launcher.indexState {
+        case .ready(let count): Tag(text: "Index · " + Fmt.plural(count, "fichier", "fichiers"), symbol: "bolt.fill", tint: Theme.good, filled: true)
+        case .building: Tag(text: "Indexation…", symbol: "hourglass", tint: Theme.text2)
+        case .off: Tag(text: "Spotlight", symbol: "magnifyingglass", tint: Theme.text2)
+        }
+    }
+}
+
+/// The file window with nothing to show: what to type, Spotlight at work, or nothing found.
+struct LauncherFilesEmpty: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let m = app.launcher
+        let q = m.query.trimmingCharacters(in: .whitespaces)
+        VStack(alignment: .leading, spacing: 12) {
+            if q.isEmpty {
+                Text("Tape le nom d'un fichier ou d'un dossier.").font(.ui(14, .medium)).foregroundStyle(Theme.text)
+                VStack(alignment: .leading, spacing: 7) {
+                    tip("~/Documents/", "parcourt tes dossiers (⇥ entre dans le dossier choisi)")
+                    tip("dans devis cuisine", "cherche aussi dans le contenu des fichiers")
+                    tip("⌘K", "les actions du fichier choisi : ouvrir avec, convertir, partager, mettre à la corbeille…")
+                }
+                if m.indexState == .off, !DemoData.isEnabled {
+                    Text("Pour l'instant, c'est Spotlight qui cherche (une seconde ou plus). L'index instantané répond en un millième de seconde ; sans l'accès complet au disque, macOS te demandera d'autoriser Documents, Bureau et Téléchargements.")
+                        .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                    Button("Activer la recherche instantanée") { m.enableIndex() }
+                        .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                }
+            } else if m.fileSearchPending {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Spotlight cherche « \(q) »…").font(.ui(12.5)).foregroundStyle(Theme.text3)
+                }
+            } else {
+                Text(q.count < 2 ? "Tape au moins deux lettres." : "Aucun fichier ne correspond à « \(q) ».")
+                    .font(.ui(12.5)).foregroundStyle(Theme.text3)
+            }
+        }
+        .frame(maxWidth: 560, alignment: .leading)
+        .padding(18)
+    }
+
+    private func tip(_ typed: String, _ what: String) -> some View {
+        HStack(spacing: 10) {
+            Text(typed).font(.mono(11.5, .medium)).foregroundStyle(Theme.text)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .background(RoundedRectangle(cornerRadius: Theme.r(5)).fill(Theme.track))
+            Text(what).font(.ui(12)).foregroundStyle(Theme.text3)
+        }
     }
 }

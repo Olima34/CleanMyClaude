@@ -147,11 +147,15 @@ final class TranslatorModel: AppModule {
             let done = launcherCache[key]
             if done == nil { askLauncher(parsed.text, source: detected, target: target, key: key) }
             let note = launcherNotes[key]
+            // ↩ or a click: the translator, the whole text and its translation side by side; ⌘↩ copies the translation.
             out.append(AppCommand(id: "trad_result", title: done ?? note ?? "Traduction…",
-                                  subtitle: route + (done != nil ? " · sur ton Mac" : ""),
+                                  subtitle: route + (done != nil ? " · sur ton Mac · ⌘↩ copie" : ""),
                                   icon: .symbol("character.bubble", Theme.palette[1]), group: .translation,
-                                  hint: done != nil ? "Copier" : "Traduire ici", boost: 2000, staysInLauncher: done == nil) { ctx in
-                if let done { return CommandRunner.copy(done) }
+                                  hint: "Voir la traduction", boost: 2000, staysInLauncher: true) { ctx in
+                if let done, ctx.alternate {
+                    ctx.app.launcher.hide()
+                    return CommandRunner.copy(done)
+                }
                 ctx.app.launcher.showTranslator(text: parsed.text, target: target)
                 return .done
             })
@@ -165,7 +169,8 @@ final class TranslatorModel: AppModule {
         return out
     }
 
-    /// The translation itself as a launcher row: ↩ copies it, ⌘↩ opens the translator with the text.
+    /// The translation itself as a launcher row: ↩ or a click opens the translator on the whole text and its translation
+    /// (to read it all and copy it), ⌘↩ copies the translation straight away.
     private func inlineTranslation(_ text: String, source: String, target: String, boost: Double) -> AppCommand {
         let key = target + "|" + text
         let done = launcherCache[key]
@@ -173,10 +178,10 @@ final class TranslatorModel: AppModule {
         let shown = text.count > 50 ? String(text.prefix(47)) + "…" : text
         let route = "\(TranslatorLanguage.named(source)) → \(TranslatorLanguage.named(target))"
         return AppCommand(id: "trad_inline", title: done ?? launcherNotes[key] ?? "Traduction…",
-                          subtitle: "« \(shown) » · \(route) · ⌘↩ ouvre le traducteur",
+                          subtitle: "« \(shown) » · \(route)" + (done != nil ? " · ⌘↩ copie" : ""),
                           icon: .symbol("character.bubble", Theme.palette[1]), group: .translation,
-                          hint: done != nil ? "Copier" : "Traduire", boost: boost, staysInLauncher: true) { ctx in
-            if let done, !ctx.alternate {
+                          hint: "Voir la traduction", boost: boost, staysInLauncher: true) { ctx in
+            if let done, ctx.alternate {
                 ctx.app.launcher.hide()
                 return CommandRunner.copy(done)
             }
@@ -248,14 +253,29 @@ final class TranslatorModel: AppModule {
     func enterPanel(text: String?, target: String?, claude: Bool) {
         panelActive = true
         if let target { targetCode = target }
+        var known: String?
         if let text {
             sourceCode = nil
             sourceText = text
+            // The translation the launcher row showed, at once: nothing to wait for, nothing to translate again.
+            let to = target ?? effectiveTarget
+            known = claude ? nil : launcherCache[to + "|" + text.trimmingCharacters(in: .whitespacesAndNewlines)]
+            resultText = known ?? ""
+            resultEngine = known == nil ? nil : .apple
+            resultFrom = known == nil ? nil : detectedCode
+            resultTo = known == nil ? nil : to
+            if let known { remember(TranslatorEntry(date: Date(), source: text, result: known, from: detectedCode, to: to, engine: .apple)) }
         }
         error = nil
         Task { await refreshLanguageStatuses() } // a language may have been downloaded since
         guard !sourceText.isEmpty else { return }
-        if claude { Task { await translateWithClaude() } } else { translateSoon(delay: 0.05) }
+        if claude {
+            Task { await translateWithClaude() }
+        } else if known != nil {
+            autoWork?.cancel()
+        } else {
+            translateSoon(delay: 0.05)
+        }
     }
 
     /// The languages offered as chips in the panel: English and French, then the ones on this Mac, then common ones.

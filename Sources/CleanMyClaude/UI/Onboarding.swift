@@ -386,7 +386,7 @@ struct OnboardingLauncherCard: View {
 
     private let examples: [(symbol: String, typed: String, result: String)] = [
         ("app.badge", "slack", "ouvre l'app"),
-        ("doc.text.magnifyingglass", "facture edf", "trouve le fichier"),
+        ("doc.text.magnifyingglass", "facture edf", "le cherche dans la fenêtre Fichiers"),
         ("function", "1250*1,2", "1 500"),
         ("character.bubble", "trad merci en anglais", "thank you"),
         ("sparkles", "analyse", "lance une analyse du Mac")
@@ -643,7 +643,7 @@ struct OnboardingPermissionsCard: View {
         switch kind {
         case .fullDiskAccess: return "Voir la Corbeille, Mail et Safari"
         case .accessibility: return "Ranger les fenêtres au clavier"
-        case .folders: return "Chercher tes fichiers depuis la barre"
+        case .folders: return "Chercher tes fichiers en un instant"
         case .notifications: return "Te prévenir si le disque ou la mémoire sature, ou si la batterie faiblit"
         case .location: return "Afficher le nom du Wi-Fi (jamais ta position)"
         case .finder: return "Mettre certaines apps à la Corbeille"

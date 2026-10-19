@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// The translator inside the launcher panel (⌥Espace › Traducteur, "trad …", or its own shortcut):
-/// type, the translation follows; ↩ copies it, ⇥ changes the language, ⌘↩ asks Claude.
+/// The translator inside the launcher panel (⌥Espace › Traducteur, "trad …", a translation of the results, or its own
+/// shortcut): the whole text, its whole translation; ↩ or the button copies it, ⇥ changes the language, ⌘↩ asks Claude.
 struct TranslatorPanelView: View {
     @Environment(AppModel.self) private var app
     @FocusState private var focused: Bool
@@ -14,14 +14,15 @@ struct TranslatorPanelView: View {
                     .foregroundStyle(Theme.palette[1]).frame(width: 24).padding(.top, 2)
                 if Snapshot.isActive {
                     Text(model.sourceText.isEmpty ? "Texte à traduire…" : model.sourceText)
-                        .font(.ui(19)).foregroundStyle(model.sourceText.isEmpty ? Theme.text3 : Theme.text)
-                        .lineLimit(4).frame(maxWidth: .infinity, alignment: .leading)
+                        .font(.ui(17)).foregroundStyle(model.sourceText.isEmpty ? Theme.text3 : Theme.text)
+                        .lineLimit(6).frame(maxWidth: .infinity, alignment: .leading)
                 } else {
+                    // The whole sentence, not one line of it.
                     TextField("Texte à traduire…", text: $model.sourceText, axis: .vertical)
                         .textFieldStyle(.plain)
-                        .font(.ui(19))
+                        .font(.ui(17))
                         .foregroundStyle(Theme.text)
-                        .lineLimit(1...4)
+                        .lineLimit(1...6)
                         .focused($focused)
                 }
                 Button { app.launcher.backToSearch() } label: {
@@ -53,7 +54,7 @@ struct TranslatorPanelView: View {
 
             Rectangle().fill(Theme.border).frame(height: 1)
             HStack(spacing: 14) {
-                LauncherKeyHint(key: "↩", label: "Copier")
+                LauncherKeyHint(key: "↩", label: "Copier la traduction")
                 LauncherKeyHint(key: "⌘↩", label: "Claude")
                 LauncherKeyHint(key: "⇥", label: "Langue")
                 LauncherKeyHint(key: "⎋", label: "Retour")
@@ -145,7 +146,17 @@ struct TranslatorPanelView: View {
                 .foregroundStyle(Theme.text3)
             }
             Spacer()
+            if !m.resultText.isEmpty, !m.isTranslating {
+                Button { app.launcher.copyTranslation() } label: {
+                    HStack(spacing: 6) {
+                        if Theme.icons != .hidden { Image(systemName: "doc.on.doc").font(.ui(11, .semibold)) }
+                        Text("Copier la traduction")
+                    }
+                }
+                .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                .help("Copie la traduction (↩) : il ne reste qu'à la coller")
+            }
         }
-        .frame(height: 22)
+        .frame(height: 28)
     }
 }

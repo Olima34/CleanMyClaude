@@ -803,7 +803,7 @@ extension LauncherModel {
             showInfo(path)
         case .packageContents:
             closeActions()
-            query = FS.pretty(path) + "/Contents/"
+            browse(FS.pretty(path) + "/Contents/")
         case .parent:
             closeActions()
             showParent(of: path)
@@ -983,10 +983,10 @@ extension LauncherModel {
         }
     }
 
-    /// The folder that holds the file, browsed right in the launcher, the file still selected.
+    /// The folder that holds the file, browsed in the file window, the file still selected.
     private func showParent(of path: String) {
         let parent = (path as NSString).deletingLastPathComponent
-        query = parent == "/" ? "/" : FS.pretty(parent) + "/"
+        browse(parent == "/" ? "/" : FS.pretty(parent) + "/")
         if let i = flat.firstIndex(where: { Self.filePath(of: $0) == path }) {
             scrollToSelection = true
             selection = i

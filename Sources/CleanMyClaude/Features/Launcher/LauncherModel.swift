@@ -11,6 +11,12 @@ enum LauncherMode: Equatable {
     case quickLook(path: String)
 }
 
+/// Which window the model drives: the launcher itself, or the file search in its own window.
+enum LauncherScope: Equatable {
+    case all
+    case files
+}
+
 /// One block of the results list.
 struct LauncherSection: Identifiable {
     let id: String
@@ -35,6 +41,10 @@ final class LauncherModel: AppModule {
     @ObservationIgnored private var lastScroll = Date.distantPast
     @ObservationIgnored private var scrollMonitor: Any?
     var isOpen = false
+    /// The launcher (apps, commands, calculations…) or the file search window: each has its own panel.
+    var scope: LauncherScope = .all
+    /// The file window waits for Spotlight (content searches, index not ready).
+    var fileSearchPending = false
     var mode: LauncherMode = .search
     /// What the shortcut capture has to say (a key without modifier, keys already taken…).
     var assignMessage: String?
@@ -42,6 +52,7 @@ final class LauncherModel: AppModule {
     var hotKeyActive = false
     /// Why the last shortcut typed on the page was refused (already used elsewhere in Clean My Claude).
     var comboRefusal: String?
+    /// The instant index of file names for the file window (off: Spotlight answers, more slowly).
     var includeFiles = UserDefaults.standard.object(forKey: "launcher.files") as? Bool ?? true {
         didSet {
             guard !DemoData.isEnabled else { return }
@@ -82,6 +93,11 @@ final class LauncherModel: AppModule {
 
     @ObservationIgnored weak var app: AppModel?
     @ObservationIgnored private var panel: FloatingPanel?
+    @ObservationIgnored private var filesPanel: FloatingPanel?
+    /// Files opened lately (Spotlight), shown when the file window opens with nothing typed.
+    @ObservationIgnored private var recentFiles: [(path: String, isDir: Bool)] = []
+    @ObservationIgnored private var recentQuery: NSMetadataQuery?
+    @ObservationIgnored private var recentObserver: NSObjectProtocol?
     @ObservationIgnored private var keyMonitor: Any?
     @ObservationIgnored private var catalog: [AppCommand] = []
     @ObservationIgnored private var apps: [LauncherApp] = []
@@ -153,6 +169,12 @@ final class LauncherModel: AppModule {
     func applySnapshotTab(_ tab: String) {
         // "actions:corb": the panel open, its search field holding "corb".
         let parts = tab.split(separator: ":", maxSplits: 1).map(String.init)
+        // The file window (`--tab files --query facture`); the actions of a file are shown there too.
+        if ["files", "actions", "openwith", "quicklook", "nodetails"].contains(parts.first ?? tab) {
+            scope = .files
+            if query.isEmpty { loadRecentFiles() }
+            refresh()
+        }
         switch parts.first ?? tab {
         case "translator":
             mode = .translator
@@ -200,6 +222,14 @@ final class LauncherModel: AppModule {
             AppCommand(id: "launcher_open", title: "Ouvrir le lanceur", keywords: ["lanceur", "launcher", "recherche"],
                        icon: .spark, group: .actions, urlSafe: true) { ctx in
                 ctx.app.launcher.show()
+                return .done
+            },
+            // Its window replaces the launcher (which closes itself): `staysInLauncher` keeps the launcher from closing first.
+            AppCommand(id: Self.filesCommandID, title: "Rechercher des fichiers", subtitle: "Fichiers et dossiers, dans leur propre fenêtre",
+                       keywords: ["fichiers", "fichier", "dossiers", "documents", "finder", "spotlight", "trouver", "chercher"],
+                       icon: .symbol("doc.text.magnifyingglass", Theme.accent), group: .actions, assistantSafe: true, urlSafe: true,
+                       hint: "Ouvrir", staysInLauncher: true) { ctx in
+                ctx.app.launcher.toggleFiles()
                 return .done
             }
         ]
@@ -287,6 +317,30 @@ final class LauncherModel: AppModule {
         return failures
     }
 
+    /// The launcher, the file window and the clipboard history each show their own results (demo data only).
+    static func windowChecks(_ app: AppModel) -> [String] {
+        var failures: [String] = []
+        let l = app.launcher
+        l.preview("facture", app: app)
+        let inLauncher = l.flat
+        if inLauncher.contains(where: { filePath(of: $0) != nil }) { failures.append("le lanceur montre des fichiers au lieu de proposer la fenêtre Fichiers") }
+        if inLauncher.first?.id != "files_find" { failures.append("« facture » : la ligne qui ouvre la fenêtre Fichiers devrait venir en premier") }
+        l.preview("~/Documents/", app: app)
+        if l.flat.map(\.id) != ["files_find"] { failures.append("« ~/Documents/ » dans le lanceur : seule la fenêtre Fichiers devrait être proposée") }
+        l.preview("cb lumiere", app: app)
+        if l.flat.first?.id != "clip_r_open" || l.flat.contains(where: { $0.id.hasPrefix("clip_r_") && $0.id != "clip_r_open" || $0.id == "files_find" }) {
+            failures.append("« cb lumiere » : le lanceur devrait proposer la fenêtre du presse-papiers, pas ses éléments")
+        }
+        l.scope = .files
+        l.preview("facture", app: app)
+        let files = l.flat
+        if files.isEmpty || !files.allSatisfy({ filePath(of: $0) != nil }) { failures.append("la fenêtre Fichiers ne montre pas que des fichiers (\(files.count) résultats)") }
+        l.preview("", app: app)
+        l.scope = .all
+        l.preview("", app: app)
+        return failures
+    }
+
     /// The index's rules and ranking, on made-up paths (nothing is read from the disk).
     static func fileIndexChecks() -> [String] {
         var failures: [String] = []
@@ -368,19 +422,43 @@ final class LauncherModel: AppModule {
 
     // MARK: Panel
 
+    static let filesCommandID = "launcher_files"
+
+    /// What a keyboard shortcut of the file window is saved as (in the Raccourcis section).
+    static let filesHotkeyTarget = HotkeysTarget.command(id: filesCommandID, title: "Rechercher des fichiers")
+
+    /// The shortcut pressed again closes the launcher; pressed over the file window, it brings the launcher back.
     func toggle() {
-        isOpen ? hide() : show()
+        isOpen && scope == .all ? hide() : show()
+    }
+
+    func toggleFiles() {
+        isOpen && scope == .files ? hide() : showFiles()
     }
 
     func show() {
+        open(.all, query: "")
+    }
+
+    /// The file search in its own window, `text` already typed (from the launcher's "Chercher « … » dans les fichiers").
+    func showFiles(query text: String = "") {
+        open(.files, query: text)
+    }
+
+    private func open(_ newScope: LauncherScope, query text: String) {
         guard let app = app ?? AppContext.model else { return }
         self.app = app
+        // One floating window at a time: the other one, or the clipboard history, steps aside.
+        if isOpen { activePanel?.close() }
+        if app.clipboard.window.isOpen { app.clipboard.window.close() }
+        scope = newScope
         if !DemoData.isEnabled, Date().timeIntervalSince(appsIndexedAt) > 600 { reindexApps() }
         catalog = ModuleRegistry.commands(app) + LauncherAppIndex.commands(apps)
         leaveMode()
-        query = ""
+        if newScope == .files, text.isEmpty { loadRecentFiles() }
+        query = text
         refresh()
-        let p = panel ?? makePanel()
+        let p = activePanel ?? makePanel(for: newScope)
         p.setContent(LauncherView().environment(app))
         p.present()
         isOpen = true
@@ -389,8 +467,11 @@ final class LauncherModel: AppModule {
     }
 
     func hide() {
-        panel?.close()
+        activePanel?.close()
     }
+
+    /// The window on screen (or the one about to open).
+    private var activePanel: FloatingPanel? { scope == .files ? filesPanel : panel }
 
     /// The translator right in the panel: from the "Traducteur" result, "trad …", the clipboard or a global shortcut.
     func showTranslator(text: String? = nil, target: String? = nil, claude: Bool = false) {
@@ -400,9 +481,21 @@ final class LauncherModel: AppModule {
             hide()
             return
         }
-        if !isOpen { show() }
+        // In the launcher itself, not in the file window.
+        if !isOpen || scope != .all { show() }
         mode = .translator
         app.translator.enterPanel(text: text, target: target, claude: claude)
+    }
+
+    /// ↩ or the "Copier la traduction" button of the translator: copied, and the panel makes way for the paste.
+    func copyTranslation() {
+        guard let t = app?.translator, !t.resultText.isEmpty else { return }
+        if case .copied = CommandRunner.copy(t.resultText) {
+            HUD.show("Traduction copiée", symbol: "doc.on.clipboard.fill")
+        } else {
+            HUD.show(DemoData.refusal, symbol: "info.circle.fill")
+        }
+        hide()
     }
 
     /// Back to the search, in the same panel.
@@ -434,18 +527,21 @@ final class LauncherModel: AppModule {
         mode = .assign(target: target, title: command.title)
     }
 
-    private func makePanel() -> FloatingPanel {
+    private func makePanel(for scope: LauncherScope) -> FloatingPanel {
         let p = FloatingPanel(size: NSSize(width: LauncherView.width, height: LauncherView.height))
-        p.onClose = { [weak self] in
+        p.onClose = { [weak self, weak p] in
             MainActor.assumeIsolated {
-                guard let self else { return }
+                // A window that closes late (once the other one is open) leaves the open one alone.
+                guard let self, let p, p === self.activePanel else { return }
                 self.isOpen = false
                 self.leaveMode()
                 self.removeKeyMonitor()
                 self.fileQuery?.stop()
+                self.recentQuery?.stop()
+                self.fileSearchPending = false
             }
         }
-        panel = p
+        if scope == .files { filesPanel = p } else { panel = p }
         return p
     }
 
@@ -453,7 +549,7 @@ final class LauncherModel: AppModule {
     private func installKeyMonitor() {
         removeKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, let panel = self.panel, event.window === panel else { return event }
+            guard let self, let panel = self.activePanel, event.window === panel else { return event }
             switch self.mode {
             case .search: return self.searchKey(event)
             case .translator: return self.translatorKey(event)
@@ -484,7 +580,7 @@ final class LauncherModel: AppModule {
             case kVK_Tab:
                 // Tab enters the selected folder ("~/Documents/Factures/"), or completes a path being typed.
                 if let path = self.selectedFile, self.isPathQuery(self.query) || self.fileKinds[path] == true {
-                    self.query = FS.pretty(path) + (self.fileKinds[path] == true ? "/" : "")
+                    self.browse(FS.pretty(path) + (self.fileKinds[path] == true ? "/" : ""))
                     return nil
                 }
                 return event
@@ -505,9 +601,7 @@ final class LauncherModel: AppModule {
                 return nil
             }
             if !t.resultText.isEmpty, !t.isTranslating {
-                _ = CommandRunner.copy(t.resultText)
-                HUD.show("Traduction copiée", symbol: "doc.on.clipboard.fill")
-                hide()
+                copyTranslation()
             } else {
                 t.translate()
             }
@@ -602,7 +696,7 @@ final class LauncherModel: AppModule {
     private func installScrollMonitor() {
         if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
         scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            if let self, event.window === self.panel { self.lastScroll = Date() }
+            if let self, event.window === self.activePanel { self.lastScroll = Date() }
             return event
         }
     }
@@ -643,11 +737,16 @@ final class LauncherModel: AppModule {
     var catalogIDs: Set<String> { Set(catalog.map(\.id)) }
 
     /// Where the share menu is anchored.
-    var panelView: NSView? { panel?.contentView }
+    var panelView: NSView? { activePanel?.contentView }
+
+    /// The caret after what is already typed (an opening search is not selected as a whole, typing goes on).
+    func moveCursorToEnd() {
+        (activePanel?.firstResponder as? NSTextView)?.moveToEndOfDocument(nil)
+    }
 
     /// The panel takes the keyboard back after an alert.
     func refocus() {
-        if isOpen { panel?.makeKeyAndOrderFront(nil) }
+        if isOpen { activePanel?.makeKeyAndOrderFront(nil) }
     }
 
     func runSelected(alternate: Bool = false) {
@@ -679,17 +778,51 @@ final class LauncherModel: AppModule {
         guard let app else { sections = []; return }
         let q = query.trimmingCharacters(in: .whitespaces)
         selection = 0
+        if scope == .files {
+            refreshFiles(q)
+            return
+        }
         if q.isEmpty {
             sections = suggestions()
+            return
+        }
+        // Folders and searches inside the files belong to the file window: one row takes them there.
+        if isPathQuery(q) || isContentQuery(q) {
+            sections = [LauncherSection(id: "files", title: CommandSection.files.title, items: [filesRow(q)])]
+            return
+        }
+        var scored: [(AppCommand, Double)] = []
+        let hidden = Set(hiddenIDs)
+        for c in catalog where !hidden.contains(c.id) {
+            if let s = Fuzzy.best(q, title: c.title, keywords: c.keywords + [c.subtitle ?? ""]) {
+                scored.append((c, s + CommandRunner.frecency(c.id) + c.boost))
+            }
+        }
+        let answers = ModuleRegistry.results(for: q, app: app)
+        for c in answers {
+            scored.append((c, c.boost + CommandRunner.frecency(c.id)))
+        }
+        // Not when a module claims what is typed ("cb …", "trad …", a calculation): that is not a file name.
+        if q.count >= 2, !q.hasPrefix(":"), !answers.contains(where: { $0.boost >= 1900 }) {
+            let row = filesRow(q)
+            scored.append((row, row.boost))
+        }
+        scored.sort { $0.1 > $1.1 }
+        sections = arrange(scored.map(\.0))
+    }
+
+    /// The file window: the index (or Spotlight) for a name, the folders for a path, recent files when nothing is typed.
+    private func refreshFiles(_ q: String) {
+        if q.isEmpty {
+            stopFileSearch()
             fileResults = []
             fileResultsQuery = ""
-            fileQuery?.stop()
+            sections = fileSuggestions()
             return
         }
         // "~/Documents/fa" or "/Applications": browse the folders, nothing else.
         if isPathQuery(q) {
-            fileWork?.cancel()
-            fileQuery?.stop()
+            stopFileSearch()
             let items = pathResults(q)
             sections = items.isEmpty ? [] : [LauncherSection(id: "path", title: "Dossier", items: items)]
             return
@@ -703,25 +836,37 @@ final class LauncherModel: AppModule {
             fileResults = []
             fileResultsQuery = q
         }
-        var scored: [(AppCommand, Double)] = []
-        let hidden = Set(hiddenIDs)
-        for c in catalog where !hidden.contains(c.id) {
-            if let s = Fuzzy.best(q, title: c.title, keywords: c.keywords + [c.subtitle ?? ""]) {
-                scored.append((c, s + CommandRunner.frecency(c.id) + c.boost))
-            }
-        }
-        for c in ModuleRegistry.results(for: q, app: app) {
-            scored.append((c, c.boost + CommandRunner.frecency(c.id)))
-        }
-        for c in fileResults { scored.append((c, c.boost + CommandRunner.frecency(c.id))) }
-        scored.sort { $0.1 > $1.1 }
-        sections = arrange(scored.map(\.0))
+        let ranked = fileResults.map { ($0, $0.boost + CommandRunner.frecency($0.id)) }.sorted { $0.1 > $1.1 }.map(\.0)
+        sections = ranked.isEmpty ? [] : [LauncherSection(id: "files", title: instant == nil ? "Résultats Spotlight" : "Résultats", items: ranked)]
         if instant != nil {
-            fileWork?.cancel()
-            fileQuery?.stop()
+            stopFileSearch()
         } else if !keepFileSearch {
             scheduleFileSearch(q)
         }
+    }
+
+    private func stopFileSearch() {
+        fileWork?.cancel()
+        fileQuery?.stop()
+        fileSearchPending = false
+    }
+
+    /// The launcher's way into the file window, what was typed already in its search.
+    private func filesRow(_ q: String) -> AppCommand {
+        let hotkey = app?.hotkeys.binding(for: Self.filesHotkeyTarget)?.combo?.display
+        return AppCommand(id: "files_find", title: isPathQuery(q) ? "Parcourir « \(q) » dans Fichiers" : "Chercher « \(q) » dans les fichiers",
+                          subtitle: "Ouvre la recherche de fichiers" + (hotkey.map { " · \($0) de n'importe où" } ?? ""),
+                          icon: .symbol("doc.text.magnifyingglass", Theme.accent), group: .files, hint: "Ouvrir la fenêtre",
+                          // Under any app or command that matches, over the translation of a lone word and the web.
+                          boost: 100, staysInLauncher: true) { ctx in
+            ctx.app.launcher.showFiles(query: q)
+            return .done
+        }
+    }
+
+    /// A folder to browse: right here in the file window; from the launcher, the file window opens on it.
+    func browse(_ text: String) {
+        if scope == .files { query = text } else { showFiles(query: text) }
     }
 
     /// Re-ranks after an asynchronous answer (files, translation) without moving the selection.
@@ -743,6 +888,55 @@ final class LauncherModel: AppModule {
             out.append(LauncherSection(id: "\(g.rawValue)", title: g.title, items: Array(items.prefix(caps[g] ?? 5))))
         }
         return out
+    }
+
+    /// The file window with nothing typed: the favourite files and folders, then the files opened lately.
+    private func fileSuggestions() -> [LauncherSection] {
+        let favorites = favoriteCommands().filter { $0.group == .files }
+        let shown = Set(favorites.compactMap(Self.filePath(of:)))
+        let recent = recentFiles.filter { !shown.contains($0.path) }.map { r -> AppCommand in
+            fileKinds[r.path] = r.isDir
+            return fileCommand(r.path, isDir: r.isDir, boost: 0)
+        }
+        var out: [LauncherSection] = []
+        if !favorites.isEmpty { out.append(LauncherSection(id: "favorites", title: "Favoris", items: favorites)) }
+        if !recent.isEmpty { out.append(LauncherSection(id: "recent", title: "Ouverts récemment", items: recent)) }
+        return out
+    }
+
+    /// The files opened lately (Spotlight), for the file window's first screen. Only once the user allowed reading
+    /// their files (Full Disk Access or the instant index): the preview of one would make macOS ask otherwise.
+    private func loadRecentFiles() {
+        if DemoData.isEnabled {
+            recentFiles = LauncherDemoFiles.recent
+            return
+        }
+        recentQuery?.stop()
+        if let recentObserver { NotificationCenter.default.removeObserver(recentObserver) }
+        guard !Snapshot.isActive, let app, app.fullDiskAccess || indexConsent else { recentFiles = []; return }
+        let mq = NSMetadataQuery()
+        let since = Date().addingTimeInterval(-30 * 86_400) as NSDate
+        mq.predicate = NSPredicate(format: "kMDItemLastUsedDate >= %@ AND NOT (kMDItemContentType == 'com.apple.application-bundle') AND NOT (kMDItemContentType == 'public.folder')", since)
+        mq.searchScopes = [NSMetadataQueryUserHomeScope]
+        mq.sortDescriptors = [NSSortDescriptor(key: "kMDItemLastUsedDate", ascending: false)]
+        recentObserver = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: mq, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, let mq = self.recentQuery else { return }
+                mq.stop()
+                let library = FS.home + "/Library/"
+                var found: [(path: String, isDir: Bool)] = []
+                for i in 0..<min(mq.resultCount, 80) where found.count < 12 {
+                    guard let item = mq.result(at: i) as? NSMetadataItem,
+                          let path = item.value(forAttribute: NSMetadataItemPathKey) as? String,
+                          !path.contains("/."), !path.hasPrefix(library) || path.hasPrefix(library + "Mobile Documents/") else { continue }
+                    found.append((path, false))
+                }
+                self.recentFiles = found
+                if self.isOpen, self.scope == .files, self.query.isEmpty { self.refreshKeepingSelection() }
+            }
+        }
+        recentQuery = mq
+        mq.start()
     }
 
     private func suggestions() -> [LauncherSection] {
@@ -780,10 +974,14 @@ final class LauncherModel: AppModule {
         q.hasPrefix("/") || q.hasPrefix("~/") || q == "~"
     }
 
+    func isContentQuery(_ q: String) -> Bool {
+        Self.contentPrefixes.contains { q.lowercased().hasPrefix($0) }
+    }
+
     /// Results from the instant index, or nil when Spotlight must answer (content search, index not ready).
     private func instantFiles(_ q: String) -> [AppCommand]? {
-        guard includeFiles, q.count >= 2, !q.hasPrefix(":"), !q.hasPrefix("?") else { return [] }
-        if Self.contentPrefixes.contains(where: { q.lowercased().hasPrefix($0) }) { return nil }
+        guard q.count >= 2, !q.hasPrefix(":"), !q.hasPrefix("?") else { return [] }
+        if isContentQuery(q) { return nil }
         let snapshot: LauncherFileIndex.Snapshot
         if let demoFiles {
             snapshot = demoFiles
@@ -792,7 +990,7 @@ final class LauncherModel: AppModule {
         } else {
             return nil
         }
-        let hits = LauncherFileIndex.search(q, in: snapshot, limit: 24, checkDates: !DemoData.isEnabled)
+        let hits = LauncherFileIndex.search(q, in: snapshot, limit: 40, checkDates: !DemoData.isEnabled)
         return hits.enumerated().map { rank, hit in
             fileKinds[hit.path] = hit.isDir
             return fileCommand(hit.path, isDir: hit.isDir, boost: hit.score * 0.45 - Double(rank) * 0.01)
@@ -843,14 +1041,16 @@ final class LauncherModel: AppModule {
         fileWork?.cancel()
         let content = Self.contentPrefixes.first { q.lowercased().hasPrefix($0) }
         let text = content.map { String(q.dropFirst($0.count)).trimmingCharacters(in: .whitespaces) } ?? q
-        guard includeFiles, text.count >= (content == nil ? 3 : 2), !DemoData.isEnabled, !q.hasPrefix(":") else {
+        guard text.count >= (content == nil ? 3 : 2), !DemoData.isEnabled, !q.hasPrefix(":") else {
             if !fileResults.isEmpty { fileResults = [] }
+            fileSearchPending = false
             return
         }
         let work = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated { self?.searchSpotlight(text, query: q, content: content != nil) }
         }
         fileWork = work
+        fileSearchPending = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
     }
 
@@ -868,7 +1068,7 @@ final class LauncherModel: AppModule {
                 guard let self, let mq = self.fileQuery, self.query.trimmingCharacters(in: .whitespaces) == q else { return }
                 mq.stop()
                 var found: [AppCommand] = []
-                for i in 0..<min(mq.resultCount, 16) {
+                for i in 0..<min(mq.resultCount, 30) {
                     guard let item = mq.result(at: i) as? NSMetadataItem,
                           let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else { continue }
                     let isDir = (item.value(forAttribute: "kMDItemContentType") as? String) == "public.folder"
@@ -877,6 +1077,7 @@ final class LauncherModel: AppModule {
                 }
                 self.fileResults = found
                 self.fileResultsQuery = q
+                self.fileSearchPending = false
                 self.refreshKeepingSelection()
             }
         }

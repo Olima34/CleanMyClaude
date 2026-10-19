@@ -104,8 +104,15 @@ enum ClipboardChecks {
         if DemoData.isEnabled {
             expect(!m.watching, "le presse-papiers est surveillé en démo")
             if let first = m.items.first, case .copied = m.recopy(first) { f.append("la démo a écrit dans le presse-papiers") }
-            expect(!ClipboardLauncher.results("cb", model: m).isEmpty, "lanceur « cb » vide en démo")
-            expect(ClipboardLauncher.results("cb lumiere", model: m).first?.title.contains("Lumière") == true, "recherche « cb lumiere » en démo")
+            expect(ClipboardLauncher.results("cb", model: m).count == 1, "lanceur « cb » : une seule ligne qui ouvre la fenêtre")
+            expect(ClipboardLauncher.results("cb lumiere", model: m).first?.subtitle == "1 élément trouvé", "lanceur « cb lumiere » : compte de la fenêtre")
+            expect(ClipboardLauncher.results("lumiere", model: m).isEmpty, "les éléments copiés restent dans leur fenêtre, pas dans le lanceur")
+            m.window.query = "lumiere"
+            expect(m.window.list(m).first?.text?.contains("Lumière") == true, "recherche « lumiere » dans la fenêtre")
+            m.window.query = ""
+            m.window.filter = .pinned
+            expect(m.window.list(m).allSatisfy(\.pinned) && !m.window.list(m).isEmpty, "filtre Épinglés de la fenêtre")
+            m.window.filter = .all
         }
         return f
     }

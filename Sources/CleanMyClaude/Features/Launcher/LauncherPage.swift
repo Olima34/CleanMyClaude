@@ -2,14 +2,17 @@ import SwiftUI
 
 struct LauncherPage: View {
     @Environment(AppModel.self) private var app
+    /// Why the last shortcut typed for the file window was refused.
+    @State private var filesRefusal: String?
 
     private let examples: [(String, String, String)] = [
         ("app.badge", "slack", "Ouvre une app (les plus utilisées remontent en premier)"),
-        ("doc.text.magnifyingglass", "facture edf", "Trouve un fichier instantanément, avec son aperçu à côté"),
+        ("doc.text.magnifyingglass", "facture edf", "Propose de chercher ce fichier dans la fenêtre Fichiers, avec son aperçu à côté"),
         ("command", "⌘K", "Les actions du résultat choisi : une app (quitter, désinstaller…), un fichier (convertir, partager…), une commande"),
-        ("folder", "~/Documents/", "Parcourt les dossiers (⇥ entre dans le dossier choisi)"),
-        ("text.magnifyingglass", "dans devis cuisine", "Cherche aussi dans le contenu des fichiers (Spotlight)"),
-        ("character.bubble", "trad bonjour en anglais", "Traduit sur ton Mac, ou avec Claude"),
+        ("folder", "~/Documents/", "Parcourt les dossiers dans la fenêtre Fichiers (⇥ entre dans le dossier choisi)"),
+        ("text.magnifyingglass", "dans devis cuisine", "Cherche aussi dans le contenu des fichiers (Spotlight), dans la fenêtre Fichiers"),
+        ("doc.on.clipboard", "cb adresse", "Ouvre l'historique du presse-papiers dans sa fenêtre, la recherche déjà tapée"),
+        ("character.bubble", "trad bonjour en anglais", "Traduit sur ton Mac ou avec Claude ; ↩ ouvre le traducteur avec tout le texte, ⌘↩ copie"),
         ("function", "1250*1,2 + 15%", "Calcule, virgule française comprise"),
         ("ruler", "10 km en miles", "Convertit longueurs, poids, °C, Go, durées…"),
         ("globe.europe.africa", "heure Tokyo", "Donne l'heure dans une autre ville"),
@@ -26,9 +29,12 @@ struct LauncherPage: View {
         @Bindable var model = app.launcher
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "command", title: "Lanceur",
-                     subtitle: "Un raccourci, une barre de recherche, et tout ton Mac au bout des doigts : apps, fichiers, calculs, réglages et toutes les actions de Clean My Claude.",
+                     subtitle: "Un raccourci, une barre de recherche, et tout ton Mac au bout des doigts : apps, calculs, réglages et toutes les actions de Clean My Claude. Les fichiers ont leur propre fenêtre.",
                      tint: Theme.brand, seed: 93) {
-                ScanButton(title: "Ouvrir le lanceur", symbol: "command") { app.launcher.show() }
+                HStack(spacing: 10) {
+                    ScanButton(title: "Ouvrir le lanceur", symbol: "command") { app.launcher.show() }
+                    ScanButton(title: "Rechercher des fichiers", symbol: "doc.text.magnifyingglass") { app.launcher.showFiles() }
+                }
             }
             TileRow {
                 Card(padding: 18) {
@@ -55,12 +61,19 @@ struct LauncherPage: View {
                 Card(padding: 18) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 8) {
-                            IconBadge(symbol: "bolt.horizontal", tint: Theme.accent, size: 28)
-                            Text("Recherche de fichiers instantanée").font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                            IconBadge(symbol: "doc.text.magnifyingglass", tint: Theme.accent, size: 28)
+                            Text("Fenêtre Fichiers").font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
                             Spacer()
                             indexBadge
                         }
-                        Toggle("Chercher aussi dans mes fichiers", isOn: $model.includeFiles)
+                        HStack(spacing: 10) {
+                            Text("Raccourci").font(.ui(12.5)).foregroundStyle(Theme.text2)
+                            ShortcutRecorder(combo: app.hotkeys.binding(for: LauncherModel.filesHotkeyTarget)?.combo) { setFilesCombo($0) }
+                        }
+                        if let filesRefusal {
+                            Text(filesRefusal).font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Toggle("Index instantané des noms de fichiers", isOn: $model.includeFiles)
                             .switchToggles()
                             .font(.ui(12.5))
                         Text(indexExplanation)
@@ -132,8 +145,20 @@ struct LauncherPage: View {
         case .ready, .building:
             return "Les noms de tes fichiers sont gardés en mémoire, sur ton Mac : une recherche prend un millième de seconde, et chaque changement est suivi en direct. ~/Library, les dossiers cachés et les dépendances (node_modules…) sont laissés de côté."
         case .off:
-            if !app.launcher.includeFiles { return "Le lanceur ne cherche que les apps, les réglages et les commandes." }
+            if !app.launcher.includeFiles { return "Sans l'index, c'est Spotlight qui cherche dans la fenêtre Fichiers (une seconde ou plus)." }
             return "Pour l'instant, c'est Spotlight qui cherche (une seconde ou plus). L'index instantané lit les noms de tes fichiers une fois ; sans l'accès complet au disque, macOS te demandera d'autoriser Documents, Bureau et Téléchargements."
+        }
+    }
+
+    /// The file window's own shortcut, kept with the others in the Raccourcis section.
+    private func setFilesCombo(_ combo: KeyCombo?) {
+        filesRefusal = nil
+        guard let combo else {
+            app.hotkeys.unbind(LauncherModel.filesHotkeyTarget)
+            return
+        }
+        if let other = app.hotkeys.bind(LauncherModel.filesHotkeyTarget, combo: combo) {
+            filesRefusal = "\(combo.display) est déjà utilisé par \(other) : choisis-en un autre."
         }
     }
 
