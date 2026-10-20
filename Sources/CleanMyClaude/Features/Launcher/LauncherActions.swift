@@ -135,10 +135,13 @@ struct LauncherActionContext {
     var hotkey: String?
     /// What ↩ does on a command ("Ouvrir", "Copier"…).
     var primary: String?
+    /// The file window: ⌘↩ picks the file for a drag with others (⌘R shows it in the Finder), and whether it is picked.
+    var selectable = false
+    var marked = false
 }
 
 enum LauncherActionKind: Hashable {
-    case open, reveal, quickLook, openWith, getInfo, packageContents, parent, details, share, claude
+    case open, mark, reveal, quickLook, openWith, getInfo, packageContents, parent, details, share, claude
     /// What the converter can do with this kind of file.
     case convert(ConverterOperation)
     /// A PDF or the photo of a document, in « Remplir et signer ».
@@ -168,7 +171,7 @@ struct LauncherAction: Identifiable, Equatable {
     var destructive: Bool { [.trash, .uninstall, .hide, .forceQuit].contains(kind) }
     /// Opens, copies, moves or changes something on the Mac: refused in the demo (the others only change the launcher).
     var touchesMac: Bool {
-        ![.quickLook, .openWith, .packageContents, .parent, .details, .hotkey, .favorite, .resetRanking, .hide].contains(kind)
+        ![.mark, .quickLook, .openWith, .packageContents, .parent, .details, .hotkey, .favorite, .resetRanking, .hide].contains(kind)
     }
 }
 
@@ -259,8 +262,16 @@ enum LauncherActions {
     /// A file or a folder: Raycast's actions, with what the converter can do with this kind of file just after opening.
     private static func files(_ path: String, folder: Bool, _ c: LauncherActionContext) -> [LauncherAction] {
         var list: [LauncherAction] = [
-            LauncherAction(kind: .open, title: "Ouvrir", symbol: "doc", shortcut: .init(.enter), group: 0, keywords: ["lancer", "open"]),
-            LauncherAction(kind: .reveal, title: "Afficher dans le Finder", symbol: "folder", shortcut: .init(.enter, "⌘"), group: 0,
+            LauncherAction(kind: .open, title: "Ouvrir", symbol: "doc", shortcut: .init(.enter), group: 0, keywords: ["lancer", "open"])
+        ]
+        if c.selectable {
+            list.append(LauncherAction(kind: .mark, title: c.marked ? "Retirer de la sélection" : "Ajouter à la sélection",
+                                       symbol: c.marked ? "minus.circle" : "checkmark.circle", shortcut: .init(.enter, "⌘"), group: 0,
+                                       keywords: ["selectionner", "plusieurs", "cocher", "glisser", "select", "multiple"]))
+        }
+        list += [
+            LauncherAction(kind: .reveal, title: "Afficher dans le Finder", symbol: "folder",
+                           shortcut: c.selectable ? .init(.character("r"), "⌘") : .init(.enter, "⌘"), group: 0,
                            keywords: ["finder", "montrer", "reveal"]),
             LauncherAction(kind: .quickLook, title: "Coup d'œil", symbol: "eye", shortcut: .init(.character("y"), "⌘"), group: 0,
                            keywords: ["oeil", "apercu", "quick look", "previsualiser"]),
@@ -432,6 +443,11 @@ enum LauncherActions {
         let systemApp = all(for: .app(path: "/System/Applications/Notes.app", name: "Notes"), LauncherActionContext(inCatalog: true))
         let command = all(for: .command(id: "act_smart_scan", title: "Analyse intelligente"), LauncherActionContext(ranked: true, primary: "Lancer"))
         let dynamic = all(for: .command(id: "calc_result", title: "= 1 725"), LauncherActionContext(inCatalog: false, canAssign: false, primary: "Copier"))
+        var window = LauncherActionContext()
+        window.selectable = true
+        let picking = all(for: .file(path: "/Users/test/Documents/Facture.pdf"), window)
+        window.marked = true
+        let picked = all(for: .folder(path: "/Users/test/Documents/Factures"), window)
         func kinds(_ l: [LauncherAction]) -> [LauncherActionKind] { l.map(\.kind) }
 
         // What each kind of result offers.
@@ -473,11 +489,16 @@ enum LauncherActions {
             .map(\.title).filter({ $0 == "Retirer des favoris" || $0 == "Changer le raccourci (⌃⌥A)" }).count != 2 {
             failures.append("actions : les libellés suivent les favoris et le raccourci")
         }
+        if kinds(pdf).contains(.mark) || kinds(picking).prefix(3) != [.open, .mark, .reveal]
+            || picking.first(where: { $0.kind == .mark })?.title != "Ajouter à la sélection" || picked.first(where: { $0.kind == .mark })?.title != "Retirer de la sélection" {
+            failures.append("actions : la fenêtre Fichiers propose de choisir le fichier, juste après Ouvrir (\(picking.prefix(3).map(\.title)))")
+        }
         if all(for: .file(path: "/a.txt"), LauncherActionContext(detailsShown: false)).first(where: { $0.kind == .details })?.title != "Afficher les détails" {
             failures.append("actions : le libellé des détails suit leur état")
         }
         // Every list: valid ids and symbols, one key per action, no key that would be typed in the search.
-        for (name, list) in [("fichier", pdf), ("dossier", folder), ("photo", photo), ("app", app), ("commande", command)] {
+        for (name, list) in [("fichier", pdf), ("dossier", folder), ("photo", photo), ("app", app), ("commande", command),
+                             ("fenêtre Fichiers", picking), ("fichier choisi", picked)] {
             for a in list where !AppCommand.isValidID(a.id) { failures.append("actions : identifiant invalide \(a.id)") }
             for a in list where NSImage(systemSymbolName: a.symbol, accessibilityDescription: nil) == nil {
                 failures.append("actions : symbole introuvable \(a.symbol)")
@@ -525,6 +546,9 @@ enum LauncherActions {
             ("app ⌥⌘I", hit(app, kVK_ANSI_I, "i", "i", "⌥⌘"), .packageContents), ("app ⌃⇧⌘D", hit(app, kVK_ANSI_D, "d", "D", "⌃⇧⌘"), .hide),
             ("app ⇧⌘,", hit(app, kVK_ANSI_Comma, ",", "<", "⇧⌘"), .hotkey), ("app ⌘Y", hit(app, kVK_ANSI_Y, "y", "y", "⌘"), nil),
             ("commande ⇧⌘C", hit(command, kVK_ANSI_C, "c", "C", "⇧⌘"), .copyLink),
+            // The file window: ⌘↩ picks the file, ⌘R shows it in the Finder (⌘R does nothing in the launcher).
+            ("fenêtre ⌘↩", hit(picking, kVK_Return, "\r", "\r", "⌘"), .mark), ("fenêtre ⌘R", hit(picking, kVK_ANSI_R, "r", "r", "⌘"), .reveal),
+            ("lanceur ⌘R", hit(pdf, kVK_ANSI_R, "r", "r", "⌘"), nil), ("fenêtre ↩", hit(picking, kVK_Return, "\r", "\r"), .open),
             // Plain keys are typed in the search, ⌘K opens the panel.
             ("d", hit(pdf, kVK_ANSI_D, "d", "d"), nil), ("D", hit(pdf, kVK_ANSI_D, "d", "D", "⇧"), nil), ("⌘K", hit(pdf, kVK_ANSI_K, "k", "k", "⌘"), nil)
         ]
@@ -667,8 +691,9 @@ extension LauncherModel {
             c.uninstallable = Self.canUninstall(path, bundleID: c.bundleID)
         case .command:
             c.primary = command.hint?.components(separatedBy: " · ").first.flatMap { $0.contains("⌘") ? nil : $0 }
-        case .file, .folder:
-            break
+        case .file(let path), .folder(let path):
+            c.selectable = scope == .files
+            c.marked = marked.contains(path)
         }
         return c
     }
@@ -754,7 +779,7 @@ extension LauncherModel {
         return event
     }
 
-    /// An action's shortcut on the selected result, without opening the panel (↩ and ⌘↩ keep their usual way).
+    /// An action's shortcut on the selected result, without opening the panel (↩ and ⌘↩ go their own way, see `searchKey`).
     func resultShortcut(_ event: NSEvent) -> Bool {
         let items = flat
         guard items.indices.contains(selection) else { return false }
@@ -764,7 +789,7 @@ extension LauncherModel {
         guard !event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
         let actions = LauncherActions.all(for: target, actionContext(for: target, command: command))
         guard let action = LauncherActions.action(for: LauncherKeyPress(event), in: actions),
-              action.kind != .open, action.kind != .reveal else { return false }
+              action.shortcut?.key != .enter else { return false }
         perform(action, on: target, command: command)
         return true
     }
@@ -786,6 +811,9 @@ extension LauncherModel {
                 hide()
                 if action.kind == .reveal { Finder.reveal(path) } else { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
             }
+        case .mark:
+            closeActions()
+            if !path.isEmpty { toggleMark(path: path) }
         case .quickLook:
             closeActions()
             mode = .quickLook(path: path)

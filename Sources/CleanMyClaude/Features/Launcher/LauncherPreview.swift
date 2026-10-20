@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 /// The pane next to the results: a Quick Look preview of the selected file, without opening it, and its details.
 struct LauncherPreview: View {
+    @Environment(AppModel.self) private var app
     var path: String
     @State private var info = LauncherFileInfo()
     /// The file Quick Look shows: follows `path` once the selection rests for a moment (sweeping the list stays fluid).
@@ -25,7 +26,7 @@ struct LauncherPreview: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.r(12)))
             .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.border, lineWidth: Theme.line))
 
-            // The name, with its icon, can be dragged anywhere.
+            // The name, with its icon, can be dragged anywhere: copied there (with the other picked files if it is one).
             HStack(spacing: 8) {
                 FileIcon(path: path, size: 22)
                 Text((path as NSString).lastPathComponent)
@@ -36,13 +37,7 @@ struct LauncherPreview: View {
                     .help("Glisse le fichier où tu veux")
             }
             .contentShape(Rectangle())
-            .onDrag {
-                let provider = NSItemProvider(object: URL(fileURLWithPath: path) as NSURL)
-                provider.suggestedName = (path as NSString).lastPathComponent
-                return provider
-            } preview: {
-                LauncherDragPreview(path: path)
-            }
+            .gesture(DragGesture(minimumDistance: 4).onChanged { _ in app.launcher.beginFileDrag(path, fromRow: false) })
             VStack(alignment: .leading, spacing: 5) {
                 row("Type", info.kind)
                 row(info.isDir ? "Contenu" : "Taille", info.size)
@@ -51,7 +46,7 @@ struct LauncherPreview: View {
                 row("Dossier", FS.pretty((path as NSString).deletingLastPathComponent))
             }
             Spacer(minLength: 0)
-            Text(info.isDir ? "↩ Ouvrir · ⇥ Entrer · ⌘↩ Finder · ⌘K Actions" : "↩ Ouvrir · ⌘Y Coup d'œil · ⌘K Actions")
+            Text(info.isDir ? "↩ Ouvrir · ⇥ Entrer · \(app.launcher.scope == .files ? "⌘R" : "⌘↩") Finder · ⌘K Actions" : "↩ Ouvrir · ⌘Y Coup d'œil · ⌘K Actions")
                 .font(.ui(10.5)).foregroundStyle(Theme.text3)
         }
         .padding(14)

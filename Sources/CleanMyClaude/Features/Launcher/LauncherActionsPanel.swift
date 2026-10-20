@@ -103,25 +103,29 @@ struct LauncherActionsPanel: View {
             }
             ForEach(entries) { entry in
                 let i = entry.index
-                if entry.separated {
-                    Rectangle().fill(Theme.border).frame(height: 1).padding(.vertical, 4)
-                }
-                Group {
-                    if model.openWithApps != nil {
-                        LauncherOpenWithRow(app: apps[i], selected: i == model.actionSelection)
-                    } else {
-                        LauncherActionRow(action: actions[i], selected: i == model.actionSelection)
+                // The line above a group and its first action share one id: scrolling to that action brings both
+                // into view (with two views under the same id, the list could stop at the line and hide the action).
+                VStack(spacing: 0) {
+                    if entry.separated {
+                        Rectangle().fill(Theme.border).frame(height: 1).padding(.vertical, 4)
+                    }
+                    Group {
+                        if model.openWithApps != nil {
+                            LauncherOpenWithRow(app: apps[i], selected: i == model.actionSelection)
+                        } else {
+                            LauncherActionRow(action: actions[i], selected: i == model.actionSelection)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        model.actionSelection = i
+                        model.runSelectedAction()
+                    }
+                    .onContinuousHover { phase in
+                        if case .active = phase, model.actionSelection != i { model.actionSelection = i }
                     }
                 }
                 .id(i)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    model.actionSelection = i
-                    model.runSelectedAction()
-                }
-                .onContinuousHover { phase in
-                    if case .active = phase, model.actionSelection != i { model.actionSelection = i }
-                }
             }
         }
         .padding(.horizontal, 6)

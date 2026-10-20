@@ -100,6 +100,10 @@ struct LauncherView: View {
             Rectangle().fill(Theme.border).frame(height: 1)
             footer
         }
+        .overlay {
+            // `--tab glisser`: the pile of dragged files (on screen it has its own window, above every app).
+            if Snapshot.isActive, let stack = model.snapshotStack { LauncherDragStackView(stack: stack).allowsHitTesting(false) }
+        }
     }
 
     @ViewBuilder
@@ -113,6 +117,8 @@ struct LauncherView: View {
                         // Only for the arrow keys: a trackpad scroll is never pulled back to the selection.
                         if app.launcher.scrollToSelection { proxy.scrollTo(s) }
                     }
+                    // The visible part of the list: a dragged file leaves its row only if the row can be seen.
+                    .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { app.launcher.listViewport = $0 }
             }
         }
     }
@@ -133,14 +139,20 @@ struct LauncherView: View {
                 Text(section.title.uppercased())
                     .font(.ui(10, .semibold)).tracking(0.7).foregroundStyle(Theme.text3)
                     .padding(.horizontal, 18).padding(.top, 10).padding(.bottom, 4)
-                ForEach(Array(section.items.enumerated()), id: \.offset) { i, item in
-                    let index = offsets[si] + i
-                    LauncherRow(command: item, selected: index == model.selection, hotkey: app.hotkeys.combo(for: item)?.display)
+                // Identified by their place in the whole list, like `.id(index)`: the arrows scroll to the right row,
+                // never to the row of another section that has the same place in its own.
+                ForEach(offsets[si]..<offsets[si] + section.items.count, id: \.self) { index in
+                    let item = section.items[index - offsets[si]]
+                    LauncherRow(command: item, selected: index == model.selection, hotkey: app.hotkeys.combo(for: item)?.display,
+                                marked: LauncherModel.filePath(of: item).map(model.marked.contains) ?? false)
                         .modifier(LauncherFileDrag(command: item))
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.rowFrames[index] = $0 }
                         .id(index)
                         .onTapGesture {
                             if model.actionsTarget != nil { model.closeActions(); return }
                             model.selection = index
+                            // ⌘-click in the file window picks the file (and opens nothing).
+                            if NSEvent.modifierFlags.contains(.command), model.toggleMark(item) { return }
                             model.runSelected()
                         }
                         // Every movement of the pointer (not only entering a row): after a trackpad scroll,
@@ -158,6 +170,8 @@ struct LauncherView: View {
         let model = app.launcher
         let onFile = model.selectedFile != nil
         let primary = model.selectedPrimary
+        let picking = model.scope == .files
+        let picked = model.marked.count
         return HStack(spacing: 14) {
             // Opens the app on the dashboard (from the file window: on the Lanceur page, where its index is set up).
             Button {
@@ -174,12 +188,14 @@ struct LauncherView: View {
             }
             .buttonStyle(.plain)
             .help(model.scope == .files ? "Réglages de la recherche de fichiers" : "Ouvrir Clean My Claude sur le tableau de bord")
-            hint("↑↓", "Naviguer")
+            if picked == 0 { hint("↑↓", "Naviguer") }
             if !onFile { hint("⌘↩", "Action secondaire") }
+            if onFile, picking { hint("⌘↩", model.selectedFile.map(model.marked.contains) == true ? "Retirer" : "Sélectionner") }
             if onFile, model.selectedFile.map(model.isFolder) == true { hint("⇥", "Entrer") }
-            if onFile { hint("⌘Y", "Coup d'œil") }
-            hint("⎋", "Fermer")
-            Spacer()
+            if onFile, picked == 0 { hint("⌘Y", "Coup d'œil") }
+            hint("⎋", picked > 0 && model.query.isEmpty ? "Désélectionner" : "Fermer")
+            Spacer(minLength: 8)
+            if picked > 0 { LauncherPickedChip(count: picked) { model.marked = [] } }
             if let primary {
                 HStack(spacing: 6) {
                     Text(primary).font(.ui(12, .medium)).foregroundStyle(Theme.text)
@@ -221,10 +237,22 @@ struct LauncherRow: View {
     var selected: Bool
     /// The keyboard shortcut given to this result in Raccourcis, shown like Raycast does.
     var hotkey: String? = nil
+    /// Picked in the file window (⌘-click or ⌘↩), to be dragged with the others.
+    var marked = false
 
     var body: some View {
         HStack(spacing: 12) {
             CommandIconView(icon: command.icon, size: 26)
+                .overlay(alignment: .bottomTrailing) {
+                    if marked {
+                        Image(systemName: "checkmark")
+                            .font(.ui(7.5, .heavy)).foregroundStyle(Theme.onAccent)
+                            .frame(width: 14, height: 14)
+                            .background(PillShape().fill(Theme.accent))
+                            .overlay(PillShape().strokeBorder(Theme.bg, lineWidth: 1.5))
+                            .offset(x: 4, y: 4)
+                    }
+                }
             VStack(alignment: .leading, spacing: 1) {
                 Text(command.title).font(.ui(13.5, selected ? .medium : .regular)).foregroundStyle(Theme.text).lineLimit(1)
                 if let s = command.subtitle, !s.isEmpty {
@@ -246,9 +274,47 @@ struct LauncherRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(selected ? Theme.accent.opacity(0.16) : .clear))
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.accent.opacity(selected ? (marked ? 0.24 : 0.16) : (marked ? 0.09 : 0))))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(Theme.accent.opacity(marked ? 0.4 : 0), lineWidth: Theme.line))
         .padding(.horizontal, 6)
         .contentShape(Rectangle())
+    }
+}
+
+/// The footer of the file window once files are picked: how many, and a way to let go of them all.
+struct LauncherPickedChip: View {
+    var count: Int
+    var clear: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill").font(.ui(11.5, .semibold)).foregroundStyle(Theme.accent)
+            // How to use them, when the footer has room for it.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    label
+                    Text("· glisse pour copier").font(.ui(11)).foregroundStyle(Theme.text3)
+                }
+                label
+            }
+            Button(action: clear) {
+                Image(systemName: "xmark").font(.ui(9, .bold)).foregroundStyle(Theme.text3)
+                    .frame(width: 16, height: 16)
+                    .background(PillShape().fill(Theme.track))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Tout désélectionner (⎋)")
+        }
+        .padding(.leading, 9)
+        .padding(.trailing, 4)
+        .padding(.vertical, 3)
+        .background(PillShape().fill(Theme.accent.opacity(0.12)))
+        .help("Glisse l'un d'eux hors de la fenêtre : ils sont tous copiés là où tu les lâches (jamais déplacés).")
+    }
+
+    private var label: some View {
+        Text(Fmt.plural(count, "sélectionné", "sélectionnés")).font(.ui(12, .medium)).foregroundStyle(Theme.text).fixedSize()
     }
 }
 
@@ -334,11 +400,15 @@ struct LauncherKeyHint: View {
 }
 
 /// A file, a folder or an app of the results can be dragged anywhere (Finder, Mail, a message, the Desktop…).
+/// A file or a folder is copied there, with the other picked files if it is one of them (see `LauncherDrag`).
 struct LauncherFileDrag: ViewModifier {
+    @Environment(AppModel.self) private var app
     var command: AppCommand
 
     func body(content: Content) -> some View {
-        if case .file(let path) = command.icon, command.group == .files || command.group == .apps, !DemoData.isEnabled {
+        if let path = LauncherModel.filePath(of: command), !DemoData.isEnabled {
+            content.simultaneousGesture(DragGesture(minimumDistance: 4).onChanged { _ in app.launcher.beginFileDrag(path, fromRow: true) })
+        } else if case .file(let path) = command.icon, command.group == .apps, !DemoData.isEnabled {
             content.onDrag {
                 let provider = NSItemProvider(object: URL(fileURLWithPath: path) as NSURL)
                 provider.suggestedName = (path as NSString).lastPathComponent
@@ -397,6 +467,7 @@ struct LauncherFilesEmpty: View {
                     tip("~/Documents/", "parcourt tes dossiers (⇥ entre dans le dossier choisi)")
                     tip("dans devis cuisine", "cherche aussi dans le contenu des fichiers")
                     tip("⌘K", "les actions du fichier choisi : ouvrir avec, convertir, partager, mettre à la corbeille…")
+                    tip("⌘-clic", "choisit plusieurs fichiers (⌘↩ au clavier) ; glisse-les, ils sont copiés là où tu les lâches")
                 }
                 if m.indexState == .off, !DemoData.isEnabled {
                     Text("Pour l'instant, c'est Spotlight qui cherche (une seconde ou plus). L'index instantané répond en un millième de seconde ; sans l'accès complet au disque, macOS te demandera d'autoriser Documents, Bureau et Téléchargements.")

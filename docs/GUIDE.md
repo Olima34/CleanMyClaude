@@ -206,6 +206,8 @@ Spotlight met une à quatre secondes à répondre à une recherche par nom : tro
 
 Le classement favorise le nom exact, puis le début du nom, puis le début d'un mot ; ensuite les fichiers modifiés récemment, ceux du Bureau, des Documents, des Téléchargements et d'iCloud Drive, et ceux que tu ouvres souvent. Un mot peut viser un dossier : `edf mars` trouve `Factures/EDF/mars.pdf`. Les dossiers cachés, `~/Library` et les dépendances (`node_modules`, `Pods`…) sont laissés de côté, et l'intérieur des paquets (`.app`, `.photoslibrary`…) n'est pas parcouru. L'index ne quitte jamais la mémoire de ton Mac. Spotlight reste utilisé pour chercher dans le contenu (`dans …`).
 
+Pour emporter plusieurs fichiers d'un coup, **⌘-clic** (ou **⌘↩** au clavier) les coche, même d'une recherche à l'autre ou de dossiers différents ; ⎋ les décoche. Glissés hors de la fenêtre, ils se rassemblent en une pile qui se balance au bout du pointeur, et sont **copiés** là où tu les lâches (Finder, Bureau, Mail…), jamais déplacés. « Afficher dans le Finder » passe alors à **⌘R**.
+
 ## Toujours là, sans prendre de place
 
 Comme Raycast, Clean My Claude n'a pas d'icône dans le Dock : il vit dans la barre des menus et derrière `⌥Espace`. Il s'ouvre à l'ouverture de session sans afficher de fenêtre (réglable), et sa fenêtre se rouvre depuis la mascotte de la barre des menus, le lanceur ou en relançant l'app. Les réglages permettent de garder l'icône dans le Dock, toujours ou seulement quand la fenêtre est ouverte. Au repos, fenêtre ouverte et tous les modules actifs : environ 1,7 % de processeur et 93 Mo de mémoire.

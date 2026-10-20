@@ -11,6 +11,7 @@ struct LauncherPage: View {
         ("command", "⌘K", "Les actions du résultat choisi : une app (quitter, désinstaller…), un fichier (convertir, partager…), une commande"),
         ("folder", "~/Documents/", "Parcourt les dossiers dans la fenêtre Fichiers (⇥ entre dans le dossier choisi)"),
         ("text.magnifyingglass", "dans devis cuisine", "Cherche aussi dans le contenu des fichiers (Spotlight), dans la fenêtre Fichiers"),
+        ("checkmark.circle", "⌘-clic", "Choisit plusieurs fichiers et dossiers dans la fenêtre Fichiers ; glissés ensemble, ils sont copiés (jamais déplacés)"),
         ("doc.on.clipboard", "cb adresse", "Ouvre l'historique du presse-papiers dans sa fenêtre, la recherche déjà tapée"),
         ("character.bubble", "trad bonjour en anglais", "Traduit sur ton Mac ou avec Claude ; ↩ ouvre le traducteur avec tout le texte, ⌘↩ copie"),
         ("function", "1250*1,2 + 15%", "Calcule, virgule française comprise"),

@@ -89,6 +89,14 @@ final class LauncherModel: AppModule {
     var actionSelection = 0
     /// "Ouvrir avec…": the panel lists the apps instead of the actions.
     var openWithApps: [LauncherOpenWithApp]?
+    /// The file window: the files and folders picked with ⌘-click or ⌘↩, in that order. They stay picked from one
+    /// search to the next (gathered from several folders), until the window closes; dragged together, they are copied.
+    var marked: [String] = []
+    /// Where each row of the results is, and the visible part of the list (window points): where a dragged file takes off.
+    @ObservationIgnored var rowFrames: [Int: CGRect] = [:]
+    @ObservationIgnored var listViewport: CGRect = .zero
+    /// `--tab glisser`: the pile of dragged files, drawn over the panel.
+    @ObservationIgnored var snapshotStack: LauncherDragStack?
     @ObservationIgnored var shareDelegate: NSObject?
 
     @ObservationIgnored weak var app: AppModel?
@@ -179,7 +187,7 @@ final class LauncherModel: AppModule {
         // "actions:corb": the panel open, its search field holding "corb".
         let parts = tab.split(separator: ":", maxSplits: 1).map(String.init)
         // The file window (`--tab files --query facture`); the actions of a file are shown there too.
-        if ["files", "actions", "openwith", "quicklook", "nodetails"].contains(parts.first ?? tab) {
+        if ["files", "actions", "openwith", "quicklook", "nodetails", "selection", "glisser"].contains(parts.first ?? tab) {
             scope = .files
             if query.isEmpty { loadRecentFiles() }
             refresh()
@@ -191,6 +199,14 @@ final class LauncherModel: AppModule {
             let target = apps.first.map { HotkeysTarget.app(path: $0.path, name: $0.name) } ?? .command(id: "open_translator", title: "Traducteur")
             mode = .assign(target: target, title: target.title)
             assignMessage = "⌃⌥⌘M est déjà utilisé par Monteur : choisis-en un autre."
+        case "selection":
+            // Three results picked with ⌘-click, the second one under the selection.
+            let paths = flat.compactMap(Self.filePath(of:))
+            marked = [1, 3, 4].compactMap { paths.indices.contains($0) ? paths[$0] : nil }
+            selection = 1
+        case "glisser":
+            snapshotStack = snapshotDrag()
+            selection = 0
         case "actions", "openwith", "quicklook", "nodetails":
             // The first file of the results (or the first result), its actions panel open (`--query facture --tab actions`).
             let items = flat
@@ -323,6 +339,10 @@ final class LauncherModel: AppModule {
         if LauncherEmoji.search("coeur").isEmpty { failures.append("emoji introuvables") }
         failures += Self.fileIndexChecks()
         failures += LauncherActions.checks()
+        failures += LauncherDragPhysics.checks()
+        if Self.dragOrder("/b", marked: ["/a", "/b", "/c"]) != ["/b", "/a", "/c"] || Self.dragOrder("/d", marked: ["/a"]) != ["/d"] {
+            failures.append("glisser : le fichier saisi passe en premier, avec la sélection seulement s'il en fait partie")
+        }
         return failures
     }
 
@@ -543,6 +563,7 @@ final class LauncherModel: AppModule {
                 // A window that closes late (once the other one is open) leaves the open one alone.
                 guard let self, let p, p === self.activePanel else { return }
                 self.isOpen = false
+                self.marked = []
                 self.leaveMode()
                 self.removeKeyMonitor()
                 self.fileQuery?.stop()
@@ -582,9 +603,18 @@ final class LauncherModel: AppModule {
             case kVK_UpArrow:
                 self.move(-1); return nil
             case kVK_Return, kVK_ANSI_KeypadEnter:
+                // ⌘↩ in the file window picks the file; elsewhere it runs the result's secondary action.
+                if event.modifierFlags.contains(.command), toggleMarkSelected() { return nil }
                 self.runSelected(alternate: event.modifierFlags.contains(.command)); return nil
             case kVK_Escape:
-                if self.query.isEmpty { self.hide() } else { self.query = "" }
+                // What is typed first, then the picked files (they took longer to gather), then the window.
+                if !self.query.isEmpty {
+                    self.query = ""
+                } else if !self.marked.isEmpty {
+                    self.marked = []
+                } else {
+                    self.hide()
+                }
                 return nil
             case kVK_Tab:
                 // Tab enters the selected folder ("~/Documents/Factures/"), or completes a path being typed.
@@ -1119,8 +1149,10 @@ final class LauncherModel: AppModule {
 
     private func fileCommand(_ path: String, isDir: Bool, boost: Double) -> AppCommand {
         let name = (path as NSString).lastPathComponent
+        // In the file window ⌘↩ picks the file (⌘R shows it in the Finder); in the launcher it shows it in the Finder.
+        let hint = isDir ? "Ouvrir · ⇥ Entrer" : scope == .files ? "Ouvrir · ⌘↩ Sélectionner" : "Ouvrir · ⌘ Afficher"
         return AppCommand(id: Self.fileID(path), title: name, subtitle: FS.pretty((path as NSString).deletingLastPathComponent),
-                          icon: .file(path), group: .files, hint: isDir ? "Ouvrir · ⇥ Entrer" : "Ouvrir · ⌘ Afficher", boost: boost) { ctx in
+                          icon: .file(path), group: .files, hint: hint, boost: boost) { ctx in
             if ctx.alternate { Finder.reveal(path) } else { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
             return .done
         }
