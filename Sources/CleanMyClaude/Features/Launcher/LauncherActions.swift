@@ -141,6 +141,8 @@ enum LauncherActionKind: Hashable {
     case open, reveal, quickLook, openWith, getInfo, packageContents, parent, details, share, claude
     /// What the converter can do with this kind of file.
     case convert(ConverterOperation)
+    /// A PDF or the photo of a document, in « Remplir et signer ».
+    case fillSign
     case move, copyTo, duplicate
     case favorite, hotkey, resetRanking
     case copyFile, copyName, copyPath, copyBundleID, copyLink
@@ -268,6 +270,10 @@ enum LauncherActions {
                            group: 0, keywords: ["infos", "proprietes", "get info"])
         ]
         let kind = ConverterKind.detect(name: (path as NSString).lastPathComponent, isDirectory: folder)
+        if kind == .pdf || kind == .image {
+            list.append(LauncherAction(kind: .fillSign, title: "Remplir et signer…", symbol: "signature", group: 1,
+                                       keywords: ["signer", "signature", "remplir", "formulaire", "parapher", "paraphe", "contrat"]))
+        }
         for op in ConverterOperation.available(for: [kind]) where op != .rename {
             list.append(LauncherAction(kind: .convert(op), title: convertTitle(op), symbol: op.symbol, group: 1,
                                        keywords: op.keywords + ["convertir", "convertisseur"]))
@@ -819,6 +825,9 @@ extension LauncherModel {
         case .convert(let op):
             closeActions()
             convert(path, with: op)
+        case .fillSign:
+            closeActions()
+            fillSign(path)
         case .move, .copyTo:
             closeActions()
             transfer(path, move: action.kind == .move)
@@ -1010,6 +1019,15 @@ extension LauncherModel {
         app.converter.receive([URL(fileURLWithPath: path)])
         app.converter.focus(op)
         app.page = .converter
+        NotificationCenter.default.post(name: .openMainWindow, object: nil)
+    }
+
+    /// The document opens in « Remplir et signer », ready to be filled in and signed (a copy is saved, never the original).
+    private func fillSign(_ path: String) {
+        guard let app = app ?? AppContext.model else { return }
+        hide()
+        app.fillSign.open(URL(fileURLWithPath: path))
+        app.page = .fillsign
         NotificationCenter.default.post(name: .openMainWindow, object: nil)
     }
 

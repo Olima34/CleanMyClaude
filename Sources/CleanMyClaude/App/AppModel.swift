@@ -5,7 +5,7 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, cleanup, protection, performance, battery, updates, apps, storage
-    case converter, youtube, translator, toolbox, clipboard, network, adblock, darkmode
+    case converter, fillsign, youtube, translator, toolbox, clipboard, network, adblock, darkmode
     case launcher, hotkeys, windows, automation
     case assistant, menubar
 
@@ -22,6 +22,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "Applications"
         case .storage: return "Espace de stockage"
         case .converter: return "Convertisseur"
+        case .fillsign: return "Remplir et signer"
         case .youtube: return "Vidéos YouTube"
         case .translator: return "Traducteur"
         case .hotkeys: return "Raccourcis"
@@ -49,6 +50,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "square.grid.2x2"
         case .storage: return "chart.pie"
         case .converter: return "arrow.left.arrow.right.square"
+        case .fillsign: return "signature"
         case .youtube: return "play.rectangle"
         case .translator: return "character.bubble"
         case .hotkeys: return "keyboard"
@@ -69,7 +71,7 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage]),
-        ("Outils", [.converter, .youtube, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
+        ("Outils", [.converter, .fillsign, .youtube, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
         ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
@@ -114,6 +116,7 @@ final class AppModel {
     // Modules (Features/<Module>/), listed in ModuleRegistry.
     let launcher = LauncherModel()
     let converter = ConverterModel()
+    let fillSign = FillSignModel()
     let youtube = YouTubeModel()
     let toolbox = ToolboxModel()
     let clipboard = ClipboardModel()
