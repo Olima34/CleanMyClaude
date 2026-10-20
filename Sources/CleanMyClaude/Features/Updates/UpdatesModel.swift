@@ -58,6 +58,8 @@ final class UpdatesModel: AppModule {
 
     @ObservationIgnored private let settings = JSONStore<UpdatesSettings>("updates", default: UpdatesSettings())
     @ObservationIgnored private var brewCancel: CancelFlag?
+    /// Homebrew packages updated (how many), told once the batch succeeded.
+    @ObservationIgnored var onUpgraded: (Int) -> Void = { _ in }
     /// Casks whose upgrade stopped on a password prompt: kept "à faire dans le Terminal" after the next check.
     @ObservationIgnored private var passwordCasks = Set<String>()
     @ObservationIgnored private var inventoryTask: Task<Void, Never>?
@@ -274,6 +276,7 @@ final class UpdatesModel: AppModule {
             }.value
             buffer.flush()
             brewJob?.outcome = cancel.isCancelled ? .cancelled : (status == 0 ? .succeeded : .failed(status))
+            if brewJob?.outcome == .succeeded { onUpgraded(ids.count) }
             // A cask of the batch asked for the password after all: once the list is read again, the casks still late
             // move to "À faire dans le Terminal" (the others of the batch did update).
             var askedPassword = Set<String>()

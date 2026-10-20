@@ -204,7 +204,7 @@ private struct MascotSpinner: View {
 
 /// Tells whether the window holding the mascot is on screen (not minimised, hidden or fully covered),
 /// so that the timeline stops when nobody can see it.
-private struct MascotWindowProbe: NSViewRepresentable {
+struct MascotWindowProbe: NSViewRepresentable {
     @Binding var onScreen: Bool
 
     func makeNSView(context: Context) -> MascotProbeView {
@@ -218,7 +218,7 @@ private struct MascotWindowProbe: NSViewRepresentable {
     }
 }
 
-private final class MascotProbeView: NSView {
+final class MascotProbeView: NSView {
     var report: ((Bool) -> Void)?
     private var observer: NSObjectProtocol?
     private var last: Bool?

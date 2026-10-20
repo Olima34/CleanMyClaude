@@ -60,6 +60,13 @@ struct DashboardPage: View {
                 HealthRing()
                 if app.smartScanRunning {
                     BusyMascot(.inspecting, pixel: 5)
+                } else if app.refuge.isBorn && app.refuge.playful {
+                    // Its own chamois, at its stage and in its mood: a click opens its Refuge.
+                    Button { app.page = .refuge } label: {
+                        RefugeAvatar(stage: app.refuge.stage, mood: app.refuge.mood(), pixel: 5)
+                    }
+                    .buttonStyle(.plain)
+                    .help("\(app.refuge.name) · \(app.refuge.stage.title) : ouvrir son Refuge")
                 } else {
                     PixelMascot(pixel: 5)
                 }
@@ -354,6 +361,9 @@ struct ToolsOverview: View {
         case .menubar:
             tile(page, tint: Theme.palette[2], value: "En direct",
                  detail: "Processeur, mémoire et actions express dans la barre des menus")
+        case .refuge:
+            tile(page, tint: Theme.warn, value: app.refuge.stage.title,
+                 detail: app.refuge.isBorn ? "\(app.refuge.name) · \(Fmt.int(app.refuge.state.harvested)) myrtilles récoltées" : "Ton chamois naît à la fin de l'accueil")
         case .dashboard, .cleanup, .protection, .performance, .apps:
             EmptyView()
         }

@@ -134,6 +134,8 @@ enum CommandRunner {
     }
 
     static let usage = JSONStore<[String: Usage]>("launcher-usage", default: [:])
+    /// Told of every command run (the Refuge counts the tools used).
+    static var onRun: (@MainActor (String) -> Void)?
 
     /// Frequently and recently used commands rank higher.
     static func frecency(_ id: String) -> Double {
@@ -155,6 +157,7 @@ enum CommandRunner {
             usage.value[command.id] = u
         }
         let outcome = await command.run(CommandContext(app: app, query: query, alternate: alternate))
+        if case .failed = outcome {} else { onRun?(command.id) }
         switch outcome {
         case .done: break
         case .message(let m): HUD.show(m)

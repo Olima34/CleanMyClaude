@@ -100,9 +100,15 @@ enum Theme {
 
 /// The mascot's colors, drawn from the theme: its horns, its fur (and the darker fur of its ears), the mask around its
 /// eyes, its cream face, its eyes, nose and cheeks, its hooves, its yellow chamois cloth, and the contour drawn only on light
-/// backgrounds.
+/// backgrounds. Then what it grows into in the Refuge (the rings of its horns, its collar, its bell, its scarves, the golden
+/// coat of its last stage, the metals of its badges) and its room (the sky, the mountains, the wood and straw, the dust
+/// bunnies and the moths).
 struct MascotColors {
     let horn, fur, furShade, mask, face, eye, nose, cheek, hoof, cloth, clothShade, contour: Color
+    let hornRing, collar, bell, bellShade, sparkle, glasses, glassShine, sweat, tongue: Color
+    let goldHorn, goldRing, goldFur, goldFurShade, goldMask, goldCollar: Color
+    let bronze, bronzeLight, silver, silverLight, ruby, rubyLight: Color
+    let sky, night, mountain, snow, star, wood, woodShade, straw, strawShade, dust, dustShade, moth, mothWing: Color
 }
 
 /// A theme turned into ready-to-draw values, once per change (views read them hundreds of times per frame).
@@ -143,6 +149,7 @@ final class ThemeResolved: @unchecked Sendable {
         // on a light background only, a contour keeps its cream face readable.
         let gold = spec.dark[.warn], red = spec.dark[.bad], black = ThemeColor(0x000000)
         let fur = gold.mixed(with: ThemeColor(0x9A5A3A), 0.4)
+        let goldCoat = gold.mixed(with: ThemeColor(0xF2C14E), 0.6)
         func fixed(_ c: ThemeColor) -> Color { Color(hex: c.hex) }
         func onLight(_ c: ThemeColor) -> Color {
             switch spec.appearance {
@@ -159,7 +166,23 @@ final class ThemeResolved: @unchecked Sendable {
             mask: fixed(fur.mixed(with: black, 0.12)), face: fixed(gold.mixed(with: .white, 0.8)), eye: fixed(.ink),
             nose: fixed(red.mixed(with: .white, 0.2)), cheek: fixed(red.mixed(with: .white, 0.45)),
             hoof: fixed(fur.mixed(with: black, 0.68)), cloth: fixed(gold.mixed(with: .white, 0.25)), clothShade: fixed(gold),
-            contour: onLight(fur.mixed(with: black, 0.5)))
+            contour: onLight(fur.mixed(with: black, 0.5)),
+            hornRing: fixed(fur.mixed(with: black, 0.5)), collar: fixed(gold.mixed(with: .white, 0.7).mixed(with: fur, 0.12)),
+            bell: fixed(gold.mixed(with: .white, 0.15)), bellShade: fixed(gold.mixed(with: black, 0.25)), sparkle: fixed(.white),
+            glasses: fixed(ThemeColor(0x1A1D24)), glassShine: fixed(ThemeColor(0x8FA3BF)), sweat: fixed(ThemeColor(0x9AD6FF)),
+            tongue: fixed(red.mixed(with: black, 0.1)),
+            goldHorn: fixed(goldCoat.mixed(with: black, 0.55)), goldRing: fixed(goldCoat.mixed(with: .white, 0.5)),
+            goldFur: fixed(goldCoat), goldFurShade: fixed(goldCoat.mixed(with: black, 0.18)), goldMask: fixed(goldCoat.mixed(with: black, 0.1)),
+            goldCollar: fixed(goldCoat.mixed(with: .white, 0.7)),
+            bronze: fixed(ThemeColor(0xB8732E)), bronzeLight: fixed(ThemeColor(0xE3A465)),
+            silver: fixed(ThemeColor(0x9DA8B5)), silverLight: fixed(ThemeColor(0xE6ECF2)),
+            ruby: fixed(red.mixed(with: ThemeColor(0xA0103A), 0.5)), rubyLight: fixed(red.mixed(with: .white, 0.35)),
+            sky: fixed(ThemeColor(0x8CC8F2)), night: fixed(ThemeColor(0x1F2A44)), mountain: fixed(ThemeColor(0x5C6F8A)),
+            snow: fixed(ThemeColor(0xF4F7FB)), star: fixed(ThemeColor(0xFFF3B0)),
+            wood: fixed(fur.mixed(with: black, 0.45)), woodShade: fixed(fur.mixed(with: black, 0.6)),
+            straw: fixed(gold.mixed(with: .white, 0.35)), strawShade: fixed(gold.mixed(with: black, 0.1)),
+            dust: fixed(ThemeColor(0xA9A9B2)), dustShade: fixed(ThemeColor(0x7D7D88)),
+            moth: fixed(ThemeColor(0x6B6157)), mothWing: fixed(ThemeColor(0xB9AE9F)))
         radiusScale = CGFloat(spec.radius)
         line = CGFloat(spec.borderWidth)
         textScale = CGFloat(spec.textScale)

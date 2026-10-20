@@ -25,8 +25,8 @@ struct RootView: View {
         }
         // The first-launch cards, or a new version of the app: a panel in the middle, nothing behind it answers
         // until the user does. The cards come first; a new version waits for them.
-        .disabled(app.showOnboarding || app.updates.selfUpdate.panelVisible || app.showProfilePanel)
-        .allowsHitTesting(!app.showOnboarding && !app.updates.selfUpdate.panelVisible && !app.showProfilePanel)
+        .disabled(app.showOnboarding || app.updates.selfUpdate.panelVisible || app.showProfilePanel || app.refuge.showsOverlay)
+        .allowsHitTesting(!app.showOnboarding && !app.updates.selfUpdate.panelVisible && !app.showProfilePanel && !app.refuge.showsOverlay)
         .overlay {
             if app.mainWindowOpen && app.showOnboarding {
                 OnboardingModal()
@@ -34,16 +34,21 @@ struct RootView: View {
                 UpdatesSelfModal()
             } else if app.mainWindowOpen && app.showProfilePanel {
                 ProfileModal()
+            } else if app.mainWindowOpen && app.refuge.showsOverlay {
+                // Its birth or its mue, once the cards and the other panels are done.
+                RefugeCeremonyModal()
             }
         }
         .animation(.easeOut(duration: 0.2), value: app.showOnboarding)
         .animation(.easeOut(duration: 0.2), value: app.updates.selfUpdate.panelVisible)
         .animation(.easeOut(duration: 0.2), value: app.showProfilePanel)
+        .animation(.easeOut(duration: 0.25), value: app.refuge.showsOverlay)
         .ignoresSafeArea()
         .background(Theme.bg)
         .tint(Theme.accent)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             app.refreshPermissions()
+            app.refuge.arrived()
         }
         .onAppear { AppContext.openWindow = openWindow }
     }
@@ -78,6 +83,7 @@ struct PageView: View {
     var body: some View {
         switch page {
         case .dashboard: DashboardPage()
+        case .refuge: RefugePage()
         case .cleanup: CleanupPage()
         case .protection: ProtectionPage()
         case .performance: PerformancePage()

@@ -88,6 +88,9 @@ final class ProtectionModel: AppModule {
     @ObservationIgnored weak var app: AppModel?
 
     @ObservationIgnored var onFreed: (Int64) -> Void = { _ in }
+    /// A point of the security check fixed (its id and title), threats neutralized (their ids).
+    @ObservationIgnored var onFixed: (String, String) -> Void = { _, _ in }
+    @ObservationIgnored var onNeutralized: ([String]) -> Void = { _ in }
 
     init() {
         scanSummary = summaryStore.value
@@ -200,6 +203,7 @@ final class ProtectionModel: AppModule {
             fixMessage = (false, "« \(fix.title) » n'a pas abouti : \(error.trimmingCharacters(in: .whitespacesAndNewlines))")
         } else {
             fixMessage = (true, "« \(fix.title) » : c'est fait.")
+            onFixed(check.id, fix.title)
             let fresh = await Task.detached(priority: .userInitiated) { SecurityAudit.run() }.value
             if !fresh.isEmpty { checks = fresh }
         }
@@ -296,6 +300,8 @@ final class ProtectionModel: AppModule {
                 failures.append(t.name)
             }
         }
+        let gone = reports.filter { $0.1.failures.isEmpty }.map { $0.0.id }
+        if !gone.isEmpty { onNeutralized(gone) }
         await app?.startup.scan()
         if failures.isEmpty {
             threatMessage = (true, "\(Fmt.plural(chosen.count, "menace neutralisée", "menaces neutralisées")) : arrêtée\(chosen.count > 1 ? "s" : ""), et les fichiers sont dans la Corbeille (vide-la quand tu veux).")

@@ -71,12 +71,12 @@ enum ToolProfileKind: String, Codable, CaseIterable, Identifiable {
 
 /// Why a tool is in the sidebar, or in « Autres outils ».
 enum ToolReason: Equatable {
-    case home, upkeep, everything, profile(ToolProfileKind), used, active, pinned
+    case home, companion, upkeep, everything, profile(ToolProfileKind), used, active, pinned
     case removed, faded, notInProfile, noBattery
 
     var featured: Bool {
         switch self {
-        case .home, .upkeep, .everything, .profile, .used, .active, .pinned: return true
+        case .home, .companion, .upkeep, .everything, .profile, .used, .active, .pinned: return true
         case .removed, .faded, .notInProfile, .noBattery: return false
         }
     }
@@ -84,6 +84,7 @@ enum ToolReason: Equatable {
     var label: String {
         switch self {
         case .home: return "Accueil"
+        case .companion: return "Ton chamois"
         case .upkeep: return "Pour tous"
         case .everything: return "Tous les outils"
         case .profile(let k): return k.title
@@ -100,6 +101,7 @@ enum ToolReason: Equatable {
     var detail: String {
         switch self {
         case .home: return "Le tableau de bord est toujours là."
+        case .companion: return "La maison de ton chamois. Le mode sobre la range avec le jeu."
         case .upkeep: return "L'entretien du Mac, pour tous les profils."
         case .everything: return "Pas encore de profil : je montre tout."
         case .profile(let k): return "Mis en avant par ton profil \(k.title)."
@@ -201,6 +203,8 @@ enum ToolProfileRules {
                 reason = .home
             } else if s.removed.contains(key) {
                 reason = .removed
+            } else if page == .refuge {
+                reason = .companion
             } else if s.pinned.contains(key) {
                 reason = .pinned
             } else if ToolProfileKind.upkeep.contains(page) && (page != .battery || signals.hasBattery) {
@@ -240,7 +244,7 @@ enum ToolProfileRules {
 
         // The catalogue.
         for p in tools where !ToolProfileKind.allCases.contains(where: { $0 != .everything && $0.pages.contains(p) })
-            && !ToolProfileKind.upkeep.contains(p) && ![.automation, .assistant, .menubar].contains(p) {
+            && !ToolProfileKind.upkeep.contains(p) && ![.automation, .assistant, .menubar, .refuge].contains(p) {
             f.append("Profils : \(p.title) n'est mis en avant par aucun profil")
         }
         for k in ToolProfileKind.allCases where k != .everything {
@@ -343,6 +347,8 @@ final class ToolProfileModel {
 
     @ObservationIgnored private let settingsStore = JSONStore<ToolProfileSettings>("profile", default: ToolProfileSettings())
     @ObservationIgnored private let logStore = JSONStore<ToolUsageLog>("tool-usage", default: ToolUsageLog())
+    /// The days each tool was opened (the Refuge lights the rooms already known at its birth).
+    var usageLog: ToolUsageLog { logStore.value }
     @ObservationIgnored private var signals = ToolSignals()
     /// Launcher command → the page it belongs to, and the id prefixes only one page uses ("yt_…" for a result
     /// computed from what was typed), built once.

@@ -4,7 +4,7 @@ import Observation
 
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
-    case dashboard, cleanup, protection, performance, battery, updates, apps, storage
+    case dashboard, refuge, cleanup, protection, performance, battery, updates, apps, storage
     case converter, fillsign, youtube, cinema, translator, toolbox, clipboard, network, adblock, darkmode
     case launcher, hotkeys, windows, automation
     case assistant, menubar
@@ -14,6 +14,7 @@ enum Page: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .dashboard: return "Tableau de bord"
+        case .refuge: return "Le Refuge"
         case .cleanup: return "Nettoyage du système"
         case .protection: return "Protection et confidentialité"
         case .performance: return "Optimisation"
@@ -43,6 +44,7 @@ enum Page: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .dashboard: return "gauge.with.dots.needle.67percent"
+        case .refuge: return "house"
         case .cleanup: return "sparkles"
         case .protection: return "lock.shield"
         case .performance: return "bolt"
@@ -73,6 +75,7 @@ enum Page: String, CaseIterable, Identifiable {
     var pitch: String {
         switch self {
         case .dashboard: return "Ton Mac en un coup d'œil et l'analyse intelligente."
+        case .refuge: return "Ton chamois : il grandit quand tu prends soin du Mac."
         case .cleanup: return "Caches, journaux et fichiers oubliés : tu choisis ce qui part."
         case .protection: return "Défenses de macOS, logiciels malveillants et traces laissées."
         case .performance: return "Boost, capteurs, démarrage : un Mac plus frais et plus vif."
@@ -100,7 +103,7 @@ enum Page: String, CaseIterable, Identifiable {
     }
 
     static let groups: [(String, [Page])] = [
-        ("Accueil", [.dashboard]),
+        ("Accueil", [.dashboard, .refuge]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage]),
         ("Outils", [.converter, .fillsign, .youtube, .cinema, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
@@ -138,7 +141,11 @@ struct CleanupHistory {
 @MainActor
 final class AppModel {
     var page: Page = .dashboard {
-        didSet { if page != oldValue { profile.recordVisit(page) } }
+        didSet {
+            guard page != oldValue else { return }
+            profile.recordVisit(page)
+            refuge.visited(page)
+        }
     }
     let monitor: SystemMonitor
     let cleanup = CleanupModel()
@@ -165,6 +172,8 @@ final class AppModel {
     let battery = BatteryModel()
     let adblock = AdBlockModel()
     let darkmode = DarkModeModel()
+    /// The chamois and its Refuge: blueberries, stages, notebook, badges, moods.
+    let refuge = RefugeModel()
     /// The profile: which tools the sidebar and the dashboard put forward.
     let profile = ToolProfileModel()
     var history = DemoData.isEnabled ? DemoData.history : CleanupHistory.load()
@@ -183,9 +192,16 @@ final class AppModel {
         let freed: (Int64) -> Void = { [weak self] bytes in
             self?.history.record(bytes)
             self?.monitor.sampleDisk()
+            if bytes > 0 { self?.refuge.cleaned() }
         }
         cleanup.onFreed = freed
         protection.onFreed = freed
+        // What takes care of the Mac feeds the chamois.
+        refuge.attach(self)
+        protection.onFixed = { [weak self] id, title in self?.refuge.fixed(id, title: title) }
+        protection.onNeutralized = { [weak self] ids in self?.refuge.neutralized(ids) }
+        updates.onUpgraded = { [weak self] count in self?.refuge.upgraded(count) }
+        CommandRunner.onRun = { [weak self] id in self?.refuge.usedTool(id) }
         if DemoData.isEnabled {
             DemoData.populate(self)
             ModuleRegistry.loadDemo(self)
@@ -223,6 +239,7 @@ final class AppModel {
         _ = await (a, b, c, d)
         smartScanDate = Date()
         smartScanRunning = false
+        refuge.scanned()
     }
 
     private func startupThenThreats() async {
