@@ -86,6 +86,7 @@ enum DockIconMode: String, CaseIterable, Identifiable {
 /// Launch at login: on by default (the launcher and the shortcuts must always answer), once per Mac; the user can turn it off.
 enum LoginItem {
     static let defaultAppliedKey = "app.loginItemDefaulted"
+    static let labKey = "app.loginItemLabChecked"
 
     static var isEnabled: Bool { SMAppService.mainApp.status == .enabled }
 
@@ -101,6 +102,14 @@ enum LoginItem {
     }
 
     static func applyDefaultOnce() {
+        // The Labo copy opens at login only when asked (Réglages › Général): the published app does, and only one of the
+        // two can own the shortcuts. A Labo built before this rule registered itself: undone once.
+        if AppEdition.isLab {
+            guard !DemoData.isEnabled, !UserDefaults.standard.bool(forKey: labKey) else { return }
+            UserDefaults.standard.set(true, forKey: labKey)
+            if isEnabled { set(false) }
+            return
+        }
         // Not for a copy macOS runs from a provisional folder (opened straight from its archive): that path goes away.
         guard !DemoData.isEnabled, !UserDefaults.standard.bool(forKey: defaultAppliedKey),
               Bundle.main.bundlePath.hasSuffix(".app"), !Bundle.main.bundlePath.contains("/AppTranslocation/") else { return }
