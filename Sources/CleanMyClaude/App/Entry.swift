@@ -353,6 +353,10 @@ enum Snapshot {
             model.launcher.preview(Entry.value(after: "--query") ?? "1250*1,2", app: model)
             shots.append(("launcher-panel", AnyView(LauncherView())))
         }
+        if everything || only == .adblock {
+            // The ad-free player's window: its bar and what it says over a video (the page itself cannot be drawn here).
+            shots.append(("adblock-player-panel", AnyView(AdBlockPlayerView(player: model.adblock.player).frame(height: 520))))
+        }
         if everything || only == .clipboard {
             // The history's own window (`--tab fenetre:lumiere` with a search typed, `--tab images` filtered).
             shots.append(("clipboard-window-panel", AnyView(ClipboardWindowView())))
@@ -370,6 +374,7 @@ enum Snapshot {
             let content = view
                 .environment(model)
                 .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "clipboard-window-panel": ClipboardWindow.width,
+                               "adblock-player-panel": 960,
                                "appearance-panel": AppearanceSettings.width, "mascotte-panel": MascotGallery.width,
                                "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180][name]
                        ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))

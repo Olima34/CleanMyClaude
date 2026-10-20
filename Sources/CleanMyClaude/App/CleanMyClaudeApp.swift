@@ -351,6 +351,10 @@ enum URLActions {
                 app.page = page
                 NotificationCenter.default.post(name: .openMainWindow, object: nil)
             }
+        case "regarder":
+            // A YouTube or Twitch page sent by the Safari bookmark: shown in the ad-free player (nothing else is accepted).
+            let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "url" }?.value ?? ""
+            if let page = AdBlockPlayer.playable(raw) { app.adblock.player.open(page) }
         case "run":
             guard let id = parts.dropFirst().first, let command = ModuleRegistry.commands(app).first(where: { $0.id == id }) else { return }
             if case .confirm = command.risk {

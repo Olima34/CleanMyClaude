@@ -79,7 +79,7 @@ struct AdBlockYouTubePanel: View {
         let m = app.adblock
         let found = m.browserExtensions ?? []
         let youtube = found.first(where: \.youtube)
-        Panel(title: "Pubs des vidéos YouTube", subtitle: "Elles viennent des mêmes serveurs que les vidéos : c'est dans Safari qu'on les coupe",
+        Panel(title: "Pubs YouTube dans Safari", subtitle: "Elles viennent des mêmes serveurs que les vidéos : dans Safari, une extension les coupe",
               symbol: "play.rectangle", tint: AdBlockPage.tint) {
             VStack(alignment: .leading, spacing: 12) {
                 if let ext = youtube {

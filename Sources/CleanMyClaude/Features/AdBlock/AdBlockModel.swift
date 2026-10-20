@@ -45,6 +45,8 @@ final class AdBlockModel: AppModule {
     /// Why the log could not be read, if it could not.
     var countError: String?
 
+    /// YouTube and Twitch without their video ads, in a window of the app.
+    let player = AdBlockPlayer()
     @ObservationIgnored private let store = JSONStore<AdBlockSettings>("adblock", default: AdBlockSettings())
     @ObservationIgnored private let tallyStore = JSONStore<AdBlockTally>("adblock-tally", default: AdBlockTally())
     static let countJob = "adblock-count"
@@ -54,6 +56,12 @@ final class AdBlockModel: AppModule {
     init() {
         settings = store.value
         tally = tallyStore.value
+        player.model = self
+    }
+
+    /// An ad the player cut, added to the counter under the site it was on.
+    func countVideoAd(site: String) {
+        tally.addOne(app: site == "twitch" ? "Lecteur sans pub · Twitch" : "Lecteur sans pub · YouTube")
     }
 
     var measure: AdBlockMeasure? { settings.lastMeasure }
@@ -96,6 +104,13 @@ final class AdBlockModel: AppModule {
         resolvers = ["192.168.1.1"]
         browserExtensions = AdBlockBrowser.demo
         tally = Self.demoTally()
+        tally.apps["Lecteur sans pub · YouTube"] = 37
+        tally.apps["Lecteur sans pub · Twitch"] = 6
+        tally.total += 43
+        // The player's window as the snapshot shows it (nothing is loaded in the demo).
+        player.title = "Boussole · le making-of en 12 minutes"
+        player.cut = 3
+        player.notice = .youtubeHeld
         checkText = "securepubads.g.doubleclick.net"
         check = AdBlockCheck(domain: "securepubads.g.doubleclick.net", onMac: .blocked, level: .maximal, inList: .blocked, excepted: false)
     }
@@ -142,6 +157,8 @@ final class AdBlockModel: AppModule {
             browserExtensions = []
         case "compteur-vide":
             tally = AdBlockTally()
+        case "lecteur-twitch":
+            player.notice = .twitchSwapped
         case "attente":
             // At work: a measurement on this Mac, a domain being checked, the log being read.
             measuring = true
@@ -156,7 +173,7 @@ final class AdBlockModel: AppModule {
 
     func results(for query: String, app: AppModel) -> [AppCommand] { AdBlockCommands.results(query, self) }
 
-    func selfTest() -> [String] { AdBlockChecks.run() }
+    func selfTest() -> [String] { AdBlockChecks.run(self) }
 
     func dump() -> [String] {
         let data = AdBlockProfile.data(level: settings.level, exceptions: settings.exceptions)

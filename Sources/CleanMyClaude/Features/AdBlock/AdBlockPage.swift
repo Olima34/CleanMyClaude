@@ -22,6 +22,7 @@ struct AdBlockPage: View {
                 AdBlockCounterPanel()
             }
             AdBlockLevelPanel()
+            AdBlockPlayerPanel()
             AdBlockYouTubePanel()
             TileRow {
                 AdBlockExceptionsPanel()
@@ -51,6 +52,68 @@ struct AdBlockPage: View {
     private func resolverText(_ m: AdBlockModel) -> String {
         let network = m.resolvers.first.map { ip in SecurityAudit.isPrivate(ip) ? "à ta box (\(ip))" : "à \(ip)" } ?? "au DNS de ton réseau"
         return "Avec le bloqueur, ton Mac demande l'adresse des sites à Control D, chiffrée (DNS-over-HTTPS). Control D applique les listes HaGeZi, mises à jour plusieurs fois par jour, et dit ne garder aucun journal de ses DNS gratuits. Sans le bloqueur, ton Mac la demande en clair \(network)."
+    }
+}
+
+/// YouTube and Twitch without their video ads, in a window of the app; and the Safari bookmark that sends a page there.
+private struct AdBlockPlayerPanel: View {
+    @Environment(AppModel.self) private var app
+    @State private var link = ""
+    @State private var copied = false
+
+    var body: some View {
+        let m = app.adblock
+        let cut = (m.tally.apps["Lecteur sans pub · YouTube"] ?? 0) + (m.tally.apps["Lecteur sans pub · Twitch"] ?? 0)
+        Panel(title: "Lecteur sans pub", subtitle: "YouTube et Twitch dans une fenêtre de Clean My Claude, sans leurs pubs vidéo",
+              symbol: "play.tv", tint: AdBlockPage.tint) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Button { m.player.open(AdBlockPlayer.youtube) } label: { label("YouTube sans pub", "play.rectangle.fill") }
+                        .buttonStyle(SoftButtonStyle(prominent: true))
+                    Button { m.player.open(AdBlockPlayer.twitch) } label: { label("Twitch sans pub", "tv") }
+                        .buttonStyle(SoftButtonStyle(prominent: true))
+                    Spacer(minLength: 0)
+                    if cut > 0 { Tag(text: Fmt.plural(cut, "pub vidéo coupée", "pubs vidéo coupées"), symbol: "hand.raised.fill", tint: Theme.good, filled: true) }
+                }
+                HStack(spacing: 8) {
+                    AdBlockField(placeholder: "Colle un lien YouTube ou Twitch", text: $link) { watch() }
+                    Button("Regarder") { watch() }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                        .disabled(AdBlockPlayer.playable(link) == nil)
+                }
+                Text("YouTube : les pubs sont retirées avant que le lecteur les voie ; si YouTube retient la vidéo le temps de sa pub, la fenêtre le dit. Twitch : une coupure pub est remplacée par le même direct sans pub, ou retirée.")
+                    .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                Divider().overlay(Theme.border)
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Depuis Safari, en un clic").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                        Text("Copie le signet, puis dans Safari : Signets › Ajouter un signet, et remplace son adresse par celle copiée. Sur une vidéo YouTube ou un direct Twitch, clique dessus : la page s'ouvre ici, sans pub (Safari te demande une fois s'il peut ouvrir Clean My Claude).")
+                            .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Button(copied ? "Copié" : "Copier le signet") {
+                        if case .copied = CommandRunner.copy(AdBlockPlayer.bookmarklet) {
+                            copied = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+                        }
+                    }
+                    .buttonStyle(SoftButtonStyle(small: true))
+                }
+            }
+        }
+    }
+
+    private func watch() {
+        guard let url = AdBlockPlayer.playable(link) else { return }
+        app.adblock.player.open(url)
+        link = ""
+    }
+
+    private func label(_ text: String, _ symbol: String) -> some View {
+        HStack(spacing: 6) {
+            if Theme.icons != .hidden { Image(systemName: symbol).font(.ui(12, .semibold)) }
+            Text(text)
+        }
     }
 }
 

@@ -33,6 +33,14 @@ struct AdBlockTally: Codable, Equatable {
         days = days.filter { $0.key >= oldest }
     }
 
+    /// One ad cut by the ad-free player (a YouTube video's ads, a Twitch ad break).
+    mutating func addOne(app: String, at date: Date = Date()) {
+        total += 1
+        days[Self.dayKey(date), default: 0] += 1
+        apps[app, default: 0] += 1
+        if since == nil { since = date }
+    }
+
     func count(lastDays n: Int, now: Date = Date()) -> Int {
         (0..<n).reduce(0) { $0 + (days[Self.dayKey(now.addingTimeInterval(-Double($1) * 86_400))] ?? 0) }
     }
@@ -268,7 +276,7 @@ struct AdBlockCounterPanel: View {
                     }
                 }
                 Text(m.countError.map { "Compteur en pause : \($0)" }
-                     ?? "Compté sur ce Mac, dans le journal de macOS : les noms des sites y sont masqués, Clean My Claude voit seulement qu'une réponse a été « bloquée ». Les pubs coupées dans YouTube par une extension de Safari ne sont pas comptées ici.")
+                     ?? "Compté sur ce Mac, dans le journal de macOS : les noms des sites y sont masqués, Clean My Claude voit seulement qu'une réponse a été « bloquée ». Les pubs vidéo coupées par le lecteur sans pub sont comptées aussi ; celles qu'une extension de Safari coupe ne le sont pas.")
                     .font(.ui(11)).foregroundStyle(m.countError == nil ? Theme.text3 : Theme.warn).fixedSize(horizontal: false, vertical: true)
             }
         }

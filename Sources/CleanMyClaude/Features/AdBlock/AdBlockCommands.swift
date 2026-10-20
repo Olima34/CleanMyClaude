@@ -23,7 +23,19 @@ enum AdBlockCommands {
                 m.runMeasure()
                 return .done
             },
-            AppCommand(id: "adblock_youtube", title: "Bloquer les pubs YouTube", subtitle: "L'extension de Safari qui coupe les pubs des vidéos",
+            AppCommand(id: "adblock_player_youtube", title: "YouTube sans pub", subtitle: "YouTube dans une fenêtre de Clean My Claude, sans ses pubs vidéo",
+                       keywords: ["youtube", "vidéo", "vidéos", "sans pub", "lecteur", "regarder"], icon: .symbol("play.rectangle.fill", tint),
+                       group: .actions, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { _ in
+                m.player.open(AdBlockPlayer.youtube)
+                return .done
+            },
+            AppCommand(id: "adblock_player_twitch", title: "Twitch sans pub", subtitle: "Les directs Twitch dans une fenêtre de Clean My Claude, sans coupures pub",
+                       keywords: ["twitch", "stream", "direct", "live", "sans pub", "lecteur", "regarder"], icon: .symbol("tv", tint),
+                       group: .actions, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { _ in
+                m.player.open(AdBlockPlayer.twitch)
+                return .done
+            },
+            AppCommand(id: "adblock_youtube", title: "Bloquer les pubs YouTube dans Safari", subtitle: "L'extension de Safari qui coupe les pubs des vidéos",
                        keywords: keywords + ["youtube", "vidéo", "vidéos", "safari", "extension", "ublock"], icon: .symbol("play.rectangle", tint),
                        group: .actions, assistantSafe: true, hint: "Ouvrir") { _ in
                 m.openPage()
@@ -39,9 +51,44 @@ enum AdBlockCommands {
         ]
     }
 
+    /// A pasted YouTube or Twitch link, "yt …" or "twitch …": opened in the ad-free player.
+    static func playerResults(_ q: String, _ m: AdBlockModel) -> [AppCommand] {
+        let tint = AdBlockPage.tint
+        if q.contains("."), !q.contains(" "), let url = AdBlockPlayer.playable(q) {
+            return [AppCommand(id: "adblock_player_link", title: "Regarder sans pub dans Clean My Claude", subtitle: url.absoluteString,
+                               icon: .symbol("play.tv", tint), group: .actions, hint: "Regarder", boost: 1925) { _ in
+                m.player.open(url)
+                return .done
+            }]
+        }
+        let lower = q.lowercased()
+        if lower.hasPrefix("yt "), case let term = String(q.dropFirst(3)).trimmingCharacters(in: .whitespaces), !term.isEmpty,
+           var c = URLComponents(string: "https://www.youtube.com/results") {
+            c.queryItems = [URLQueryItem(name: "search_query", value: term)]
+            guard let url = c.url else { return [] }
+            return [AppCommand(id: "adblock_player_search", title: "Chercher « \(term) » sur YouTube sans pub", subtitle: "Dans le lecteur sans pub de Clean My Claude",
+                               icon: .symbol("play.rectangle.fill", tint), group: .actions, hint: "Regarder", boost: 1550) { _ in
+                m.player.open(url)
+                return .done
+            }]
+        }
+        if lower.hasPrefix("twitch "), case let login = String(q.dropFirst(7)).trimmingCharacters(in: .whitespaces),
+           !login.isEmpty, login.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }),
+           let url = URL(string: "https://www.twitch.tv/" + login.lowercased()) {
+            return [AppCommand(id: "adblock_player_channel", title: "Regarder « \(login) » sur Twitch sans pub", subtitle: "Dans le lecteur sans pub de Clean My Claude",
+                               icon: .symbol("tv", tint), group: .actions, hint: "Regarder", boost: 1550) { _ in
+                m.player.open(url)
+                return .done
+            }]
+        }
+        return []
+    }
+
     /// "pub exemple.fr", "adblock exemple.fr": checks the domain on the page.
     static func results(_ raw: String, _ m: AdBlockModel) -> [AppCommand] {
         let q = raw.trimmingCharacters(in: .whitespaces)
+        let player = playerResults(q, m)
+        if !player.isEmpty { return player }
         guard let space = q.firstIndex(of: " "), ["pub", "adblock", "bloqué", "bloque"].contains(Fuzzy.fold(String(q[..<space]))),
               let domain = AdBlockDomain.normalize(String(q[space...]), keepWWW: true) else { return [] }
         return [AppCommand(id: "adblock_check", title: "Vérifier « \(domain) » dans le bloqueur de pub",
@@ -56,8 +103,9 @@ enum AdBlockCommands {
 }
 
 /// Pure checks for `--selftest`: domains, the profile, DNS messages and the reading of answers.
+@MainActor
 enum AdBlockChecks {
-    static func run() -> [String] {
+    static func run(_ m: AdBlockModel) -> [String] {
         var f: [String] = []
         func expect(_ ok: Bool, _ message: String) { if !ok { f.append(message) } }
 
@@ -161,6 +209,31 @@ enum AdBlockChecks {
                "équivalences : \(AdBlockFun.compare(12, lead: "le poids", to: AdBlockFun.weights))")
         let step = AdBlockFun.milestone(1_500)
         expect(step.reached?.0 == 1_000 && step.next?.0 == 5_000 && abs(step.progress - 0.125) < 0.001, "paliers")
+
+        // The ad-free player: the links it opens, the pages it keeps, its scripts and rules.
+        let links: [(String, String?)] = [
+            ("https://youtu.be/kJQP7kiw5Fk?t=30", "https://www.youtube.com/watch?v=kJQP7kiw5Fk&t=30"),
+            ("youtube.com/watch?v=abc", "https://www.youtube.com/watch?v=abc"), ("m.youtube.com/shorts/xyz", "https://www.youtube.com/shorts/xyz"),
+            ("https://www.twitch.tv/zackrawrr", "https://www.twitch.tv/zackrawrr"), ("twitch.tv/videos/123", "https://www.twitch.tv/videos/123"),
+            ("https://exemple.fr/video", nil), ("https://youtu.be/", nil), ("javascript:alert(1)", nil), ("bonjour", nil)
+        ]
+        for (raw, want) in links where AdBlockPlayer.playable(raw)?.absoluteString != want {
+            f.append("lecteur : « \(raw) » → \(AdBlockPlayer.playable(raw)?.absoluteString ?? "rien") au lieu de \(want ?? "rien")")
+        }
+        expect(AdBlockPlayer.belongs(URL(string: "https://rr3---sn-x.googlevideo.com/videoplayback")!)
+               && AdBlockPlayer.belongs(URL(string: "https://video-weaver.fra05.hls.ttvnw.net/v1/playlist/x.m3u8")!)
+               && !AdBlockPlayer.belongs(URL(string: "https://exemple.fr/")!), "lecteur : sites gardés dans la fenêtre")
+        let rules = (try? JSONSerialization.jsonObject(with: Data(AdBlockPlayerScripts.rules.utf8))) as? [[String: Any]] ?? []
+        expect(rules.count == AdBlockPlayerScripts.blockedPatterns.count && rules.allSatisfy { $0["trigger"] != nil && $0["action"] != nil },
+               "lecteur : règles de blocage illisibles")
+        expect(!AdBlockPlayerScripts.blockedPatterns.contains { $0.contains("|") }, "lecteur : WebKit refuse « | » dans une règle")
+        expect(AdBlockPlayerScripts.youtube.contains("adPlacements") && AdBlockPlayerScripts.youtube.contains("location.hostname")
+               && AdBlockPlayerScripts.twitch.contains("usher") && AdBlockPlayerScripts.twitch.contains("location.hostname"), "lecteur : scripts")
+        expect(AdBlockPlayer.bookmarklet.hasPrefix("javascript:") && AdBlockPlayer.bookmarklet.contains("cleanmyclaude://regarder"), "lecteur : signet")
+        let search = AdBlockCommands.playerResults("yt lofi girl", m)
+        expect(search.first?.id == "adblock_player_search", "lecteur : « yt … » dans le lanceur")
+        expect(AdBlockCommands.playerResults("twitch zackrawrr", m).first?.id == "adblock_player_channel"
+               && AdBlockCommands.playerResults("twitch ../x", m).isEmpty, "lecteur : « twitch … » dans le lanceur")
 
         // The state from the three canaries.
         expect(AdBlockState.from(both: .blocked, maximalOnly: .blocked, reachable: .open) == .on(.maximal), "état : Maximal")
