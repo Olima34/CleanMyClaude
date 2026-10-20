@@ -76,6 +76,9 @@ struct AppCommand: Identifiable {
     var boost: Double = 0
     /// The command shows its own view inside the launcher panel (the translator): the panel stays open.
     var staysInLauncher = false
+    /// Shown at the right of the launcher while this result is selected, like the preview of a file
+    /// (a YouTube video and its download settings).
+    var pane: (@MainActor () -> AnyView)? = nil
     let run: @MainActor (CommandContext) async -> CommandOutcome
 
     static func isValidID(_ id: String) -> Bool {

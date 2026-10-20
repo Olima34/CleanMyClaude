@@ -75,7 +75,11 @@ struct LauncherView: View {
             HStack(spacing: 0) {
                 results
                     .frame(maxWidth: .infinity, alignment: .top)
-                if let path = model.selectedFile, model.showDetails {
+                if let pane = model.selectedPane, model.showDetails {
+                    Rectangle().fill(Theme.border).frame(width: 1)
+                    pane()
+                        .frame(width: Self.previewWidth)
+                } else if let path = model.selectedFile, model.showDetails {
                     Rectangle().fill(Theme.border).frame(width: 1)
                     LauncherPreview(path: path)
                         .frame(width: Self.previewWidth)

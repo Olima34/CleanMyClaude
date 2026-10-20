@@ -92,6 +92,8 @@ struct TranslatorLanguage: Identifiable, Hashable {
         let prefixes = ["g ", "ddg ", "yt ", "gh ", "wiki ", "maps ", "gtrad ", "trad ", "tr ", "traduire ", "traduis ", "translate ",
                         "dans ", "in ", "quitter ", "forcer ", "volume ", "heure ", "?", ":", "/", "~", "#", "cb ", "qr ", "mdp ", "cafeine "]
         if prefixes.contains(where: { lower.hasPrefix($0) }) { return false }
+        // A web address (a YouTube link to download, a page to open) is not text to translate.
+        if !text.contains(where: \.isWhitespace), lower.contains("://") || (lower.contains(".") && lower.contains("/")) { return false }
         // A calculation or a conversion ("10 km en miles") starts with a number.
         if let first = text.first, first.isNumber { return false }
         // Mostly letters: a calculation, a conversion or a path is not text to translate.

@@ -732,6 +732,12 @@ final class LauncherModel: AppModule {
         return path
     }
 
+    /// The view a module shows at the right of the selected result (a YouTube video and its settings).
+    var selectedPane: (@MainActor () -> AnyView)? {
+        let items = flat
+        return items.indices.contains(selection) ? items[selection].pane : nil
+    }
+
     /// A plain folder (an app or another package is opened, not entered).
     func isFolder(_ path: String) -> Bool {
         if let known = fileKinds[path] { return known }

@@ -5,7 +5,7 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, cleanup, protection, performance, battery, updates, apps, storage
-    case converter, translator, toolbox, clipboard, network, adblock, darkmode
+    case converter, youtube, translator, toolbox, clipboard, network, adblock, darkmode
     case launcher, hotkeys, windows, automation
     case assistant, menubar
 
@@ -22,6 +22,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "Applications"
         case .storage: return "Espace de stockage"
         case .converter: return "Convertisseur"
+        case .youtube: return "Vidéos YouTube"
         case .translator: return "Traducteur"
         case .hotkeys: return "Raccourcis"
         case .toolbox: return "Boîte à outils"
@@ -48,6 +49,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "square.grid.2x2"
         case .storage: return "chart.pie"
         case .converter: return "arrow.left.arrow.right.square"
+        case .youtube: return "play.rectangle"
         case .translator: return "character.bubble"
         case .hotkeys: return "keyboard"
         case .toolbox: return "wrench.and.screwdriver"
@@ -67,7 +69,7 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage]),
-        ("Outils", [.converter, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
+        ("Outils", [.converter, .youtube, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
         ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
@@ -112,6 +114,7 @@ final class AppModel {
     // Modules (Features/<Module>/), listed in ModuleRegistry.
     let launcher = LauncherModel()
     let converter = ConverterModel()
+    let youtube = YouTubeModel()
     let toolbox = ToolboxModel()
     let clipboard = ClipboardModel()
     let updates = UpdatesModel()
