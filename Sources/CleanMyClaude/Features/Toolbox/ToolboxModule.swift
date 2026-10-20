@@ -596,7 +596,7 @@ final class ToolboxModel: AppModule {
             "Phrase de passe : \(settings.passphrase.words) mots parmi \(ToolboxWords.list.count), \(Int(ToolboxPassword.passphraseEntropy(settings.passphrase))) bits",
             "SHA-256(abc) = \(abc[.sha256] ?? "?")",
             "MD5(abc) = \(abc[.md5] ?? "?")",
-            "Base64(Clean My Claude) = \(ToolboxText.base64Encode("Clean My Claude"))",
+            "Base64(Chamois) = \(ToolboxText.base64Encode("Chamois"))",
             "URL(a b&c=é) = \(ToolboxText.urlEncode("a b&c=é"))",
             "camelCase(Été à la plage) = \(ToolboxText.convertCase("Été à la plage", to: .camel))",
             "Maintenant : \(ToolboxTime.unix(now)) · \(ToolboxTime.isoString(now))",

@@ -181,13 +181,13 @@ struct LauncherView: View {
             } label: {
                 HStack(spacing: 5) {
                     BrandMark(size: 11)
-                    Text("Clean My Claude").font(.serif(12))
+                    Text("Chamois").font(.serif(12))
                 }
                 .foregroundStyle(Theme.text2)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(model.scope == .files ? "Réglages de la recherche de fichiers" : "Ouvrir Clean My Claude sur le tableau de bord")
+            .help(model.scope == .files ? "Réglages de la recherche de fichiers" : "Ouvrir Chamois sur le tableau de bord")
             if picked == 0 { hint("↑↓", "Naviguer") }
             if !onFile { hint("⌘↩", "Action secondaire") }
             if onFile, picking { hint("⌘↩", model.selectedFile.map(model.marked.contains) == true ? "Retirer" : "Sélectionner") }
@@ -365,7 +365,7 @@ struct LauncherAssignView: View {
                 .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.card))
                 .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.accent.opacity(0.6), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4])))
             Text(app.launcher.assignMessage ?? (current == nil
-                 ? "Avec ⌘, ⌃ ou ⌥. Il marchera partout, même quand Clean My Claude est caché."
+                 ? "Avec ⌘, ⌃ ou ⌥. Il marchera partout, même quand Chamois est caché."
                  : "Tape d'autres touches pour le changer."))
                 .font(.ui(12.5)).foregroundStyle(app.launcher.assignMessage == nil ? Theme.text2 : Theme.warn)
                 .multilineTextAlignment(.center)

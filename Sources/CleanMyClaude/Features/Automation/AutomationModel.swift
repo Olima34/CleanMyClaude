@@ -292,9 +292,9 @@ final class AutomationModel: AppModule {
         settings.downloadsFolder = ""
         for k in wereOn {
             log(k, automatic: true, title: k.switched(on: false),
-                detail: "Réglages modifiés hors de Clean My Claude : réactive-la après un aperçu à blanc.", setting: true)
+                detail: "Réglages modifiés hors de Chamois : réactive-la après un aperçu à blanc.", setting: true)
         }
-        integrityNotice = "Clean My Claude n'a pas pu vérifier que les réglages des automatisations viennent de lui : ils ont été modifiés en dehors de l'app. Par prudence, le nettoyage planifié, la Corbeille et le rangement sont coupés, et le dossier surveillé est revenu à Téléchargements. Relis tes règles, puis réactive ce que tu veux après un aperçu à blanc."
+        integrityNotice = "Chamois n'a pas pu vérifier que les réglages des automatisations viennent de lui : ils ont été modifiés en dehors de l'app. Par prudence, le nettoyage planifié, la Corbeille et le rangement sont coupés, et le dossier surveillé est revenu à Téléchargements. Relis tes règles, puis réactive ce que tu veux après un aperçu à blanc."
     }
 
     /// Seals what is about to be written (the key is made the first time).
@@ -687,7 +687,7 @@ final class AutomationModel: AppModule {
                        subtitle: "Caches et journaux cochés par défaut, sans toucher à la Corbeille",
                        keywords: ["nettoyage", "caches", "planifié", "automatique"],
                        icon: .symbol("sparkles", Theme.accent), group: .actions,
-                       risk: .confirm("Clean My Claude va analyser puis supprimer les caches et journaux que la page Nettoyage coche par défaut. La Corbeille et tes fichiers personnels ne sont pas touchés.")) { ctx in
+                       risk: .confirm("Chamois va analyser puis supprimer les caches et journaux que la page Nettoyage coche par défaut. La Corbeille et tes fichiers personnels ne sont pas touchés.")) { ctx in
                 await ctx.app.automation.runCleanup(app: ctx.app, automatic: false)
             }
         ]

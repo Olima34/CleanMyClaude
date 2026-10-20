@@ -760,7 +760,7 @@ private struct AutomationDownloadsPreviewPanel: View {
             VStack(spacing: 2) {
                 if preview?.unreadable == true {
                     Callout(symbol: "lock", title: "Dossier illisible",
-                            text: "macOS n'a pas encore autorisé Clean My Claude à lire ce dossier. Accepte la demande d'accès, ou accorde l'accès complet au disque.",
+                            text: "macOS n'a pas encore autorisé \(AppEdition.name) à lire ce dossier. Accepte la demande d'accès, ou accorde l'accès complet au disque.",
                             tint: Theme.warn)
                 } else if preview == nil {
                     EmptyHint(text: "Clique sur « Actualiser » pour voir ce que tes règles feraient.\nmacOS te demandera peut-être d'autoriser l'accès au dossier.", symbol: "eye")

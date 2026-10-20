@@ -16,7 +16,7 @@ enum FillSignExport {
         }
         let out = NSMutableData()
         var first = CGRect(origin: .zero, size: document.pageSizes.first ?? CGSize(width: 595, height: 842))
-        var info: [CFString: Any] = [kCGPDFContextCreator: "Clean My Claude"]
+        var info: [CFString: Any] = [kCGPDFContextCreator: "Chamois"]
         if let title = doc.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String, !title.isEmpty { info[kCGPDFContextTitle] = title }
         if let password = document.password, !password.isEmpty {
             info[kCGPDFContextUserPassword] = password

@@ -234,7 +234,7 @@ enum ConverterMarkdown {
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <meta name="generator" content="Clean My Claude">
+        <meta name="generator" content="Chamois">
         <title>\(escape(title))</title>
         <style>
         :root { color-scheme: light dark; }
@@ -379,7 +379,7 @@ enum ConverterTextPDF {
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data as CFMutableData) else { return nil }
         var media = page
-        let info = [kCGPDFContextTitle: title, kCGPDFContextCreator: "Clean My Claude"] as CFDictionary
+        let info = [kCGPDFContextTitle: title, kCGPDFContextCreator: "Chamois"] as CFDictionary
         guard let ctx = CGContext(consumer: consumer, mediaBox: &media, info) else { return nil }
 
         let storage = NSTextStorage(attributedString: text)

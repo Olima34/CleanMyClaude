@@ -180,7 +180,7 @@ final class UpdatesSelfModel {
             if let r = release {
                 if tell || (auto && remind(r)) { showPanel() }
             } else if tell {
-                HUD.show("Clean My Claude est à jour (\(build.version ?? "?"))")
+                HUD.show("\(AppEdition.name) est à jour (\(build.version ?? "?"))")
             }
         } catch {
             state = .failed(UpdatesSelfGitHub.message(for: error))
@@ -256,7 +256,7 @@ final class UpdatesSelfModel {
     var placeNote: String? {
         guard case .applications(let target, let leftover) = place else { return nil }
         let folder = UpdatesSelfInstaller.folderLabel((target as NSString).deletingLastPathComponent)
-        var note = "Tu as ouvert Clean My Claude sans l'installer : la nouvelle version va dans « \(folder) », d'où tu l'ouvriras désormais et d'où elle se mettra à jour toute seule."
+        var note = "Tu as ouvert \(AppEdition.name) sans l'installer : la nouvelle version va dans « \(folder) », d'où tu l'ouvriras désormais et d'où elle se mettra à jour toute seule."
         if let leftover {
             note += " La copie de « \(UpdatesSelfInstaller.folderLabel((leftover as NSString).deletingLastPathComponent)) » part à la Corbeille."
         }
@@ -266,11 +266,11 @@ final class UpdatesSelfModel {
     /// What "Installer et relancer" does, said once the version is ready.
     func readyNote(_ version: String) -> String {
         guard case .applications(let target, let leftover) = place else {
-            return "Clean My Claude se ferme quelques secondes puis se rouvre en version \(version) ; l'ancienne part à la Corbeille. Une tâche en cours (conversion, mise à jour Homebrew) serait interrompue."
+            return "\(AppEdition.name) se ferme quelques secondes puis se rouvre en version \(version) ; l'ancienne part à la Corbeille. Une tâche en cours (conversion, mise à jour Homebrew) serait interrompue."
         }
         let folder = UpdatesSelfInstaller.folderLabel((target as NSString).deletingLastPathComponent)
         let old = leftover.map { " ; la copie de « \(UpdatesSelfInstaller.folderLabel(($0 as NSString).deletingLastPathComponent)) » part à la Corbeille" } ?? ""
-        return "Clean My Claude se ferme quelques secondes puis se rouvre en version \(version), installé dans « \(folder) »\(old). Une tâche en cours (conversion, mise à jour Homebrew) serait interrompue."
+        return "\(AppEdition.name) se ferme quelques secondes puis se rouvre en version \(version), installé dans « \(folder) »\(old). Une tâche en cours (conversion, mise à jour Homebrew) serait interrompue."
     }
 
     func openReleasePage() {
@@ -464,7 +464,7 @@ final class UpdatesSelfModel {
                 if UpdatesSelfInstaller.relaunch(installed) {
                     NSApp.terminate(nil)
                 } else {
-                    step = .failed("La nouvelle version est installée, mais je n'ai pas pu la relancer : quitte Clean My Claude (menu d'état › Quitter) puis rouvre-le.")
+                    step = .failed("La nouvelle version est installée, mais je n'ai pas pu la relancer : quitte \(AppEdition.name) (menu d'état › Quitter) puis rouvre-le.")
                 }
             case .failure(let error):
                 step = .failed(error.localizedDescription)
@@ -492,7 +492,7 @@ final class UpdatesSelfModel {
         store.value.updatedFrom = nil
         guard let v = build.version, v != from else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            HUD.show("Clean My Claude est passé en version \(v)", symbol: "sparkles")
+            HUD.show("\(AppEdition.name) est passé en version \(v)", symbol: "sparkles")
         }
     }
 }
@@ -576,7 +576,7 @@ extension UpdatesSelfModel {
 
     func commands() -> [AppCommand] {
         var list = [
-            AppCommand(id: "upd_self_check", title: "Rechercher une mise à jour de Clean My Claude",
+            AppCommand(id: "upd_self_check", title: "Rechercher une mise à jour de \(AppEdition.name)",
                        subtitle: "Dernière version publiée sur GitHub · tu as la \(build.label)",
                        keywords: ["clean my claude", "mise à jour", "version", "nouveautés", "update", "github", "maj"],
                        icon: .spark, group: .actions, assistantSafe: true) { ctx in
@@ -585,7 +585,7 @@ extension UpdatesSelfModel {
             }
         ]
         if let r = release {
-            list.append(AppCommand(id: "upd_self_show", title: "Voir les nouveautés de Clean My Claude \(r.version)",
+            list.append(AppCommand(id: "upd_self_show", title: "Voir les nouveautés de \(AppEdition.name) \(r.version)",
                                    subtitle: Fmt.plural(r.changeCount, "changement", "changements") + " depuis ta version",
                                    keywords: ["clean my claude", "nouveautés", "mise à jour", "changements", "version"],
                                    icon: .spark, group: .actions, assistantSafe: true, urlSafe: true) { ctx in
@@ -597,7 +597,7 @@ extension UpdatesSelfModel {
     }
 
     func dump() -> [String] {
-        var lines = ["Clean My Claude : \(build.label)" + (build.isBundle ? " · \(FS.pretty(build.bundlePath))" : " · non assemblée")]
+        var lines = ["\(AppEdition.name) : \(build.label)" + (build.isBundle ? " · \(FS.pretty(build.bundlePath))" : " · non assemblée")]
         lines.append("  Vérification automatique : \(Self.autoEnabled ? "oui, au lancement puis toutes les 6 h" : "désactivée") · dépôt \(UpdatesSelfGitHub.repo)")
         let last = lastCheck.map { "dernière vérification \(Fmt.relative($0))" } ?? "jamais vérifiée"
         let latest = latestSeen.map { "dernière version publiée connue : \($0)" } ?? "aucune version connue"

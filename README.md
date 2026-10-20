@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/icon.png" alt="Icône de Clean My Claude : la mascotte, un petit personnage en plumes, fait voler la poussière" width="150">
+  <img src="docs/icon.png" alt="Icône de Clean My Claude : la mascotte, un petit chamois, sur un ciel de montagne" width="150">
 </p>
 
 <h1 align="center">Clean My Claude</h1>

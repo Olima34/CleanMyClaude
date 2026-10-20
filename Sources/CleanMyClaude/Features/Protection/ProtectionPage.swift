@@ -408,7 +408,7 @@ struct FullDiskAccessCard: View {
                 IconBadge(symbol: "externaldrive.badge.checkmark", tint: Theme.accent, size: 40)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Accès complet au disque requis").font(.serif(20)).foregroundStyle(Theme.text)
-                    Text(reason + " Ouvre Réglages › Confidentialité et sécurité › Accès complet au disque, active Clean My Claude, puis relance l'analyse.")
+                    Text(reason + " Ouvre Réglages › Confidentialité et sécurité › Accès complet au disque, active \(AppEdition.name), puis relance l'analyse.")
                         .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         Button("Ouvrir le réglage") { Finder.open(Permissions.fullDiskAccessURL) }

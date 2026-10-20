@@ -59,7 +59,7 @@ struct GeneralSettings: View {
                 }
             }
             Section {
-                Toggle("Rechercher les nouvelles versions de Clean My Claude", isOn: $autoUpdate)
+                Toggle("Rechercher les nouvelles versions de \(AppEdition.name)", isOn: $autoUpdate)
                     .disabled(DemoData.isEnabled || !app.updates.selfUpdate.canCheck)
                 HStack {
                     Text(selfUpdateStatus)
@@ -71,7 +71,7 @@ struct GeneralSettings: View {
                     .disabled(app.updates.selfUpdate.state.isChecking || !app.updates.selfUpdate.canCheck)
                 }
             } header: {
-                Text("Mises à jour de Clean My Claude")
+                Text("Mises à jour de \(AppEdition.name)")
             } footer: {
                 Text("Au lancement puis toutes les 6 h, l'app demande à GitHub le numéro de sa dernière version publiée. C'est la seule connexion faite sans ton clic, et rien d'autre n'est envoyé. Une nouvelle version s'annonce dans un petit panneau : rien ne s'installe sans ton accord.")
                     .font(.caption).foregroundStyle(.secondary)
@@ -186,7 +186,7 @@ struct AboutSettings: View {
     var body: some View {
         VStack(spacing: 14) {
             PixelMascot(pixel: 5)
-            Text("Clean My Claude").font(.serif(24))
+            Text("Chamois").font(.serif(24))
             Text("Version \(UpdatesSelfBuild.current.label)")
                 .font(.ui(12)).foregroundStyle(.secondary)
                 .textSelection(.enabled)

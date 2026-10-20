@@ -23,7 +23,7 @@ enum ConverterPreviewCheck {
         let video = dir.appendingPathComponent("film.mp4")
         let zip = dir.appendingPathComponent("archive.zip")
         writePNG(png, text: nil)
-        writePNG(ocrImage, text: "Bonjour Clean My Claude")
+        writePNG(ocrImage, text: "Bonjour Chamois")
         try? "Bonjour,\nceci est une note de test.".write(to: text, atomically: true, encoding: .utf8)
         try? "# Titre\n\nUn paragraphe avec **du gras**.\n\n- un\n- deux\n".write(to: md, atomically: true, encoding: .utf8)
         writePDF(pdf, pages: 3)

@@ -14,7 +14,7 @@ enum CommandSection: Int, CaseIterable, Comparable {
         case .cinema: return "Films et séries"
         case .suggestions: return "Suggestions"
         case .apps: return "Applications"
-        case .actions: return "Clean My Claude"
+        case .actions: return "Chamois"
         case .system: return "Système"
         case .tools: return "Outils"
         case .convert: return "Convertir"

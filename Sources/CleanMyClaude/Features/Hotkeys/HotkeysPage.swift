@@ -9,7 +9,7 @@ struct HotkeysPage: View {
         @Bindable var model = app.hotkeys
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "keyboard", title: "Raccourcis",
-                     subtitle: "Un raccourci clavier pour ouvrir n'importe quelle app, depuis n'importe où. Appuie de nouveau : elle se masque. Marche aussi pour un dossier, un site ou une action de Clean My Claude.",
+                     subtitle: "Un raccourci clavier pour ouvrir n'importe quelle app, depuis n'importe où. Appuie de nouveau : elle se masque. Marche aussi pour un dossier, un site ou une action de Chamois.",
                      tint: Theme.brand, seed: 57) {
                 HStack(spacing: 8) {
                     Button { model.chooseApp() } label: { Label("Ajouter une app", systemImage: "plus") }
@@ -185,7 +185,7 @@ enum HotkeysCatalogKind: String, CaseIterable, Identifiable {
     case actions, apps
 
     var id: String { rawValue }
-    var title: String { self == .actions ? "Actions de Clean My Claude" : "Apps" }
+    var title: String { self == .actions ? "Actions de Chamois" : "Apps" }
 }
 
 /// Every action of the app, or every installed app, each with its shortcut recorder.
@@ -205,7 +205,7 @@ private struct HotkeysCatalogPanel: View {
 
     var body: some View {
         let rows = filtered
-        Panel(title: "Tout associer", subtitle: "Chaque action de Clean My Claude et chaque app peut avoir son raccourci. Dans le lanceur, ⌘K fait pareil sur le résultat choisi.",
+        Panel(title: "Tout associer", subtitle: "Chaque action de Chamois et chaque app peut avoir son raccourci. Dans le lanceur, ⌘K fait pareil sur le résultat choisi.",
               symbol: "list.bullet.rectangle", tint: Theme.accent) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {

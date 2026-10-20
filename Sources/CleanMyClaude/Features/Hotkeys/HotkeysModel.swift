@@ -25,7 +25,7 @@ enum HotkeysTarget: Codable, Equatable {
         case .folder(let path): return "Dossier · " + FS.pretty((path as NSString).deletingLastPathComponent)
         case .file(let path): return "Fichier · " + FS.pretty((path as NSString).deletingLastPathComponent)
         case .website(let url): return "Site web · " + url
-        case .command: return "Commande de Clean My Claude"
+        case .command: return "Commande de Chamois"
         }
     }
 
@@ -275,11 +275,11 @@ final class HotkeysModel: AppModule {
         if mods & UInt32(cmdKey) != 0, mods & UInt32(controlKey | optionKey) == 0 {
             let key = character(combo.keyCode)
             if key == "Q", mods == UInt32(cmdKey) {
-                return "Tant qu'il est actif, ⌘Q ne quitte plus les apps : Clean My Claude se quitte par son menu"
+                return "Tant qu'il est actif, ⌘Q ne quitte plus les apps : Chamois se quitte par son menu"
             }
             let action = mods == UInt32(cmdKey) ? appActions[key] : (key == "Z" ? "Rétablir" : nil)
-            if let action { return "Tant qu'il est actif, \(combo.display) ne fait plus « \(action) » dans les apps, Clean My Claude compris" }
-            return "Tant qu'il est actif, \(combo.display) passe devant le raccourci des apps, Clean My Claude compris"
+            if let action { return "Tant qu'il est actif, \(combo.display) ne fait plus « \(action) » dans les apps, Chamois compris" }
+            return "Tant qu'il est actif, \(combo.display) passe devant le raccourci des apps, Chamois compris"
         }
         let plain = KeyCombo(keyCode: combo.keyCode, modifiers: mods)
         return system.contains(plain) ? "Remplace un raccourci de macOS (Réglages Système › Clavier › Raccourcis clavier)" : nil

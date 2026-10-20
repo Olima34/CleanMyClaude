@@ -58,7 +58,7 @@ enum Theme {
     static let brandHex: UInt32 = 0xD97757
     /// The faint specks of the header backdrops.
     static var matrix: Color { current.matrix }
-    /// The mascot's feathers, face and handle (see `MascotFigure`).
+    /// The mascot's fur, face, horns and cloth (see `MascotFigure`).
     static var mascot: MascotColors { current.mascot }
 
     // Status
@@ -98,10 +98,11 @@ enum Theme {
     }
 }
 
-/// The mascot's colors, drawn from the theme: feathers from the lightest tip to the shade, the handle and arms,
-/// the contour (only on light backgrounds), the face, the cheeks, the sneakers and the ring under the feathers.
+/// The mascot's colors, drawn from the theme: its horns, its fur (and the darker fur of its ears), the mask around its
+/// eyes, its cream face, its eyes, nose and cheeks, its hooves, its yellow chamois cloth, and the contour drawn only on light
+/// backgrounds.
 struct MascotColors {
-    let tip, light, feather, shade, handle, contour, eye, cheek, shoe, ferrule: Color
+    let horn, fur, furShade, mask, face, eye, nose, cheek, hoof, cloth, clothShade, contour: Color
 }
 
 /// A theme turned into ready-to-draw values, once per change (views read them hundreds of times per frame).
@@ -138,9 +139,10 @@ final class ThemeResolved: @unchecked Sendable {
         good = c(.good); warn = c(.warn); bad = c(.bad)
         onBad = make(spec.light[.bad].readableInk, spec.dark[.bad].readableInk)
         palette = (0..<ThemePalette.chartCount).map { make(spec.light.chart[$0], spec.dark.chart[$0]) }
-        // The mascot keeps the bright warm color of the dark appearance everywhere; on a light background only,
-        // a contour keeps its pale feather tips readable.
+        // The mascot keeps the bright warm color of the dark appearance everywhere, turned into a chamois' tawny fur;
+        // on a light background only, a contour keeps its cream face readable.
         let gold = spec.dark[.warn], red = spec.dark[.bad], black = ThemeColor(0x000000)
+        let fur = gold.mixed(with: ThemeColor(0x9A5A3A), 0.4)
         func fixed(_ c: ThemeColor) -> Color { Color(hex: c.hex) }
         func onLight(_ c: ThemeColor) -> Color {
             switch spec.appearance {
@@ -153,10 +155,11 @@ final class ThemeResolved: @unchecked Sendable {
             }
         }
         mascot = MascotColors(
-            tip: fixed(gold.mixed(with: .white, 0.5)), light: fixed(gold.mixed(with: .white, 0.22)),
-            feather: fixed(gold), shade: fixed(gold.mixed(with: black, 0.2)),
-            handle: fixed(gold.mixed(with: black, 0.48)), contour: onLight(gold.mixed(with: black, 0.5)),
-            eye: fixed(.ink), cheek: fixed(red.mixed(with: .white, 0.2)), shoe: fixed(red), ferrule: c(.text3))
+            horn: fixed(fur.mixed(with: black, 0.8)), fur: fixed(fur), furShade: fixed(fur.mixed(with: black, 0.22)),
+            mask: fixed(fur.mixed(with: black, 0.12)), face: fixed(gold.mixed(with: .white, 0.8)), eye: fixed(.ink),
+            nose: fixed(red.mixed(with: .white, 0.2)), cheek: fixed(red.mixed(with: .white, 0.45)),
+            hoof: fixed(fur.mixed(with: black, 0.68)), cloth: fixed(gold.mixed(with: .white, 0.25)), clothShade: fixed(gold),
+            contour: onLight(fur.mixed(with: black, 0.5)))
         radiusScale = CGFloat(spec.radius)
         line = CGFloat(spec.borderWidth)
         textScale = CGFloat(spec.textScale)

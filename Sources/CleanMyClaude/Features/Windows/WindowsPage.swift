@@ -18,7 +18,7 @@ struct WindowsPage: View {
                 .fixedSize()
             }
             PermissionCard(permission: .accessibility,
-                           reason: "macOS ne laisse une app déplacer les fenêtres des autres qu'avec l'autorisation Accessibilité. Clean My Claude s'en sert seulement pour lire la position et la taille de la fenêtre au premier plan, et les changer quand tu le demandes.")
+                           reason: "macOS ne laisse une app déplacer les fenêtres des autres qu'avec l'autorisation Accessibilité. Chamois s'en sert seulement pour lire la position et la taille de la fenêtre au premier plan, et les changer quand tu le demandes.")
             if !model.trusted {
                 Callout(symbol: "keyboard.badge.ellipsis", title: "Aucun raccourci n'est enregistré pour l'instant",
                         text: "Ils s'activent tout seuls dès que l'autorisation est accordée. Tu peux déjà les personnaliser ci-dessous.",
@@ -104,7 +104,7 @@ private struct WindowsActionRow: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!model.trusted)
-                .help("Essayer sur la fenêtre de Clean My Claude (« Taille précédente » la remet en place)")
+                .help("Essayer sur la fenêtre de Chamois (« Taille précédente » la remet en place)")
             }
         }
     }

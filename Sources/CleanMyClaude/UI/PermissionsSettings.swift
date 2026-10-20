@@ -50,7 +50,7 @@ struct PermissionsSettings: View {
                     }
                 }
             } footer: {
-                Text("Chaque autorisation ne sert qu'à ce qui est indiqué. L'accès complet au disque et l'accessibilité se donnent dans Réglages Système : la fenêtre s'ouvre au bon endroit, active Clean My Claude puis reviens ici.")
+                Text("Chaque autorisation ne sert qu'à ce qui est indiqué. L'accès complet au disque et l'accessibilité se donnent dans Réglages Système : la fenêtre s'ouvre au bon endroit, active \(AppEdition.name) puis reviens ici.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -65,7 +65,7 @@ struct PermissionsSettings: View {
     private var statusLine: String {
         if center.isRunning, let k = center.current {
             return center.waitingForSettings
-                ? "Active Clean My Claude dans la fenêtre Réglages Système qui vient de s'ouvrir (\(k.title))."
+                ? "Active \(AppEdition.name) dans la fenêtre Réglages Système qui vient de s'ouvrir (\(k.title))."
                 : "Je demande : \(k.title)…"
         }
         return stable
@@ -93,7 +93,7 @@ private struct PermissionSettingsRow: View {
                 trailing
             }
             if isCurrent, center.waitingForSettings, center.addBack == kind {
-                Text("Clean My Claude n'est plus dans la liste ? Glisse-la depuis la fenêtre du Finder qui vient de s'ouvrir dans la liste de Réglages Système (ou clique sur + et choisis-la), puis active l'interrupteur.")
+                Text("\(AppEdition.name) n'est plus dans la liste ? Glisse-la depuis la fenêtre du Finder qui vient de s'ouvrir dans la liste de Réglages Système (ou clique sur + et choisis-la), puis active l'interrupteur.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 30)
             } else if isCurrent, center.waitingForSettings {

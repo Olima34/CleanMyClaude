@@ -162,7 +162,7 @@ struct FillSignSignaturesPanel: View {
                 group("Paraphes", initials, kind: .initials)
             }
         } else {
-            Panel(title: "Tes signatures", subtitle: "Gardées sur ce Mac seulement, dans le dossier privé de Clean My Claude", symbol: "signature",
+            Panel(title: "Tes signatures", subtitle: "Gardées sur ce Mac seulement, dans le dossier privé de Chamois", symbol: "signature",
                   tint: FillSignStyle.tint) {
                 HStack(alignment: .top, spacing: 24) {
                     group("Signatures", signatures, kind: .signature)

@@ -168,9 +168,9 @@ extension ConverterModel {
         expect(commands(app: app).count == ConverterOperation.allCases.count, "Commandes du lanceur")
 
         // QR round trip, in memory: drawn by Core Image, read back by Vision.
-        if let qr = ConverterVision.qrImage("Clean My Claude 🧹") {
+        if let qr = ConverterVision.qrImage("Chamois 🧹") {
             let read = (try? ConverterVision.barcodes(qr)) ?? []
-            expect(read.contains("Clean My Claude 🧹"), "QR code illisible après création : \(read)")
+            expect(read.contains("Chamois 🧹"), "QR code illisible après création : \(read)")
         } else {
             failures.append("QR code non créé")
         }

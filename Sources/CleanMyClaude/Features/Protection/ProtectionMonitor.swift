@@ -202,7 +202,7 @@ final class ProtectionMonitor {
                     MainActor.assumeIsolated {
                         self.onEvent(event, threat)
                         Notifier.post(id: "protection.persistence." + item.label,
-                                      title: bad ? "Clean My Claude a repéré un élément suspect" : "Un programme s'est ajouté au démarrage",
+                                      title: bad ? "Chamois a repéré un élément suspect" : "Un programme s'est ajouté au démarrage",
                                       body: "\(item.label) (\(item.signature.label)). " + (bad ? "Ouvre Protection › Menaces pour l'arrêter." : "Il se lancera à chaque démarrage du Mac."),
                                       throttle: 60)
                     }

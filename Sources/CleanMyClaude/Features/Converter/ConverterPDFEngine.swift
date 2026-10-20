@@ -150,7 +150,7 @@ enum ConverterPDFEngine {
             }
         }
         guard result.pageCount > 0 else { throw ConverterError.failed("Aucune page à assembler.") }
-        var attributes: [AnyHashable: Any] = [PDFDocumentAttribute.creatorAttribute: "Clean My Claude"]
+        var attributes: [AnyHashable: Any] = [PDFDocumentAttribute.creatorAttribute: "Chamois"]
         if !settings.title.isEmpty { attributes[PDFDocumentAttribute.titleAttribute] = settings.title }
         result.documentAttributes = attributes
         return result
@@ -302,7 +302,7 @@ enum ConverterPDFEngine {
         let properties: [String: Any] = [
             "Domains": ["Applications": true],
             "FilterType": 1,
-            "Name": "Clean My Claude",
+            "Name": "Chamois",
             "FilterData": ["ColorSettings": ["ImageSettings": [
                 "Compression Quality": s.quality,
                 "ImageCompression": "ImageJPEGCompress",
@@ -368,7 +368,7 @@ enum ConverterPDFEngine {
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data as CFMutableData) else { throw ConverterError.failed("PDF impossible à créer.") }
         var media = CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
-        let info = [kCGPDFContextCreator: "Clean My Claude"] as CFDictionary
+        let info = [kCGPDFContextCreator: "Chamois"] as CFDictionary
         guard let ctx = CGContext(consumer: consumer, mediaBox: &media, info) else { throw ConverterError.failed("PDF impossible à créer.") }
         for (n, url) in inputs.enumerated() {
             try control.check()

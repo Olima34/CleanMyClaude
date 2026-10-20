@@ -102,7 +102,7 @@ enum DemoData {
             icon: Icon(symbol: "archivebox.fill", top: 0xB2BEC3, bottom: 0x636E72), lastUsed: 18, appStore: true),
         App(name: "Mosaïque", bundleID: "fr.mosaique.windows", version: "1.5", size: 0.022,
             icon: Icon(symbol: "square.grid.2x2.fill", top: 0x8C7AE6, bottom: 0x341F97), lastUsed: 0, running: true),
-        App(name: "Clean My Claude", bundleID: "io.github.olima34.cleanmyclaude", version: "1.0", size: 0.009,
+        App(name: "Chamois", bundleID: "io.github.olima34.cleanmyclaude", version: "1.0", size: 0.009,
             icon: Icon(symbol: "", top: 0x5FA8EC, bottom: 0x2C6FB8, brand: true), lastUsed: 0, running: true),
         // Shipped with macOS: not listed in the inventory, but they run and get permissions.
         App(name: "Safari", bundleID: "com.apple.Safari", version: "27.1", size: 0,
@@ -427,7 +427,7 @@ enum DemoData {
 
     static func grants() -> [PermissionGrant] {
         let list: [(String, String, Double)] = [
-            ("kTCCServiceSystemPolicyAllFiles", "Clean My Claude", 30), ("kTCCServiceSystemPolicyAllFiles", "Terminal", 400),
+            ("kTCCServiceSystemPolicyAllFiles", "Chamois", 30), ("kTCCServiceSystemPolicyAllFiles", "Terminal", 400),
             ("kTCCServiceSystemPolicyAllFiles", "Hélios Code", 210), ("kTCCServiceSystemPolicyAllFiles", "Nuage Drive", 380),
             ("kTCCServiceScreenCapture", "Lanterne", 120), ("kTCCServiceScreenCapture", "Ruche", 260),
             ("kTCCServiceScreenCapture", "Claude", 45),
@@ -534,7 +534,7 @@ enum DemoData {
             ("Safari", true, 14, 18.9, 2.18), ("Claude", true, 7, 12.4, 1.21), ("Ruche", true, 5, 9.1, 0.84),
             ("kernel_task", false, 1, 6.8, 0.052), ("mds_stores", false, 1, 4.9, 0.096), ("Nuage Drive", true, 2, 3.2, 0.31),
             ("Terminal", true, 1, 2.6, 0.128), ("Finder", true, 1, 1.9, 0.24), ("coreaudiod", false, 1, 1.2, 0.022),
-            ("Boussole VPN", true, 2, 0.9, 0.064), ("Mosaïque", true, 1, 0.6, 0.048), ("Clean My Claude", true, 1, 0.4, 0.086),
+            ("Boussole VPN", true, 2, 0.9, 0.064), ("Mosaïque", true, 1, 0.6, 0.048), ("Chamois", true, 1, 0.4, 0.086),
             ("bluetoothd", false, 1, 0.2, 0.014), ("cloudd", false, 1, 0.1, 0.038)
         ]
         let tick = processSamples.next()

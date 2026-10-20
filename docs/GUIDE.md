@@ -400,7 +400,7 @@ Sources/CleanMyClaude/
 
 Chaque module de `Features/` se branche sur `App/ModuleRegistry.swift` (commandes du lanceur, données de démo, autotests, captures, interrupteurs du menu d'état). Les règles pour en écrire un sont dans [`CLAUDE.md`](../CLAUDE.md).
 
-Le thème Atelier reprend le design de [ClaudeStats](https://github.com/Olima34/ClaudeStats) : surfaces chaudes, titres en serif, accent bleu. La mascotte, un petit personnage en plumes dessiné en pixels, est la même dans tous les thèmes (`MascotFigure`, `UI/Components/Brand.swift`) : ses couleurs viennent de la couleur d'alerte du thème, avec un contour sur les fonds clairs. Les vues lisent tout dans `Theme` (couleurs, `Theme.r(…)` pour les angles, `PillShape` pour les capsules, `Theme.line` pour les bordures, `Theme.icons` pour les icônes décoratives) : `ThemeStore` est observable, changer de thème redessine l'app sans la relancer.
+Le thème Atelier reprend le design de [ClaudeStats](https://github.com/Olima34/ClaudeStats) : surfaces chaudes, titres en serif, accent bleu. La mascotte, un petit chamois dessiné en pixels, est la même dans tous les thèmes (`MascotFigure`, `UI/Components/Brand.swift`) : son pelage vient de la couleur d'alerte du thème, avec un contour sur les fonds clairs.
 
 ## Feuille de route
 

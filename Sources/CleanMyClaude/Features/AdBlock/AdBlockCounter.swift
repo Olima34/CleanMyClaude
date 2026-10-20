@@ -276,7 +276,7 @@ struct AdBlockCounterPanel: View {
                     }
                 }
                 Text(m.countError.map { "Compteur en pause : \($0)" }
-                     ?? "Compté sur ce Mac, dans le journal de macOS : les noms des sites y sont masqués, Clean My Claude voit seulement qu'une réponse a été « bloquée ». Les pubs vidéo coupées par le lecteur sans pub sont comptées aussi ; celles qu'une extension de Safari coupe ne le sont pas.")
+                     ?? "Compté sur ce Mac, dans le journal de macOS : les noms des sites y sont masqués, Chamois voit seulement qu'une réponse a été « bloquée ». Les pubs vidéo coupées par le lecteur sans pub sont comptées aussi ; celles qu'une extension de Safari coupe ne le sont pas.")
                     .font(.ui(11)).foregroundStyle(m.countError == nil ? Theme.text3 : Theme.warn).fixedSize(horizontal: false, vertical: true)
             }
         }

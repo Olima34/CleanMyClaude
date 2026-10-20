@@ -255,7 +255,7 @@ enum LauncherAppActions {
                     return .done
                 }
             }
-            return AppCommand(id: "open_\(p.rawValue)", title: p.title, subtitle: "Ouvrir dans Clean My Claude",
+            return AppCommand(id: "open_\(p.rawValue)", title: p.title, subtitle: "Ouvrir dans Chamois",
                               keywords: ["clean my claude", "ouvrir"], icon: .symbol(p.symbol), group: .actions,
                               assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
                 openMain(ctx.app, p)

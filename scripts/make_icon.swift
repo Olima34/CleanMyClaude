@@ -1,6 +1,6 @@
-// Renders the app icon (1024×1024 PNG): the mascot, a little feather duster with a face, standing in a warm glow
-// on a deep blue, the dust it has just raised flying off to the right.
-// The figure is the same 11 × 12 pixel grid as `MascotFigure` in the app (UI/Components/Brand.swift).
+// Renders the app icon (1024×1024 PNG): the head of the mascot, a little chamois with hooked horns and a cream face,
+// in a warm glow on a mountain-sky blue, a few snowflakes around.
+// The head is the same pixel drawing as `MascotFigure` in the app (UI/Components/Brand.swift), ears spread a little wider.
 // Usage: swift scripts/make_icon.swift <output.png>
 import AppKit
 import CoreGraphics
@@ -27,44 +27,38 @@ ctx.saveGState()
 // Shadow offsets are not flipped with the context: a negative height falls downward.
 ctx.setShadow(offset: CGSize(width: 0, height: -12), blur: 28, color: rgb(0x000000, 0.35))
 ctx.addPath(shape)
-ctx.setFillColor(rgb(0x26328A))
+ctx.setFillColor(rgb(0x2E5A8A))
 ctx.fillPath()
 ctx.restoreGState()
 
 ctx.saveGState()
 ctx.addPath(shape)
 ctx.clip()
-let sky = CGGradient(colorsSpace: cs, colors: [rgb(0x4C66DB), rgb(0x1E2970)] as CFArray, locations: [0, 1])!
+let sky = CGGradient(colorsSpace: cs, colors: [rgb(0x6FB6F0), rgb(0x2D5B9A)] as CFArray, locations: [0, 1])!
 ctx.drawLinearGradient(sky, start: CGPoint(x: 512, y: 100), end: CGPoint(x: 512, y: 924), options: [])
-let glow = CGGradient(colorsSpace: cs, colors: [rgb(0xFFD86B, 0.34), rgb(0xFFD86B, 0)] as CFArray, locations: [0, 1])!
-ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 560), startRadius: 0,
-                       endCenter: CGPoint(x: 512, y: 560), endRadius: 400, options: [])
-// Its shadow on the floor.
-ctx.setFillColor(rgb(0x0B1240, 0.4))
-ctx.fillEllipse(in: CGRect(x: 312, y: 826, width: 400, height: 40))
+let glow = CGGradient(colorsSpace: cs, colors: [rgb(0xFFF3D6, 0.35), rgb(0xFFF3D6, 0)] as CFArray, locations: [0, 1])!
+ctx.drawRadialGradient(glow, startCenter: CGPoint(x: 512, y: 520), startRadius: 0,
+                       endCenter: CGPoint(x: 512, y: 520), endRadius: 420, options: [])
 
-// MARK: The mascot
+// MARK: The chamois' head
 
-// t = tip, l = light, f = feather, s = shade, m = ring, h = handle, k = sneaker, e = eye or mouth, c = cheek.
-let figure = [
-    "...tt.tt...",
-    ".ttlltlltt.",
-    "tllfflffllt",
-    "lfffffffffl",
-    "lffefffeffl",
-    "tffefffefft",
-    ".lfcfefcfl.",
-    "..tssfsst..",
-    "....mmm....",
-    ".....h.....",
-    "....h.h....",
-    "...kk.kk...",
+// n = horn, f = fur, F = darker fur, m = mask, w = face, e = eye, p = nose, c = cheek.
+let head = [
+    "..nn.....nn..",
+    "....n...n....",
+    "ff..n...n..ff",
+    ".fFfwwwwwfFf.",
+    "..fmwwwwwmf..",
+    "..fmewwwemf..",
+    "..fmewwwemf..",
+    "...fcwpwcf...",
+    "....fwwwf....",
 ]
-let colors: [Character: UInt32] = ["t": 0xFFE7A8, "l": 0xF8CC5F, "f": 0xF1B23A, "s": 0xCC8B1C, "m": 0xA9B3BE,
-                                   "h": 0x9C6B47, "k": 0xE8577A, "e": 0x16202B, "c": 0xFF8A73]
-let px: CGFloat = 44
-let origin = CGPoint(x: 512 - 11 * px / 2, y: 846 - 12 * px)
-for (y, line) in figure.enumerated() {
+let colors: [Character: UInt32] = ["n": 0x2B2420, "f": 0xC8925A, "F": 0x9E6B3C, "m": 0xB07E55, "w": 0xF7E7D2,
+                                   "e": 0x16202B, "p": 0xD9877F, "c": 0xFF9BB0]
+let px: CGFloat = 56
+let origin = CGPoint(x: 512 - 13 * px / 2, y: 250)
+for (y, line) in head.enumerated() {
     for (x, ch) in line.enumerated() {
         guard let hex = colors[ch] else { continue }
         ctx.setFillColor(rgb(hex))
@@ -72,11 +66,11 @@ for (y, line) in figure.enumerated() {
     }
 }
 
-// MARK: Dust flying off
+// MARK: Snowflakes
 
-for (x, y, a) in [(704.0, 262.0, 0.9), (772.0, 198.0, 0.7), (818.0, 284.0, 0.5), (650.0, 186.0, 0.6), (840.0, 160.0, 0.35)] {
-    ctx.setFillColor(rgb(0xFFF4D6, CGFloat(a)))
-    ctx.fill(CGRect(x: x, y: y, width: 30, height: 30))
+for (x, y, a) in [(760.0, 250.0, 0.9), (812.0, 196.0, 0.6), (232.0, 320.0, 0.7), (700.0, 180.0, 0.5)] {
+    ctx.setFillColor(rgb(0xFFFFFF, CGFloat(a)))
+    ctx.fill(CGRect(x: x, y: y, width: 34, height: 34))
 }
 ctx.restoreGState()
 

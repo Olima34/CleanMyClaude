@@ -68,11 +68,11 @@ struct UpdatesSelfPanel: View {
                     .help(m.step.isBusy ? "Masquer : le téléchargement continue" : "Plus tard")
                 }
                 .frame(minHeight: 26)
-                Text(m.release == nil ? "Clean My Claude est à jour" : "Une nouvelle version est là")
+                Text(m.release == nil ? "\(AppEdition.name) est à jour" : "Une nouvelle version est là")
                     .font(.serif(26))
                     .foregroundStyle(Theme.text)
                 if let r = m.release {
-                    Text("Clean My Claude \(r.version)" + (r.published.map { " · publiée \(Fmt.relative($0))" } ?? ""))
+                    Text("\(AppEdition.name) \(r.version)" + (r.published.map { " · publiée \(Fmt.relative($0))" } ?? ""))
                         .font(.ui(12.5))
                         .foregroundStyle(Theme.text2)
                     HStack(spacing: 6) {
@@ -295,8 +295,8 @@ struct UpdatesSelfPanel: View {
     private func continuityNote(_ c: UpdatesSelfSigning.Continuity) -> String {
         switch c {
         case .local: return "Signée avec ton certificat local : macOS garde les autorisations déjà accordées."
-        case .kept: return "Signée par Clean My Claude, comme ta copie : macOS garde les autorisations et l'accès au trousseau déjà accordés."
-        case .firstRelease: return "Elle est signée par Clean My Claude, ta copie ne l'était pas encore : macOS te redemandera une dernière fois certaines autorisations (Accessibilité, accès complet au disque) et l'accès au trousseau, puis les gardera aux mises à jour suivantes."
+        case .kept: return "Signée par \(AppEdition.name), comme ta copie : macOS garde les autorisations et l'accès au trousseau déjà accordés."
+        case .firstRelease: return "Elle est signée par \(AppEdition.name), ta copie ne l'était pas encore : macOS te redemandera une dernière fois certaines autorisations (Accessibilité, accès complet au disque) et l'accès au trousseau, puis les gardera aux mises à jour suivantes."
         case .adhoc: return "La version publiée n'est pas signée par un développeur reconnu d'Apple : macOS te redemandera peut-être certaines autorisations (Accessibilité, accès complet au disque)."
         }
     }
@@ -379,7 +379,7 @@ struct UpdatesSelfCard: View {
 
     var body: some View {
         let m = app.updates.selfUpdate
-        Panel(title: "Clean My Claude", subtitle: subtitle(m), symbol: "sparkle", tint: Theme.brand) {
+        Panel(title: "\(AppEdition.name)", subtitle: subtitle(m), symbol: "sparkle", tint: Theme.brand) {
             HStack(spacing: 10) {
                 Toggle(isOn: $auto) {
                     Text("Vérifier tout seul").font(.ui(11.5)).foregroundStyle(Theme.text2)

@@ -296,7 +296,7 @@ private struct DarkModeSafariBlock: View {
             ForEach(DarkModeTone.allCases) { t in toneChoice(t, m) }
         }
         VStack(alignment: .leading, spacing: 8) {
-            darkModeStep(1, m.settings.safariWritten == nil ? "Prépare la feuille de style (un petit fichier de Clean My Claude)."
+            darkModeStep(1, m.settings.safariWritten == nil ? "Prépare la feuille de style (un petit fichier de Chamois)."
                          : "Feuille de style prête, teinte \(m.settings.tone.title) : un changement de teinte la met à jour.")
             darkModeStep(2, "Dans Safari › Réglages… › Avancées, menu « Feuille de style » : choisis « Autre… ».")
             darkModeStep(3, "Dans la fenêtre qui s'ouvre, tape ⌘⇧G, colle le chemin (bouton « Copier le chemin ») puis Retour, et choisis « \(DarkModeStyleSheet.fileName) ».")
@@ -422,7 +422,7 @@ private struct DarkModeAppsPanel: View {
             VStack(alignment: .leading, spacing: 10) {
                 if m.needsDiskAccess {
                     PermissionCard(permission: .fullDiskAccess,
-                                   reason: "Les apps de l'App Store rangent leurs réglages dans un dossier protégé : macOS ne laisse Clean My Claude y écrire qu'avec l'accès complet au disque.")
+                                   reason: "Les apps de l'App Store rangent leurs réglages dans un dossier protégé : macOS ne laisse \(AppEdition.name) y écrire qu'avec l'accès complet au disque.")
                 }
                 if let apps = m.apps {
                     let list = m.list(m.filter)
@@ -546,7 +546,7 @@ private struct DarkModeInvertPanel: View {
                     Text("macOS n'a pas répondu à l'inversion sur ce Mac. Active-la toi-même dans Réglages Système › Accessibilité › Écran › Inverser les couleurs, ou avec son raccourci si tu l'as activé.")
                         .font(.ui(12, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("C'est l'inversion des couleurs de macOS (Accessibilité › Écran) : Clean My Claude l'allume en arrivant sur l'app et l'éteint en la quittant. Une inversion que tu as allumée toi-même n'est jamais éteinte.")
+                    Text("C'est l'inversion des couleurs de macOS (Accessibilité › Écran) : Chamois l'allume en arrivant sur l'app et l'éteint en la quittant. Une inversion que tu as allumée toi-même n'est jamais éteinte.")
                         .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                 }
                 HStack(spacing: 8) {

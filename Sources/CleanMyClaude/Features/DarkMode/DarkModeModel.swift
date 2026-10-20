@@ -228,7 +228,7 @@ final class DarkModeModel: AppModule {
             appearance = DarkModeSystem.appearance()
             if !r.ok {
                 macError = r.status == -1743
-                    ? "macOS n'a pas laissé Clean My Claude piloter Événements système. Autorise-le dans Réglages Système › Confidentialité et sécurité › Automatisation, puis réessaie."
+                    ? "macOS n'a pas laissé \(AppEdition.name) piloter Événements système. Autorise-le dans Réglages Système › Confidentialité et sécurité › Automatisation, puis réessaie."
                     : "Le Mac n'a pas changé d'apparence : \(r.err)"
             } else {
                 ActionLog.write("SOMBRE PARTOUT Mac passé en sombre")

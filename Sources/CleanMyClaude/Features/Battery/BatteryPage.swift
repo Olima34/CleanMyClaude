@@ -196,7 +196,7 @@ private struct BatteryLimitPanel: View {
                 }
                 if let asked = m.limitRefused {
                     Callout(symbol: "gearshape", title: "À finir dans Réglages Système",
-                            text: "macOS garde ce réglage pour lui : dans Batterie, règle « Limite de recharge » sur \(asked) %. Clean My Claude verra le changement tout seul.",
+                            text: "macOS garde ce réglage pour lui : dans Batterie, règle « Limite de recharge » sur \(asked) %. Chamois verra le changement tout seul.",
                             tint: Theme.warn)
                 }
                 Button("Ouvrir les réglages Batterie") { m.openSettings() }
@@ -248,7 +248,7 @@ private struct BatteryAlertsPanel: View {
                       isOn: Binding(get: { m.settings.highAlert }, set: { m.setHighAlert($0) }),
                       choices: BatteryRules.highChoices, value: m.settings.highLevel) { m.setHighLevel($0) }
                 if !Notifier.available && !DemoData.isEnabled {
-                    Text("Les notifications ne marchent que dans l'app installée (Clean My Claude.app).")
+                    Text("Les notifications ne marchent que dans l'app installée (\(AppEdition.name).app).")
                         .font(.ui(11)).foregroundStyle(Theme.warn)
                 }
             }

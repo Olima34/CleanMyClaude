@@ -139,13 +139,13 @@ enum AssistantClaudeCode {
         let quoted = "'" + binary.replacingOccurrences(of: "'", with: "'\\''") + "'"
         let script = [
             "#!/bin/zsh",
-            "echo \"Clean My Claude : connexion de Claude Code à ton abonnement Claude (une seule fois).\"",
+            "echo \"Chamois : connexion de Claude Code à ton abonnement Claude (une seule fois).\"",
             "echo \"Une page s'ouvre dans le navigateur : connecte-toi avec ton compte Claude et autorise.\"",
             "echo \"\"",
             "unset ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN",
             "\(quoted) auth login --claudeai",
             "echo \"\"",
-            "echo \"Terminé : reviens dans Clean My Claude et clique sur « J'ai terminé la connexion ».\"",
+            "echo \"Terminé : reviens dans Chamois et clique sur « J'ai terminé la connexion ».\"",
             "read -k 1 \"?Appuie sur une touche pour fermer cette fenêtre.\"",
             ""
         ].joined(separator: "\n")
@@ -244,7 +244,7 @@ enum AssistantClaudeCode {
                 "actions": [
                     "type": "array",
                     "maxItems": 3,
-                    "description": "0 à 3 commandes de Clean My Claude à proposer sous forme de boutons.",
+                    "description": "0 à 3 commandes de Chamois à proposer sous forme de boutons.",
                     "items": [
                         "type": "object",
                         "properties": [

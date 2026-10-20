@@ -165,7 +165,7 @@ struct ConverterFinderTipCard: View {
                 IconBadge(symbol: "cursorarrow.click.2", tint: Theme.text2, size: 30)
                 Text("Depuis le Finder").font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
             }
-            Text("Clic droit › Services › Convertir avec Clean My Claude, ou dépose sur l'icône du Dock. Et ⌥Espace › « compresser une vidéo ».")
+            Text("Clic droit › Services › Convertir avec \(AppEdition.name), ou dépose sur l'icône du Dock. Et ⌥Espace › « compresser une vidéo ».")
                 .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
         }
     }

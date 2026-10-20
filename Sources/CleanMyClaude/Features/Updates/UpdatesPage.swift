@@ -24,7 +24,7 @@ struct UpdatesPage: View {
             }
             UpdatesMacOSPanel()
             Callout(symbol: "hand.raised", title: "Tu gardes la main",
-                    text: "Les flux des apps, l'App Store et les serveurs d'Apple ne sont interrogés que quand tu cliques sur « Vérifier ». Les apps Sparkle et l'App Store installent eux-mêmes leurs mises à jour : Clean My Claude t'y emmène, sans rien télécharger à leur place. Seule exception, que tu peux couper : Clean My Claude demande à GitHub s'il existe une nouvelle version de lui-même.",
+                    text: "Les flux des apps, l'App Store et les serveurs d'Apple ne sont interrogés que quand tu cliques sur « Vérifier ». Les apps Sparkle et l'App Store installent eux-mêmes leurs mises à jour : Chamois t'y emmène, sans rien télécharger à leur place. Seule exception, que tu peux couper : Chamois demande à GitHub s'il existe une nouvelle version de lui-même.",
                     tint: Theme.good)
         }
         .task { await m.loadInventory() }
@@ -294,7 +294,7 @@ private struct UpdatesAppsPanel: View {
         let state = kind == .sparkle ? m.sparkleState : m.storeState
         Panel(title: kind == .sparkle ? "Apps qui se mettent à jour seules" : "App Store",
               subtitle: kind == .sparkle
-                ? "Elles lisent un flux Sparkle : Clean My Claude le lit pour toi, l'app installe elle-même."
+                ? "Elles lisent un flux Sparkle : Chamois le lit pour toi, l'app installe elle-même."
                 : "Versions comparées à celles de l'App Store français.",
               symbol: kind == .sparkle ? "sparkles" : "bag", tint: kind == .sparkle ? Theme.palette[4] : Theme.accent) {
             if !apps.isEmpty {

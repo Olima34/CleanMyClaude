@@ -23,14 +23,14 @@ struct LauncherPage: View {
         ("magnifyingglass", "yt lofi", "Cherche sur Google (g), YouTube (yt), GitHub (gh), Wikipédia (wiki)"),
         ("face.smiling", ":coeur", "Copie un emoji"),
         ("speaker.wave.2", "volume 30", "Règle le volume"),
-        ("sparkles", "analyse", "Lance n'importe quelle action de Clean My Claude")
+        ("sparkles", "analyse", "Lance n'importe quelle action de Chamois")
     ]
 
     var body: some View {
         @Bindable var model = app.launcher
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "command", title: "Lanceur",
-                     subtitle: "Un raccourci, une barre de recherche, et tout ton Mac au bout des doigts : apps, calculs, réglages et toutes les actions de Clean My Claude. Les fichiers ont leur propre fenêtre.",
+                     subtitle: "Un raccourci, une barre de recherche, et tout ton Mac au bout des doigts : apps, calculs, réglages et toutes les actions de Chamois. Les fichiers ont leur propre fenêtre.",
                      tint: Theme.brand, seed: 93) {
                 HStack(spacing: 10) {
                     ScanButton(title: "Ouvrir le lanceur", symbol: "command") { app.launcher.show() }

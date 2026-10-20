@@ -46,7 +46,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             button.imagePosition = .imageLeading
             button.target = self
             button.action = #selector(toggle(_:))
-            button.toolTip = "Clean My Claude"
+            button.toolTip = "Chamois"
         }
         popover.behavior = .transient
         popover.delegate = self
@@ -103,7 +103,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             // Over: back to the mascot and the chosen figure.
             shownDownload = nil
             button.image = Self.icon
-            button.toolTip = "Clean My Claude"
+            button.toolTip = "Chamois"
             lastText = "-"
             update()
             return

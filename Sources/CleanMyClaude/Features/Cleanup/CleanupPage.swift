@@ -221,7 +221,7 @@ struct CleanupTargetRow: View {
                 if target.needsFullDiskAccess {
                     Button("Accès complet requis") { Finder.open(Permissions.fullDiskAccessURL) }
                         .buttonStyle(SoftButtonStyle(small: true))
-                        .help("macOS protège ce dossier : accorde l'accès complet au disque à Clean My Claude")
+                        .help("macOS protège ce dossier : accorde l'accès complet au disque à \(AppEdition.name)")
                 } else {
                     VStack(alignment: .trailing, spacing: 1) {
                         Text(Fmt.bytes(target.size)).font(.ui(13, .medium)).foregroundStyle(Theme.text).monospacedDigit()

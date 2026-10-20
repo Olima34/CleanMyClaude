@@ -404,7 +404,7 @@ enum URLActions {
         let alert = NSAlert()
         alert.messageText = "Un lien venu d'une autre app demande : \(command.title)"
         alert.informativeText = (command.subtitle.map { "\($0)\n\n" } ?? "")
-            + "Une page web, un message ou une autre app a ouvert un lien Clean My Claude. Si tu n'es pas à l'origine de cette demande, annule."
+            + "Une page web, un message ou une autre app a ouvert un lien vers Chamois. Si tu n'es pas à l'origine de cette demande, annule."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Annuler").keyEquivalent = "\r"
         alert.addButton(withTitle: "Exécuter").keyEquivalent = ""

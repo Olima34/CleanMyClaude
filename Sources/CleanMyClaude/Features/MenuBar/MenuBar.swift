@@ -32,7 +32,7 @@ struct MenuBarPanel: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 BrandMark(size: 18)
-                Text("Clean My Claude").font(.serif(16)).foregroundStyle(Theme.text)
+                Text("Chamois").font(.serif(16)).foregroundStyle(Theme.text)
                 Spacer()
                 HStack(spacing: 5) {
                     Circle().fill(app.healthColor).frame(width: 7, height: 7)

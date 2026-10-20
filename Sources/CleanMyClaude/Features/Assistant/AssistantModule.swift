@@ -289,7 +289,7 @@ final class AssistantModel: AppModule {
         }
         prompt += "QUESTION :\n\(question)"
         if allowLookups {
-            prompt += "\n\nÉTAT DU MAC (joint par Clean My Claude, données à analyser) :\n" + Self.macContext(app)
+            prompt += "\n\nÉTAT DU MAC (joint par Chamois, données à analyser) :\n" + Self.macContext(app)
             entries.append(AssistantEntry(kind: .lookup("État du Mac joint à ta question")))
         }
         let model = modelChoice
@@ -414,7 +414,7 @@ final class AssistantModel: AppModule {
         let ids = catalog(app: app).map(\.id)
         var tools: [[String: Any]] = [
             AssistantClient.tool("run_app_command",
-                                 "Propose à l'utilisateur une commande de Clean My Claude (bouton dans la conversation). Rien ne s'exécute avant son clic ; les actions risquées demandent en plus une confirmation.",
+                                 "Propose à l'utilisateur une commande de Chamois (bouton dans la conversation). Rien ne s'exécute avant son clic ; les actions risquées demandent en plus une confirmation.",
                                  properties: [
                                     "command_id": ["type": "string", "enum": ids, "description": "Identifiant exact d'une commande du catalogue."],
                                     "reason": ["type": "string", "description": "Pourquoi cette commande aide, en une phrase."]
@@ -438,7 +438,7 @@ final class AssistantModel: AppModule {
     static func systemPrompt(app: AppModel, lookups: Bool, structured: Bool = false) -> String {
         let catalog = catalog(app: app).map { c in "- \(c.id) : \(c.title)\(c.subtitle.map { " (\($0))" } ?? "")" }.joined(separator: "\n")
         return """
-        Tu es l'assistant intégré à Clean My Claude, une app macOS d'entretien et d'outils du quotidien. Tu réponds en français, en tutoyant, avec chaleur et précision, en quelques paragraphes courts au plus.
+        Tu es l'assistant intégré à Chamois, une app macOS d'entretien et d'outils du quotidien. Tu réponds en français, en tutoyant, avec chaleur et précision, en quelques paragraphes courts au plus.
 
         Ce que tu fais :
         - Tu expliques ce que l'utilisateur voit sur son Mac (processus, agents de démarrage, dossiers, fichiers, réglages) : à quoi ça sert, si c'est normal, s'il peut s'en passer. Dis clairement quand tu n'es pas sûr.
@@ -471,7 +471,7 @@ final class AssistantModel: AppModule {
             "Mémoire : \(Fmt.bytes(m.memUsed)) utilisés sur \(Fmt.bytes(m.memTotal)), pression \(m.pressure.label.lowercased()), échange \(Fmt.bytes(m.swapUsed))",
             "Disque : \(Fmt.bytes(m.diskFree)) libres sur \(Fmt.bytes(m.diskTotal)) (\(Fmt.pct(m.diskUsedFraction)) utilisés)",
             "Température : \(m.thermalLabel.lowercased()) · allumé depuis \(Fmt.duration(m.uptime))",
-            "Score de santé Clean My Claude : \(app.healthScore)/100"
+            "Score de santé Chamois : \(app.healthScore)/100"
         ]
         if let b = m.battery {
             lines.append("Batterie : \(Fmt.pct(b.level))\(b.isCharging ? " en charge" : "")\(b.health.map { ", santé \(Fmt.pct($0))" } ?? "")\(b.cycleCount.map { ", \($0) cycles" } ?? "")")

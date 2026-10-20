@@ -11,6 +11,6 @@ enum AppEdition {
     /// The name macOS shows for this copy (from its Info.plist), else the app's own.
     static var name: String {
         (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String).flatMap { $0.isEmpty ? nil : $0 }
-            ?? "Clean My Claude"
+            ?? "Chamois"
     }
 }

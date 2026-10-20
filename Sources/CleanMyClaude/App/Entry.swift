@@ -177,7 +177,7 @@ enum Diagnostics {
     }
 
     static func run() {
-        print("Clean My Claude — diagnostic (lecture seule)" + (DemoData.isEnabled ? " · données de démonstration (fictives)" : ""))
+        print("Chamois — diagnostic (lecture seule)" + (DemoData.isEnabled ? " · données de démonstration (fictives)" : ""))
         print("Accès complet au disque : \(Permissions.hasFullDiskAccess ? "oui" : "non")")
         let monitor = SystemMonitor(start: false)
         usleep(500_000)

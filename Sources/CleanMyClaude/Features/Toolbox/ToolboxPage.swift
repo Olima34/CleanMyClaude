@@ -289,7 +289,7 @@ struct ToolboxPasswordsTab: View {
                     IconBadge(symbol: "lock.shield", tint: Theme.good, size: 30)
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Rien ne quitte ton Mac").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                        Text("Les mots de passe sont tirés par SecRandomCopyBytes et ne sont enregistrés nulle part. À la copie, ils sont marqués confidentiels : les historiques de presse-papiers, dont celui de Clean My Claude, les ignorent.")
+                        Text("Les mots de passe sont tirés par SecRandomCopyBytes et ne sont enregistrés nulle part. À la copie, ils sont marqués confidentiels : les historiques de presse-papiers, dont celui de Chamois, les ignorent.")
                             .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 20)

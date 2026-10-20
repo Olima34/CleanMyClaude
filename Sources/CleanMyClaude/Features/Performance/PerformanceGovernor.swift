@@ -373,7 +373,7 @@ enum PerformancePlanner {
                         rules: PerformanceRules, busyFor: TimeInterval) -> PerformanceVerdict {
         let busy = busyFor >= busyDuration
         if mode == .off { return .keep("Mode désactivé") }
-        if g.key == ownKey { return .keep("Clean My Claude") }
+        if g.key == ownKey { return .keep("\(AppEdition.name)") }
         if g.key == frontKey { return .keep("Au premier plan") }
         if g.launchedByFront { return .keep("Lancé par l'app au premier plan") }
         if g.kind == .other { return .keep("Composant du système") }

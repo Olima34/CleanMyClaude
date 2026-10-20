@@ -50,7 +50,7 @@ private struct NetworkConnectionTab: View {
             }
             if m.wifiNameHidden {
                 PermissionCard(permission: .location,
-                               reason: "macOS ne donne le nom du réseau Wi-Fi qu'aux apps autorisées à utiliser la localisation. Clean My Claude ne lit ni n'enregistre ta position.")
+                               reason: "macOS ne donne le nom du réseau Wi-Fi qu'aux apps autorisées à utiliser la localisation. Chamois ne lit ni n'enregistre ta position.")
             }
             NetworkTrafficPanel()
         }

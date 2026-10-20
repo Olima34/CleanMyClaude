@@ -1015,7 +1015,7 @@ extension LauncherModel {
         Task {
             let r = await Task.detached(priority: .userInitiated) { Shell.appleScript(script) }.value
             guard !r.ok, r.status != -128 else { return }
-            HUD.show(r.status == -1743 ? "Autorise Clean My Claude à piloter le Finder : Réglages Système › Confidentialité › Automatisation"
+            HUD.show(r.status == -1743 ? "Autorise \(AppEdition.name) à piloter le Finder : Réglages Système › Confidentialité › Automatisation"
                                        : (r.err.isEmpty ? "Le Finder n'a pas répondu." : r.err), symbol: "xmark.octagon.fill")
         }
     }
@@ -1145,7 +1145,7 @@ extension LauncherModel {
                 HUD.show("« \(name) » est dans la Corbeille", symbol: "checkmark.circle.fill")
                 refreshKeepingSelection()
             } else if let failure = report.failures.first {
-                HUD.show(failure.reason == "Emplacement protégé" ? "Clean My Claude ne touche pas à cet emplacement" : failure.reason,
+                HUD.show(failure.reason == "Emplacement protégé" ? "Chamois ne touche pas à cet emplacement" : failure.reason,
                          symbol: "xmark.octagon.fill")
             }
             refocus()

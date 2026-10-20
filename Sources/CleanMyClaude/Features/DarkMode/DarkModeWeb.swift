@@ -219,7 +219,7 @@ enum DarkModeStyleSheet {
             """
         }
         return """
-        /* Sombre partout · Clean My Claude · teinte \(tone.title)
+        /* Sombre partout · Chamois · teinte \(tone.title)
            Feuille de style pour Safari › Réglages › Avancées › Feuille de style.
            Les pages claires passent en sombre, les photos et les vidéos gardent leurs couleurs,
            les pages qui ont déjà un thème sombre restent telles quelles.
@@ -243,7 +243,7 @@ enum DarkModeStyleSheet {
     /// Writes the style sheet in the app's folder (replacing the previous one: it is the app's own file).
     static func write(tone: DarkModeTone) -> Result<URL, DarkModeFailure> {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return .failure(DarkModeFailure(message: DemoData.refusal)) }
-        guard let url else { return .failure(DarkModeFailure(message: "Impossible de créer le dossier de Clean My Claude")) }
+        guard let url else { return .failure(DarkModeFailure(message: "Impossible de créer le dossier de Chamois")) }
         do {
             try Data(css(tone: tone).utf8).write(to: url, options: .atomic)
             return .success(url)

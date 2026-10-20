@@ -169,7 +169,7 @@ private struct AutomationHealthIntro: View {
             HStack(alignment: .top, spacing: 22) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Suis la forme de ton Mac au fil des mois").font(.serif(22)).foregroundStyle(Theme.text)
-                    Text("Une fois par jour, Clean My Claude note l'espace libre, la mémoire utilisée, la santé et les cycles de la batterie, le score de santé et les fichiers inutiles trouvés. Tu vois ensuite les courbes sur 30 jours, 90 jours ou un an.")
+                    Text("Une fois par jour, Chamois note l'espace libre, la mémoire utilisée, la santé et les cycles de la batterie, le score de santé et les fichiers inutiles trouvés. Tu vois ensuite les courbes sur 30 jours, 90 jours ou un an.")
                         .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     Text("Un instantané pèse quelques centaines d'octets et reste sur ton Mac. Tu peux arrêter quand tu veux.")
                         .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)

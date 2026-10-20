@@ -336,7 +336,7 @@ struct OnboardingWelcomeCard: View {
     var body: some View {
         OnboardingCardFrame(
             kicker: "Bienvenue",
-            title: "Bienvenue dans Clean My Claude",
+            title: "Bienvenue dans Chamois",
             text: "Je prends soin de ton Mac : je fais le ménage, je veille sur lui et je t'évite les petites corvées du quotidien.",
             artHeight: Theme.current.spec.mascot ? 112 : 26,
             seed: 41
@@ -624,7 +624,7 @@ struct OnboardingPermissionsCard: View {
                     Tag(text: "Plus tard", tint: Theme.text3)
                 } else if kind.needsSettings {
                     Tag(text: "Réglages Système", tint: Theme.text3)
-                        .help("Elle se donne dans Réglages Système : la fenêtre s'ouvre au bon endroit, active Clean My Claude puis reviens ici.")
+                        .help("Elle se donne dans Réglages Système : la fenêtre s'ouvre au bon endroit, active \(AppEdition.name) puis reviens ici.")
                 }
             }
         }
@@ -649,7 +649,7 @@ struct OnboardingPermissionsCard: View {
     private var status: String {
         if center.isRunning, let k = center.current {
             return center.waitingForSettings
-                ? "Active Clean My Claude dans Réglages Système (\(k.title)), puis reviens ici."
+                ? "Active \(AppEdition.name) dans Réglages Système (\(k.title)), puis reviens ici."
                 : "macOS te pose sa question : \(k.title). Tu peux refuser."
         }
         let granted = Self.order.filter { state($0) == .granted }.count

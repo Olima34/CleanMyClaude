@@ -8,7 +8,7 @@ import AppKit
 enum MascotActivity: String, CaseIterable, Identifiable {
     /// Storage map: files go from a messy heap to tidy piles.
     case sorting
-    /// Cleaning, Trash, uninstalling: leaning over a pile of files, the feathers raise the dust.
+    /// Cleaning, Trash, uninstalling: it polishes a pile of files with its chamois cloth, the dust flies off.
     case sweeping
     /// Translation: an open book, eyes running along the lines.
     case reading
@@ -41,7 +41,7 @@ enum MascotActivity: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .sorting: return "Je trie tes fichiers"
-        case .sweeping: return "J'époussette"
+        case .sweeping: return "Je fais briller"
         case .reading: return "Je lis et je traduis"
         case .inspecting: return "J'inspecte à la loupe"
         case .checking: return "Je coche ma liste"
@@ -266,7 +266,7 @@ private struct MascotCanvas: View, Equatable {
     var body: some View {
         Canvas { ctx, _ in
             // The mascot's contour first (it only shows on light backgrounds), then the scene: whatever the scene
-            // draws next to the mascot covers it, so the contour stays on the empty cells around the feathers.
+            // draws next to the mascot covers it, so the contour stays on the empty cells around its head and body.
             if ink == nil {
                 var outline = MascotPainter(ctx: ctx, pixel: pixel, ink: nil, palette: Theme.palette, contourOnly: true)
                 MascotScenes.draw(activity, frame: frame, on: &outline)
@@ -281,7 +281,7 @@ private struct MascotCanvas: View, Equatable {
 
 /// Paints on the 24 × 14 grid with the theme's colors (or a single ink).
 private struct MascotPainter {
-    enum Tone { case strong, line, soft, paper, accent, good, warn, feather, handle, chart(Int) }
+    enum Tone { case strong, line, soft, paper, accent, good, warn, fur, cloth, clothShade, chart(Int) }
 
     var ctx: GraphicsContext
     var pixel: CGFloat
@@ -293,7 +293,7 @@ private struct MascotPainter {
     func color(_ tone: Tone) -> Color {
         if let ink {
             switch tone {
-            case .strong, .feather, .handle: return ink
+            case .strong, .fur, .cloth, .clothShade: return ink
             case .line, .accent, .good, .warn, .chart: return ink.opacity(0.8)
             case .soft: return ink.opacity(0.5)
             case .paper: return ink.opacity(0.35)
@@ -307,8 +307,9 @@ private struct MascotPainter {
         case .accent: return Theme.accent
         case .good: return Theme.good
         case .warn: return Theme.warn
-        case .feather: return Theme.mascot.feather
-        case .handle: return Theme.mascot.handle
+        case .fur: return Theme.mascot.fur
+        case .cloth: return Theme.mascot.cloth
+        case .clothShade: return Theme.mascot.clothShade
         case .chart(let i): return palette.isEmpty ? Theme.accent : palette[abs(i) % palette.count]
         }
     }
@@ -363,10 +364,18 @@ private struct MascotPainter {
         }
     }
 
-    /// A stick arm out of the handle of the mascot standing at (x, y), on its right (or left) side, to (tx, ty).
-    /// Drawn before the mascot, it passes behind the feathers.
+    /// A front leg reaching out of the chest of the mascot standing at (x, y), on its right (or left) side, to (tx, ty).
+    /// Drawn before the mascot, it passes behind its head.
     func arm(_ x: Int, _ y: Int, right: Bool = true, to tx: Int, _ ty: Int) {
-        line(x + (right ? 6 : 4), y + 9, tx, ty, .handle)
+        line(x + (right ? 9 : 1), y + 9, tx, ty, .fur)
+    }
+
+    /// The yellow chamois cloth, 3 × 2 pixels from (x, y).
+    func cloth(_ x: Int, _ y: Int) {
+        rect(x, y, 2, 1, .cloth)
+        rect(x + 2, y, 1, 1, .clothShade)
+        rect(x, y + 1, 1, 1, .cloth)
+        rect(x + 1, y + 1, 2, 1, .clothShade)
     }
 }
 
@@ -424,18 +433,25 @@ private enum MascotScenes {
         }
     }
 
-    /// Leaning over a pile of files, the feathers swing to and fro and the dust flies off.
+    /// It polishes a pile of files with its chamois cloth: the cloth goes round, the dust flies, the top file shines.
     private static func sweeping(_ t: Int, _ p: MascotPainter) {
         p.file(16, 8, w: 4, h: 3, band: .chart(0))
         p.file(16, 11, w: 4, h: 3, band: .chart(1))
-        let lean = [-1, 1, 2, 3, 3, 2, 1, 0][t]
-        p.mascot(4, 2, MascotFigure.Pose(look: 1, blink: t == 6, lean: lean))
-        // A cloud of dust rising off the top of the pile.
-        for i in 0..<5 {
+        let spot = [(14, 8), (15, 7), (16, 6), (17, 6), (17, 7), (16, 8), (15, 8), (14, 7)][t]
+        p.arm(4, 2, to: spot.0 - 1, spot.1 + 1)
+        p.mascot(4, 2, MascotFigure.Pose(look: 1, blink: t == 6))
+        p.cloth(spot.0, spot.1)
+        // A glint where it has just rubbed, then the dust rising off the top of the pile.
+        if t % 4 == 3 {
+            p.dot(20, 5, .warn)
+            p.dot(19, 5, .warn, alpha: 0.5)
+            p.dot(21, 5, .warn, alpha: 0.5)
+            p.dot(20, 4, .warn, alpha: 0.5)
+        }
+        for i in 0..<4 {
             let ph = (t + i * 3) % 8
-            let dx = 17 + ph + (i % 2)
-            let dy = 7 - ph / 2 - (i % 3)
-            if dx < BusyMascot.columns, dy >= 0 { p.dot(dx, dy, .line, alpha: 0.9 - Double(ph) / 10) }
+            let dx = 18 + ph / 2 + (i % 2), dy = 7 - ph / 2 - (i % 3)
+            if dx < BusyMascot.columns, dy >= 0 { p.dot(dx, dy, .line, alpha: 0.85 - Double(ph) / 10) }
         }
     }
 
@@ -582,7 +598,7 @@ private enum MascotScenes {
         if let y = tileY {
             p.rect(16, y, 2, 4, .accent)
             p.rect(15, y + 1, 4, 2, .accent)
-            p.rect(16, y + 1, 2, 2, .feather)
+            p.rect(16, y + 1, 2, 2, .fur)
         }
         p.rect(13, 10, 8, 4, .warn)
         switch t {
@@ -668,7 +684,7 @@ private enum MascotScenes {
         let x = 6, y = 2
         let height = [0, 1, 2, 2, 1, 0][t]
         let bar = [10, 6, 1][height]
-        // Arms and barbell first: the feathers pass in front of them.
+        // Legs and barbell first: its head passes in front of them.
         p.arm(x, y, right: false, to: x - 1, bar)
         p.arm(x, y, to: x + 11, bar)
         p.rect(x - 2, bar, 15, 1, .line)

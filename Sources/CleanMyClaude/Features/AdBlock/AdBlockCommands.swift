@@ -23,13 +23,13 @@ enum AdBlockCommands {
                 m.runMeasure()
                 return .done
             },
-            AppCommand(id: "adblock_player_youtube", title: "YouTube sans pub", subtitle: "YouTube dans une fenêtre de Clean My Claude, sans ses pubs vidéo",
+            AppCommand(id: "adblock_player_youtube", title: "YouTube sans pub", subtitle: "YouTube dans une fenêtre de Chamois, sans ses pubs vidéo",
                        keywords: ["youtube", "vidéo", "vidéos", "sans pub", "lecteur", "regarder"], icon: .symbol("play.rectangle.fill", tint),
                        group: .actions, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { _ in
                 m.player.open(AdBlockPlayer.youtube)
                 return .done
             },
-            AppCommand(id: "adblock_player_twitch", title: "Twitch sans pub", subtitle: "Les directs Twitch dans une fenêtre de Clean My Claude, sans coupures pub",
+            AppCommand(id: "adblock_player_twitch", title: "Twitch sans pub", subtitle: "Les directs Twitch dans une fenêtre de Chamois, sans coupures pub",
                        keywords: ["twitch", "stream", "direct", "live", "sans pub", "lecteur", "regarder"], icon: .symbol("tv", tint),
                        group: .actions, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { _ in
                 m.player.open(AdBlockPlayer.twitch)
@@ -55,7 +55,7 @@ enum AdBlockCommands {
     static func playerResults(_ q: String, _ m: AdBlockModel) -> [AppCommand] {
         let tint = AdBlockPage.tint
         if q.contains("."), !q.contains(" "), let url = AdBlockPlayer.playable(q) {
-            return [AppCommand(id: "adblock_player_link", title: "Regarder sans pub dans Clean My Claude", subtitle: url.absoluteString,
+            return [AppCommand(id: "adblock_player_link", title: "Regarder sans pub dans Chamois", subtitle: url.absoluteString,
                                icon: .symbol("play.tv", tint), group: .actions, hint: "Regarder", boost: 1925) { _ in
                 m.player.open(url)
                 return .done
@@ -66,7 +66,7 @@ enum AdBlockCommands {
            var c = URLComponents(string: "https://www.youtube.com/results") {
             c.queryItems = [URLQueryItem(name: "search_query", value: term)]
             guard let url = c.url else { return [] }
-            return [AppCommand(id: "adblock_player_search", title: "Chercher « \(term) » sur YouTube sans pub", subtitle: "Dans le lecteur sans pub de Clean My Claude",
+            return [AppCommand(id: "adblock_player_search", title: "Chercher « \(term) » sur YouTube sans pub", subtitle: "Dans le lecteur sans pub de Chamois",
                                icon: .symbol("play.rectangle.fill", tint), group: .actions, hint: "Regarder", boost: 1550) { _ in
                 m.player.open(url)
                 return .done
@@ -75,7 +75,7 @@ enum AdBlockCommands {
         if lower.hasPrefix("twitch "), case let login = String(q.dropFirst(7)).trimmingCharacters(in: .whitespaces),
            !login.isEmpty, login.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "_") }),
            let url = URL(string: "https://www.twitch.tv/" + login.lowercased()) {
-            return [AppCommand(id: "adblock_player_channel", title: "Regarder « \(login) » sur Twitch sans pub", subtitle: "Dans le lecteur sans pub de Clean My Claude",
+            return [AppCommand(id: "adblock_player_channel", title: "Regarder « \(login) » sur Twitch sans pub", subtitle: "Dans le lecteur sans pub de Chamois",
                                icon: .symbol("tv", tint), group: .actions, hint: "Regarder", boost: 1550) { _ in
                 m.player.open(url)
                 return .done

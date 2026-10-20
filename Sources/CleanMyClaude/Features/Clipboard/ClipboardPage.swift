@@ -108,7 +108,7 @@ struct ClipboardIntro: View {
                         VStack(alignment: .leading, spacing: 10) {
                             point("tray.full", "Il garde le texte, les liens, les images et les fichiers que tu copies, avec l'app d'où ils viennent.")
                             point("lock.shield", "Il ignore les mots de passe : tout ce qu'un gestionnaire marque comme confidentiel, ce qui est copié pendant que 1Password, Bitwarden, Mots de passe ou une autre app de ta liste est au premier plan, et ce qui ressemble à un secret (clé d'API, jeton, clé privée, code à usage unique).")
-                            point("internaldrive", "Tout reste sur ce Mac, dans le dossier de Clean My Claude. Rien n'est envoyé nulle part.")
+                            point("internaldrive", "Tout reste sur ce Mac, dans le dossier de Chamois. Rien n'est envoyé nulle part.")
                             point("slider.horizontal.3", "Tu choisis combien garder (200 éléments, 200 Mo et 30 jours par défaut), tu épingles, tu effaces quand tu veux.")
                             point("macwindow", "Son raccourci (ou « cb » dans le lanceur) ouvre sa propre fenêtre : tu cherches, tu vois l'élément en entier, ↩ le recolle.")
                         }
@@ -132,7 +132,7 @@ struct ClipboardIntro: View {
             HStack(alignment: .top, spacing: 14) {
                 ClipboardAccessCard(access: access)
                 Callout(symbol: "hand.raised", title: "Et si macOS te pose une question ?",
-                        text: "Depuis macOS 15.4, le système peut demander si une app a le droit de lire le presse-papiers. C'est normal pour un historique : choisis « Toujours autoriser » pour Clean My Claude. Sans cet accord, rien ne peut être enregistré.",
+                        text: "Depuis macOS 15.4, le système peut demander si une app a le droit de lire le presse-papiers. C'est normal pour un historique : choisis « Toujours autoriser » pour \(AppEdition.name). Sans cet accord, rien ne peut être enregistré.",
                         tint: Theme.palette[4])
             }
             .fixedSize(horizontal: false, vertical: true)

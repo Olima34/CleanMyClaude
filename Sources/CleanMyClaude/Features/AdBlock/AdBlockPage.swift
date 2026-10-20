@@ -64,7 +64,7 @@ private struct AdBlockPlayerPanel: View {
     var body: some View {
         let m = app.adblock
         let cut = (m.tally.apps["Lecteur sans pub · YouTube"] ?? 0) + (m.tally.apps["Lecteur sans pub · Twitch"] ?? 0)
-        Panel(title: "Lecteur sans pub", subtitle: "YouTube et Twitch dans une fenêtre de Clean My Claude, sans leurs pubs vidéo",
+        Panel(title: "Lecteur sans pub", subtitle: "YouTube et Twitch dans une fenêtre de Chamois, sans leurs pubs vidéo",
               symbol: "play.tv", tint: AdBlockPage.tint) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
@@ -87,7 +87,7 @@ private struct AdBlockPlayerPanel: View {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Depuis Safari, en un clic").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                        Text("Copie le signet, puis dans Safari : Signets › Ajouter un signet, et remplace son adresse par celle copiée. Sur une vidéo YouTube ou un direct Twitch, clique dessus : la page s'ouvre ici, sans pub (Safari te demande une fois s'il peut ouvrir Clean My Claude).")
+                        Text("Copie le signet, puis dans Safari : Signets › Ajouter un signet, et remplace son adresse par celle copiée. Sur une vidéo YouTube ou un direct Twitch, clique dessus : la page s'ouvre ici, sans pub (Safari te demande une fois s'il peut ouvrir Chamois).")
                             .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 0)
@@ -222,7 +222,7 @@ private struct AdBlockStatusCard: View {
         case .on(let level):
             let l = level ?? m.settings.level
             var text = "Niveau \(l.title) (\(l.list)), par un DNS chiffré : Safari, Chrome, Firefox, les apps et les jeux en profitent, sans rien installer d'autre."
-            if m.settings.installedLevel == nil { text += " Un autre outil que Clean My Claude bloque déjà les pubs sur ce Mac." }
+            if m.settings.installedLevel == nil { text += " Un autre outil que Chamois bloque déjà les pubs sur ce Mac." }
             // Measured: a browser left open keeps its connections to the ad servers for a few minutes.
             if let at = m.settings.installedAt, Date().timeIntervalSince(at) < 15 * 60 {
                 text += " Un navigateur resté ouvert garde ses connexions aux régies quelques minutes : recharge tes pages, ou relance-le."

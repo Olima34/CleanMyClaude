@@ -160,7 +160,7 @@ struct Sidebar: View {
 
             HStack(spacing: 9) {
                 BrandMark(size: 20)
-                Text("Clean My Claude")
+                Text("Chamois")
                     .font(.serif(18, .medium))
                     .foregroundStyle(Theme.text)
                 Spacer()
