@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import ApplicationServices
 
 /// What the desktop companion shows: its frame, its look and mood, a jump, a word, how it leans.
 @Observable
@@ -14,10 +15,11 @@ final class RefugeCompanionState {
     var rotation: Double = 0
 }
 
-/// Somewhere it can stand: the bottom of the screen, or the top edge of a window, where no other window covers it.
-/// `minX`…`maxX` is where the middle of its feet may go; `left` follows the window when it is dragged.
+/// Somewhere it can stand: the bottom of the screen beside the Dock, the top of the Dock, or the top edge of a window
+/// where no other window covers it. `minX`…`maxX` is where the middle of its feet may go; `left` follows the window when
+/// it is dragged.
 struct RefugeSurface: Equatable {
-    /// The window's number, 0 for the bottom of the screen.
+    /// The window's number; 0 for the bottom of the screen, -1 for the top of the Dock.
     var id: Int
     var y: CGFloat
     var minX: CGFloat
@@ -38,10 +40,11 @@ private final class RefugeCompanionPanel: NSPanel {
     override var canBecomeKey: Bool { false }
 }
 
-/// The desktop companion: it always stands on something. It walks along the bottom of the screen and along the top
-/// edges of the windows, jumps from one to another, follows a window that is dragged and falls to the next place to
-/// stand if its window closes or slides away. Now and then it leans in from the left or right edge of the screen or
-/// hangs from the top to peek down, sleeps at night, and jumps when blueberries come in. Off by default; four frames per
+/// The desktop companion: it always stands on something. It walks along the bottom of the screen, on the Dock, and
+/// along the top edges of the windows (even right under the menu bar), hops from one to another, follows a window that
+/// is dragged. When it loses its footing (its window closes or slides away), it jumps to the nearest edge, clings to a
+/// side of the screen, its head peeking in, or hangs upside down from the top; else it drops to what is below. It also
+/// leans in from the sides and hangs from the top on its own, naps, and jumps when blueberries come in. Off by default; four frames per
 /// second, only while it is out. A click is a caress; three quick ones send it away (the menu bar panel calls it back).
 /// Clicks anywhere else go through to what is underneath.
 @MainActor
@@ -80,6 +83,8 @@ final class RefugeCompanion {
         var steps: Int
         var height: CGFloat
         var landing: Landing
+        /// A hop from one edge onto the next: it walks on after landing.
+        var walkOn = false
     }
 
     static let pixel: CGFloat = 3
@@ -100,7 +105,8 @@ final class RefugeCompanion {
         let p = RefugeCompanionPanel(contentRect: NSRect(origin: .zero, size: Self.size), styleMask: [.borderless, .nonactivatingPanel],
                                      backing: .buffered, defer: false)
         p.isFloatingPanel = true
-        p.level = .floating
+        // Above the menu bar: it may stand on a window right under it, or hang from it.
+        p.level = .statusBar
         p.collectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
         p.backgroundColor = .clear
         p.isOpaque = false
@@ -111,8 +117,8 @@ final class RefugeCompanion {
         p.contentView = RefugeCompanionHost(rootView: RefugeCompanionView(state: state, tap: { [weak self] in self?.tapped() }))
         // It comes in from the right, walking along the bottom of the screen.
         surfaces = Self.currentSurfaces(in: f)
-        surface = surfaces.first { $0.id == 0 }
-        feet = CGPoint(x: f.maxX + Self.size.width / 2, y: f.minY)
+        surface = surfaces.filter { $0.id <= 0 }.max { $0.maxX < $1.maxX }
+        feet = CGPoint(x: f.maxX + Self.size.width / 2, y: surface?.y ?? f.minY)
         direction = -1
         mode = .walk
         entering = true
@@ -197,7 +203,7 @@ final class RefugeCompanion {
         // Twice a second, where it can stand: it follows its window, or falls when the window is gone.
         if state.frame % 2 == 0 {
             surfaces = Self.currentSurfaces(in: f)
-            if [.walk, .sit, .sleep].contains(mode) { holdOn(f) }
+            if [.walk, .sit, .sleep].contains(mode), !entering { holdOn(f) }
         }
 
         let night = RefugeRules.isNight(Calendar.current.component(.hour, from: Date()))
@@ -208,8 +214,18 @@ final class RefugeCompanion {
             if state.frame % 2 == 0, jumpTicks == 0 { state.lift = 1 }
             // Coming in from off the screen, it keeps walking in; then it turns at the ends of its edge.
             if entering, s.contains(feet.x) { entering = false }
-            if !entering, feet.x < s.minX { feet.x = s.minX; direction = 1; if Bool.random() { next(f, night: night) } }
-            if !entering, feet.x > s.maxX { feet.x = s.maxX; direction = -1; if Bool.random() { next(f, night: night) } }
+            if !entering, feet.x < s.minX || feet.x > s.maxX {
+                // At the end of its edge: a hop onto the next one if it is right there (the Dock, a window), else it turns.
+                let edge = direction > 0 ? s.maxX : s.minX
+                if let next = surfaces.first(where: { $0 != s && abs($0.y - s.y) < 150
+                    && abs((direction > 0 ? $0.minX : $0.maxX) - edge) < 2 * Self.reach + 50 }) {
+                    leap(to: CGPoint(x: direction > 0 ? next.minX : next.maxX, y: next.y), landing: .surface(next), walkOn: true)
+                    break
+                }
+                feet.x = min(max(feet.x, s.minX), s.maxX)
+                direction = -direction
+                if Bool.random() { next(f, night: night) }
+            }
             if ticksLeft <= 0 { next(f, night: night) }
         case .sit:
             if ticksLeft <= 0 { next(f, night: night) }
@@ -255,8 +271,8 @@ final class RefugeCompanion {
                 startFalling()
             }
         case .hang:
-            let peek: CGFloat = state.frame % 8 < 4 ? 30 : 34
-            feet.y = f.maxY - peek
+            // Upside down under the menu bar, swinging a little.
+            feet.y = f.maxY - Self.figure.height - (state.frame % 8 < 4 ? 0 : 3)
             if ticksLeft <= 0 { startFalling() }
         case .leaving:
             if ticksLeft <= 0 {
@@ -278,11 +294,16 @@ final class RefugeCompanion {
     /// Standing on something: it follows its window when dragged, and falls when the window closes, is covered or moves
     /// away from under it.
     private func holdOn(_ f: NSRect) {
-        guard let current = surface else { startFalling(); return }
-        if current.id == 0 {
-            // The bottom of the screen is always there (it moves only with the Dock).
-            surface = surfaces.first { $0.id == 0 }
-            feet.y = surface?.y ?? f.minY
+        guard let current = surface else { rescue(f); return }
+        if current.id <= 0 {
+            // The ground or the Dock: it stays on as long as it stands over it (the Dock grows and shrinks a little).
+            if let s = surfaces.first(where: { $0.id == current.id && $0.minX - 30 <= feet.x && feet.x <= $0.maxX + 30 }) {
+                feet.x = min(max(feet.x, s.minX), s.maxX)
+                feet.y = s.y
+                surface = s
+            } else {
+                rescue(f)
+            }
             return
         }
         // Its window, where it is now: dragged, it carries the chamois along.
@@ -292,9 +313,34 @@ final class RefugeCompanion {
             feet.y = m.surface.y
             surface = m.surface
         } else {
-            say("Oups !")
+            rescue(f)
+        }
+    }
+
+    /// It lost its footing: it jumps to the nearest edge, clings to a side of the screen, or hangs from the top; else it
+    /// drops to what is below.
+    private func rescue(_ f: NSRect) {
+        say("Oups !")
+        func spot(_ s: RefugeSurface) -> CGPoint { CGPoint(x: min(max(feet.x, s.minX), s.maxX), y: s.y) }
+        func distance(_ p: CGPoint) -> CGFloat { hypot(p.x - feet.x, p.y - feet.y) }
+        let roll = Int.random(in: 0..<100)
+        if roll < 55, let best = surfaces.map({ (s: $0, p: spot($0)) }).filter({ distance($0.p) < 700 }).min(by: { distance($0.p) < distance($1.p) }) {
+            leap(to: best.p, landing: .surface(best.s))
+        } else if roll < 80 {
+            leanOnSide(f)
+        } else if f.maxY - feet.y < 520 {
+            leap(to: CGPoint(x: feet.x, y: f.maxY - Self.figure.height), landing: .hang)
+        } else {
             startFalling()
         }
+    }
+
+    /// Onto the nearest side of the screen, its head peeking in.
+    private func leanOnSide(_ f: NSRect) {
+        let left = feet.x < f.midX
+        let x = left ? f.minX - (Self.figure.maxX - 32) + Self.size.width / 2 : f.maxX - Self.figure.minX - 32 + Self.size.width / 2
+        let y = min(max(feet.y + CGFloat.random(in: 40...160), f.minY + 40), f.maxY - 140)
+        leap(to: CGPoint(x: x, y: y), landing: .lean(left: left))
     }
 
     private func startFalling() {
@@ -311,16 +357,23 @@ final class RefugeCompanion {
     }
 
     private func land(_ landing: Jump.Landing, f: NSRect) {
+        let walkOnAfterLanding = jump?.walkOn ?? false
         jump = nil
         switch landing {
         case .surface(let s):
             // The window may have moved meanwhile: it lands where it still is, or falls.
-            if let now = surfaces.first(where: { $0.id == s.id && $0.contains(feet.x) && abs($0.y - feet.y) < 12 }) {
+            if let now = surfaces.first(where: { $0.id == s.id && $0.minX - 30 <= feet.x && feet.x <= $0.maxX + 30 && abs($0.y - feet.y) < 12 }) {
+                feet.x = min(max(feet.x, now.minX), now.maxX)
                 feet.y = now.y
                 surface = now
-                mode = .sit
-                ticksLeft = Int.random(in: 16...40)
-                jumpTicks = 2
+                if walkOnAfterLanding {
+                    mode = .walk
+                    ticksLeft = Int.random(in: 30...80)
+                } else {
+                    mode = .sit
+                    ticksLeft = Int.random(in: 16...40)
+                    jumpTicks = 2
+                }
             } else {
                 startFalling()
             }
@@ -336,10 +389,11 @@ final class RefugeCompanion {
         }
     }
 
-    private func leap(to point: CGPoint, landing: Jump.Landing) {
+    private func leap(to point: CGPoint, landing: Jump.Landing, walkOn: Bool = false) {
         state.rotation = 0
         let distance = hypot(point.x - feet.x, point.y - feet.y)
-        jump = Jump(from: feet, to: point, steps: max(5, min(14, Int(distance / 22))), height: 24 + min(90, distance * 0.18), landing: landing)
+        jump = Jump(from: feet, to: point, steps: max(4, min(14, Int(distance / 22))), height: 18 + min(90, distance * 0.18), landing: landing,
+                    walkOn: walkOn)
         surface = nil
         mode = .jumping
     }
@@ -374,10 +428,8 @@ final class RefugeCompanion {
             }
         case ..<93:
             // Onto the side of the screen, if it is not far.
-            let left = feet.x < f.midX
-            let x = left ? f.minX - (Self.figure.maxX - 32) + Self.size.width / 2 : f.maxX - Self.figure.minX - 32 + Self.size.width / 2
-            if abs(x - feet.x) < 420 {
-                leap(to: CGPoint(x: x, y: min(f.maxY - 140, feet.y + CGFloat.random(in: 40...160))), landing: .lean(left: left))
+            if min(feet.x - f.minX, f.maxX - feet.x) < 420 {
+                leanOnSide(f)
             } else {
                 mode = .sit
                 ticksLeft = 30
@@ -385,7 +437,7 @@ final class RefugeCompanion {
         default:
             // Up to the top of the screen, if it stands high enough.
             if f.maxY - feet.y < 420 {
-                leap(to: CGPoint(x: feet.x, y: f.maxY - 32), landing: .hang)
+                leap(to: CGPoint(x: feet.x, y: f.maxY - Self.figure.height), landing: .hang)
             } else {
                 mode = .sit
                 ticksLeft = 30
@@ -395,10 +447,12 @@ final class RefugeCompanion {
 
     // MARK: Where it can stand
 
-    /// The bottom of the screen and the visible top edges of the windows on it, front to back.
+    /// The bottom of the screen, the Dock and the visible top edges of the windows on it, front to back.
     private static func currentSurfaces(in f: NSRect) -> [RefugeSurface] {
+        let full = (NSScreen.main ?? NSScreen.screens.first)?.frame ?? f
+        let dock = dockRect(full: full, visible: f)
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
-              let primary = NSScreen.screens.first?.frame.height else { return surfaces(windows: [], screen: f) }
+              let primary = NSScreen.screens.first?.frame.height else { return surfaces(windows: [], full: full, visible: f, dock: dock) }
         var windows: [(id: Int, rect: CGRect)] = []
         for w in list {
             guard (w[kCGWindowLayer as String] as? Int) == 0, (w[kCGWindowAlpha as String] as? Double ?? 1) > 0.1,
@@ -406,18 +460,73 @@ final class RefugeCompanion {
                   let b = CGRect(dictionaryRepresentation: dict as CFDictionary) else { continue }
             windows.append((w[kCGWindowNumber as String] as? Int ?? 0, CGRect(x: b.minX, y: primary - b.maxY, width: b.width, height: b.height)))
         }
-        return surfaces(windows: windows, screen: f)
+        return surfaces(windows: windows, full: full, visible: f, dock: dock)
     }
 
-    /// Where it can stand, from the windows (front to back, in screen coordinates) and the visible screen: the bottom of
-    /// the screen, and each window's top edge minus the parts covered by windows in front, below the menu bar.
-    static func surfaces(windows: [(id: Int, rect: CGRect)], screen f: CGRect) -> [RefugeSurface] {
-        var out = [RefugeSurface(id: 0, y: f.minY, minX: f.minX + reach, maxX: f.maxX - reach, left: f.minX)]
+    nonisolated(unsafe) private static var dockCache: (rect: CGRect?, at: Date)?
+
+    /// Where the Dock's bar really is when it sits at the bottom (its own window covers the whole screen): read through
+    /// accessibility when the app may, else estimated from the Dock's settings. Nil when it hides or sits on a side.
+    private static func dockRect(full: NSRect, visible: NSRect) -> CGRect? {
+        if let c = dockCache, Date().timeIntervalSince(c.at) < 5 { return c.rect }
+        let rect = readDock(full: full, visible: visible)
+        dockCache = (rect, Date())
+        return rect
+    }
+
+    private static func readDock(full: NSRect, visible: NSRect) -> CGRect? {
+        let height = visible.minY - full.minY
+        guard height > 8 else { return nil }
+        if AXIsProcessTrusted(), let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first,
+           let primary = NSScreen.screens.first?.frame.height {
+            let app = AXUIElementCreateApplication(dock.processIdentifier)
+            var children: CFTypeRef?
+            if AXUIElementCopyAttributeValue(app, kAXChildrenAttribute as CFString, &children) == .success {
+                for child in (children as? [AXUIElement]) ?? [] {
+                    var pos: CFTypeRef?, size: CFTypeRef?
+                    guard AXUIElementCopyAttributeValue(child, kAXPositionAttribute as CFString, &pos) == .success,
+                          AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &size) == .success,
+                          let pos, let size, CFGetTypeID(pos) == AXValueGetTypeID(), CFGetTypeID(size) == AXValueGetTypeID() else { continue }
+                    var p = CGPoint.zero, s = CGSize.zero
+                    AXValueGetValue(pos as! AXValue, .cgPoint, &p)
+                    AXValueGetValue(size as! AXValue, .cgSize, &s)
+                    if s.width > 50 { return CGRect(x: p.x, y: primary - p.y - s.height, width: s.width, height: s.height) }
+                }
+            }
+        }
+        // Without accessibility: centred, as wide as its icons.
+        let d = UserDefaults(suiteName: "com.apple.dock")
+        let apps = (d?.array(forKey: "persistent-apps") as? [[String: Any]]) ?? []
+        let ids = Set(apps.compactMap { ($0["tile-data"] as? [String: Any])?["bundle-identifier"] as? String })
+        let running = NSWorkspace.shared.runningApplications.filter {
+            $0.activationPolicy == .regular && !ids.contains($0.bundleIdentifier ?? "") && $0.bundleIdentifier != "com.apple.finder"
+        }.count
+        let others = d?.array(forKey: "persistent-others")?.count ?? 0
+        let tile = (d?.double(forKey: "tilesize")).flatMap { $0 > 0 ? CGFloat($0) : nil } ?? 48
+        let width = min(full.width - 40, CGFloat(ids.count + running + others + 2) * (tile + 3) + 20)
+        return CGRect(x: full.midX - width / 2, y: full.minY, width: width, height: height - 4)
+    }
+
+    /// Where it can stand, from the windows (front to back, in screen coordinates), the screen and the Dock: the bottom of
+    /// the screen beside the Dock, the top of the Dock, and each window's top edge minus the parts covered by windows in
+    /// front, up to the menu bar.
+    static func surfaces(windows: [(id: Int, rect: CGRect)], full: CGRect, visible f: CGRect, dock: CGRect?) -> [RefugeSurface] {
+        var out: [RefugeSurface] = []
+        if let dock, dock.minY < f.minY {
+            for (from, to) in [(full.minX, dock.minX - 2), (dock.maxX + 2, full.maxX)] where to - from >= 2 * reach + 10 {
+                out.append(RefugeSurface(id: 0, y: full.minY, minX: from + reach, maxX: to - reach, left: full.minX))
+            }
+            if dock.width >= 2 * reach + 10 {
+                out.append(RefugeSurface(id: -1, y: dock.maxY, minX: dock.minX + reach, maxX: dock.maxX - reach, left: dock.minX))
+            }
+        } else {
+            out.append(RefugeSurface(id: 0, y: f.minY, minX: f.minX + reach, maxX: f.maxX - reach, left: f.minX))
+        }
         var front: [CGRect] = []
         for w in windows {
             defer { front.append(w.rect) }
             let top = w.rect.maxY
-            guard w.rect.width >= 160, w.rect.height >= 80, top >= f.minY + 60, top <= f.maxY - 56 else { continue }
+            guard w.rect.width >= 160, w.rect.height >= 80, top >= f.minY + 60, top <= f.maxY + 1 else { continue }
             var segments: [(CGFloat, CGFloat)] = [(max(w.rect.minX, f.minX), min(w.rect.maxX, f.maxX))]
             for r in front where r.minY <= top + 2 && r.maxY >= top - 2 {
                 segments = segments.flatMap { s -> [(CGFloat, CGFloat)] in
@@ -434,21 +543,33 @@ final class RefugeCompanion {
 
     static func selfTest() -> [String] {
         var f: [String] = []
-        let screen = CGRect(x: 0, y: 80, width: 1440, height: 800)
-        // A window in front, another behind it whose top edge it half covers, a tiny one, one under the menu bar.
+        let full = CGRect(x: 0, y: 0, width: 1440, height: 900)
+        let visible = CGRect(x: 0, y: 80, width: 1440, height: 795)
+        // A window in front, another behind it whose top edge it half covers, a tiny one, one right under the menu bar,
+        // one reaching into it.
         let windows: [(id: Int, rect: CGRect)] = [
             (1, CGRect(x: 600, y: 200, width: 500, height: 500)),
             (2, CGRect(x: 100, y: 150, width: 800, height: 400)),
             (3, CGRect(x: 1200, y: 300, width: 100, height: 60)),
-            (4, CGRect(x: 0, y: 90, width: 1440, height: 790)),
+            (4, CGRect(x: 0, y: 90, width: 1440, height: 785)),
+            (5, CGRect(x: 0, y: 90, width: 1440, height: 805)),
         ]
-        let s = surfaces(windows: windows, screen: screen)
-        if s.first?.id != 0 || s.first?.y != 80 { f.append("Compagnon : le bas de l'écran n'est pas une surface") }
+        let dock = CGRect(x: 400, y: 4, width: 640, height: 76)
+        let s = surfaces(windows: windows, full: full, visible: visible, dock: dock)
+        let ground = s.filter { $0.id == 0 }
+        if ground.count != 2 || ground.contains(where: { $0.y != 0 }) || ground.contains(where: { $0.maxX > 400 && $0.minX < 1040 }) {
+            f.append("Compagnon : le sol doit être le bas de l'écran de part et d'autre du Dock")
+        }
+        if !s.contains(where: { $0.id == -1 && $0.y == 80 && $0.minX == 400 + reach }) { f.append("Compagnon : le dessus du Dock n'est pas une surface") }
         if !s.contains(where: { $0.id == 1 && $0.y == 700 && $0.minX == 600 + reach }) { f.append("Compagnon : le haut de la fenêtre devant manque") }
         let back = s.filter { $0.id == 2 }
         if back.count != 1 || back.first?.maxX != 600 - reach { f.append("Compagnon : la partie cachée d'une fenêtre derrière reste une surface") }
-        if s.contains(where: { $0.id == 3 || $0.id == 4 }) { f.append("Compagnon : une fenêtre minuscule ou sous la barre des menus est une surface") }
+        if s.contains(where: { $0.id == 3 || $0.id == 5 }) { f.append("Compagnon : une fenêtre minuscule ou sous la barre des menus est une surface") }
+        if !s.contains(where: { $0.id == 4 && $0.y == 875 }) { f.append("Compagnon : une grande fenêtre sous la barre des menus doit rester une surface") }
         if s.contains(where: { $0.minX > $0.maxX }) { f.append("Compagnon : surface à l'envers") }
+        // A Dock hidden or on a side: the whole bottom of the screen.
+        let plain = surfaces(windows: [], full: full, visible: CGRect(x: 0, y: 0, width: 1440, height: 875), dock: nil)
+        if plain.count != 1 || plain.first?.y != 0 || plain.first?.minX != reach { f.append("Compagnon : sans Dock, tout le bas de l'écran") }
         return f
     }
 }
