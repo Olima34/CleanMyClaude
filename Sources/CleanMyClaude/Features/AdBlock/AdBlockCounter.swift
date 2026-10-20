@@ -229,7 +229,7 @@ struct AdBlockCounterPanel: View {
                                 .font(.serif(52)).foregroundStyle(Theme.text).monospacedDigit()
                                 .contentTransition(.numericText())
                                 .animation(.easeOut(duration: 0.6), value: t.total)
-                            if m.counting { BusyMascot(.sweeping, pixel: 2) } else { PixelMascot(pixel: 3, broom: true) }
+                            if m.counting { BusyMascot(.sweeping, pixel: 2) } else { PixelMascot(pixel: 2) }
                         }
                         Text("pubs et pisteurs arrêtés" + (t.since.map { " depuis le \($0.formatted(.dateTime.day().month(.wide).locale(Fmt.fr)))" } ?? ""))
                             .font(.ui(13)).foregroundStyle(Theme.text2)

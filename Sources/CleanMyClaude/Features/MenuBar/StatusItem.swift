@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 extension MenuMetric {
-    /// The text next to the spark in the menu bar ("" for the icon alone).
+    /// The text next to the mascot in the menu bar ("" for the icon alone).
     @MainActor
     func text(_ m: SystemMonitor) -> String {
         switch self {
@@ -27,7 +27,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let popover = NSPopover()
     private let app: AppModel
     private var metric = StatusItemController.savedMetric
-    private static let icon = ClaudeSpark.templateImage(size: 15)
+    private static let icon = BrandMark.templateImage()
     private let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular)
     private var lastText = "-"
 

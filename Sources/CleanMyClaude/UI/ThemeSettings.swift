@@ -385,11 +385,11 @@ struct ThemeEditor: View {
             VStack(alignment: .leading, spacing: 12) {
                 row("Icônes décoratives") { PillPicker(options: ThemeIconStyle.allCases, selection: binding(\.icons), label: \.title) }
                 Toggle(isOn: binding(\.backdrop)) {
-                    label("Motif de caractères derrière les titres", "Les colonnes de lettres pâles, comme dans Claude Code.")
+                    label("Poussière derrière les titres", "Quelques grains de poussière et de petites plumes, en haut des pages.")
                 }
                 .switchToggles()
                 Toggle(isOn: binding(\.mascot)) {
-                    label("Étincelle Claude et mascotte", "Le logo, la petite créature au balai et l'étincelle qui tourne pendant les analyses.")
+                    label("Mascotte", "Le petit personnage en plumes : au repos, à côté du nom de l'app et au travail pendant les analyses.")
                 }
                 .switchToggles()
             }

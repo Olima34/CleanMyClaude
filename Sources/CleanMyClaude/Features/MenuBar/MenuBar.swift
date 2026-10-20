@@ -31,7 +31,7 @@ struct MenuBarPanel: View {
         let m = app.monitor
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                ClaudeSpark(size: 18)
+                BrandMark(size: 18)
                 Text("Clean My Claude").font(.serif(16)).foregroundStyle(Theme.text)
                 Spacer()
                 HStack(spacing: 5) {

@@ -48,7 +48,7 @@ struct LauncherView: View {
                 if files {
                     CommandIconView(icon: .symbol("doc.text.magnifyingglass", Theme.accent), size: 26)
                 } else {
-                    ClaudeSpark(size: 22)
+                    BrandMark(size: 22)
                 }
                 if Snapshot.isActive {
                     Text(model.query.isEmpty ? placeholder : model.query).font(.ui(21))
@@ -166,7 +166,7 @@ struct LauncherView: View {
                 NotificationCenter.default.post(name: .openMainWindow, object: nil)
             } label: {
                 HStack(spacing: 5) {
-                    ClaudeSpark(size: 11)
+                    BrandMark(size: 11)
                     Text("Clean My Claude").font(.serif(12))
                 }
                 .foregroundStyle(Theme.text2)
@@ -272,7 +272,7 @@ struct CommandIconView: View {
             RoundedRectangle(cornerRadius: Theme.r(size * 0.26)).fill(c).frame(width: size, height: size)
                 .overlay(RoundedRectangle(cornerRadius: Theme.r(size * 0.26)).strokeBorder(Theme.borderStrong, lineWidth: Theme.line))
         case .spark:
-            ClaudeSpark(size: size * 0.8).frame(width: size, height: size)
+            BrandMark(size: size * 0.8).frame(width: size, height: size)
         }
     }
 }

@@ -1,67 +1,198 @@
 import SwiftUI
 import AppKit
 
-/// The Claude "spark": irregular rounded rays around a center. Themes without ornaments leave it out.
-/// While work is in progress, `BusyMascot` shows it instead.
-struct ClaudeSpark: View {
+/// The mascot: a little feather duster with a face, standing on its handle, 11 × 12 pixels.
+/// One drawing for every place it appears: the mascot at rest (`PixelMascot`), the brand mark beside the app's name
+/// (`BrandMark`), the menu bar icon and the waiting scenes (`BusyMascot`).
+enum MascotFigure {
+    static let width = 11
+    static let height = 12
+
+    enum Part { case tip, light, feather, shade, eye, mouth, cheek, ferrule, handle, shoe }
+
+    /// How it holds itself in one frame.
+    struct Pose: Equatable {
+        /// -1 looks left, 0 ahead, 1 right.
+        var look = 0
+        /// Eyes raised (thinking).
+        var up = false
+        var blink = false
+        /// Eyes screwed up with effort.
+        var squint = false
+        /// How far the feathers lean, -3 (left) to 3 (right): the whole head swings over what it dusts.
+        var lean = 0
+    }
+
+    struct Pixel {
+        let x: Int
+        let y: Int
+        let part: Part
+    }
+
+    // t = tip, l = light, f = feather, s = shade, m = ring, h = handle, k = sneaker. The face goes on top.
+    private static let body = [
+        "...tt.tt...",
+        ".ttlltlltt.",
+        "tllfflffllt",
+        "lfffffffffl",
+        "lfffffffffl",
+        "tffffffffft",
+        ".lfffffffl.",
+        "..tssfsst..",
+        "....mmm....",
+        ".....h.....",
+        "....h.h....",
+        "...kk.kk...",
+    ]
+    private static let parts: [Character: Part] = ["t": .tip, "l": .light, "f": .feather, "s": .shade,
+                                                   "m": .ferrule, "h": .handle, "k": .shoe]
+    /// How far each row of the feathers moves for a lean of 1, 2 or 3: more at the top, none at the handle.
+    private static let leans: [[Int]] = [[1, 1, 1, 1, 0, 0, 0, 0], [2, 2, 2, 2, 1, 1, 1, 0], [3, 3, 3, 2, 2, 2, 1, 1]]
+
+    private static func shift(_ row: Int, _ lean: Int) -> Int {
+        guard lean != 0, row < 8 else { return 0 }
+        let step = leans[min(3, abs(lean)) - 1][row]
+        return lean > 0 ? step : -step
+    }
+
+    /// Every pixel of the figure in `pose`, the face last (it covers the feathers).
+    static func pixels(_ pose: Pose = Pose()) -> [Pixel] {
+        var out: [Pixel] = []
+        func add(_ x: Int, _ y: Int, _ part: Part) { out.append(Pixel(x: x + shift(y, pose.lean), y: y, part: part)) }
+        for (y, line) in body.enumerated() {
+            for (x, ch) in line.enumerated() { if let part = parts[ch] { add(x, y, part) } }
+        }
+        let look = max(-1, min(1, pose.look))
+        let eyeY = pose.up ? 3 : 4
+        for ex in [3 + look, 7 + look] {
+            if pose.squint {
+                let outward = ex < 5 + look ? -1 : 1
+                add(ex, eyeY + 1, .eye)
+                add(ex + outward, eyeY + 1, .eye)
+            } else {
+                if !pose.blink { add(ex, eyeY, .eye) }
+                add(ex, eyeY + 1, .eye)
+            }
+        }
+        add(3 + look, 6, .cheek)
+        add(7 + look, 6, .cheek)
+        add(5 + look, 6, .mouth)
+        return out
+    }
+
+    /// The empty cells around the feathers: drawn on light backgrounds so their pale tips stay readable.
+    static func contour(_ pose: Pose = Pose()) -> [(x: Int, y: Int)] {
+        let all = pixels(pose)
+        let taken = Set(all.map { $0.y * 100 + $0.x })
+        var seen = Set<Int>()
+        var out: [(x: Int, y: Int)] = []
+        for p in all where ![.ferrule, .handle, .shoe].contains(p.part) {
+            for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                let key = (p.y + dy) * 100 + p.x + dx
+                if !taken.contains(key), seen.insert(key).inserted { out.append((p.x + dx, p.y + dy)) }
+            }
+        }
+        return out
+    }
+
+    static func color(_ part: Part) -> Color {
+        let c = Theme.mascot
+        switch part {
+        case .tip: return c.tip
+        case .light: return c.light
+        case .feather: return c.feather
+        case .shade: return c.shade
+        case .eye, .mouth: return c.eye
+        case .cheek: return c.cheek
+        case .ferrule: return c.ferrule
+        case .handle: return c.handle
+        case .shoe: return c.shoe
+        }
+    }
+
+    /// Draws the figure from `origin`, one pixel of the figure being `pixel` points. With `ink`, everything is that
+    /// single color and the eyes and mouth are cut out (on a filled button, in the menu bar).
+    static func draw(in ctx: GraphicsContext, at origin: CGPoint = .zero, pixel: CGFloat, pose: Pose = Pose(),
+                     ink: Color? = nil, contour withContour: Bool = false) {
+        func cell(_ x: Int, _ y: Int) -> Path {
+            Path(CGRect(x: origin.x + CGFloat(x) * pixel, y: origin.y + CGFloat(y) * pixel, width: pixel, height: pixel))
+        }
+        if withContour, ink == nil {
+            let line = Theme.mascot.contour
+            for c in contour(pose) { ctx.fill(cell(c.x, c.y), with: .color(line)) }
+        }
+        var cut = ctx
+        cut.blendMode = .destinationOut
+        for p in pixels(pose) {
+            if let ink {
+                if p.part == .eye || p.part == .mouth {
+                    cut.fill(cell(p.x, p.y), with: .color(.black))
+                } else {
+                    ctx.fill(cell(p.x, p.y), with: .color(ink))
+                }
+            } else {
+                ctx.fill(cell(p.x, p.y), with: .color(color(p.part)))
+            }
+        }
+    }
+
+    /// The pixel size that fits the figure (and its contour) in `height` points, on whole half-points so the edges
+    /// stay sharp on a Retina screen.
+    static func pixel(fitting height: CGFloat) -> CGFloat {
+        max(0.5, (height / CGFloat(Self.height + 1) * 2).rounded() / 2)
+    }
+
+    /// Pure checks for `--selftest`.
+    static func selfTest() -> [String] {
+        var failures: [String] = []
+        if body.contains(where: { $0.count != width }) || body.count != height { failures.append("Mascotte : grille de travers") }
+        for lean in -3...3 {
+            for pose in [Pose(lean: lean), Pose(look: 1, up: true, lean: lean), Pose(look: -1, squint: true, lean: lean)] {
+                let px = pixels(pose)
+                if px.filter({ $0.part == .eye }).count != 4 { failures.append("Mascotte : yeux manquants") }
+                if px.contains(where: { $0.x < -3 || $0.x > width + 2 || $0.y < 0 || $0.y >= height }) {
+                    failures.append("Mascotte : pixel hors de la figure (penché de \(lean))")
+                }
+                // The contour never covers the figure itself.
+                let taken = Set(px.map { $0.y * 100 + $0.x })
+                if contour(pose).contains(where: { taken.contains($0.y * 100 + $0.x) }) { failures.append("Mascotte : contour sur la figure") }
+            }
+        }
+        if pixels(Pose(blink: true)).filter({ $0.part == .eye }).count != 2 { failures.append("Mascotte : clin d'œil") }
+        return failures
+    }
+}
+
+/// The brand mark: the mascot, small, beside the app's name and wherever the app speaks for itself.
+/// Themes without ornaments leave it out, unless it is content rather than decoration (the drawn app icon).
+struct BrandMark: View {
+    /// The side of the square it fits in, in points.
     var size: CGFloat = 28
-    var color: Color = Theme.brand
-    /// A short turn when it appears.
-    var animate = false
-    /// False where the spark is content rather than decoration (the drawn app icons).
+    /// One color instead of the mascot's own, the eyes cut out.
+    var ink: Color? = nil
     var ornament = true
-    @State private var turn = 0.0
 
     var body: some View {
         if !ornament || Theme.current.spec.mascot {
-            spark
+            let pixel = MascotFigure.pixel(fitting: size)
+            Canvas { ctx, _ in
+                MascotFigure.draw(in: ctx, at: CGPoint(x: pixel, y: pixel), pixel: pixel, ink: ink, contour: true)
+            }
+            .frame(width: pixel * CGFloat(MascotFigure.width + 2), height: pixel * CGFloat(MascotFigure.height + 1))
+            .frame(width: size, height: size)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
         }
     }
 
-    static let rays: [(angle: Double, length: Double)] = [
-        (0, 1.0), (31, 0.82), (64, 0.95), (95, 0.78), (128, 1.0), (160, 0.86),
-        (193, 0.97), (224, 0.8), (257, 0.93), (290, 0.84), (322, 0.98)
-    ]
-
-    private var spark: some View {
-        Canvas { ctx, sz in
-            let c = CGPoint(x: sz.width / 2, y: sz.height / 2)
-            let r = min(sz.width, sz.height) / 2
-            let w = r * 0.2
-            for ray in Self.rays {
-                let a = (ray.angle - 90) * .pi / 180
-                let inner = r * 0.12
-                let outer = r * ray.length
-                var p = Path()
-                p.move(to: CGPoint(x: c.x + cos(a) * inner, y: c.y + sin(a) * inner))
-                p.addLine(to: CGPoint(x: c.x + cos(a) * (outer - w / 2), y: c.y + sin(a) * (outer - w / 2)))
-                ctx.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: w, lineCap: .round))
-            }
-        }
-        .frame(width: size, height: size)
-        .rotationEffect(.degrees(turn))
-        .onAppear {
-            if animate {
-                withAnimation(.easeOut(duration: 1.4)) { turn = 32 }
-            }
-        }
-    }
-
-    /// A template image of the spark, for the menu bar.
-    static func templateImage(size: CGFloat = 16) -> NSImage {
-        let img = NSImage(size: NSSize(width: size, height: size), flipped: false) { rect in
-            let c = CGPoint(x: rect.midX, y: rect.midY)
-            let r = rect.width / 2
-            let w = r * 0.22
-            NSColor.black.setStroke()
-            for ray in rays {
-                let a = (90 - ray.angle) * .pi / 180
-                let p = NSBezierPath()
-                p.lineWidth = w
-                p.lineCapStyle = .round
-                p.move(to: CGPoint(x: c.x + cos(a) * r * 0.12, y: c.y + sin(a) * r * 0.12))
-                p.line(to: CGPoint(x: c.x + cos(a) * (r * ray.length - w / 2), y: c.y + sin(a) * (r * ray.length - w / 2)))
-                p.stroke()
+    /// The mascot as a template image for the menu bar: one ink, the face cut out. Pixels of 1.5 points give
+    /// 16.5 × 18 points, the height of the system's own icons, with sharp edges on a Retina screen.
+    static func templateImage(pixel: CGFloat = 1.5) -> NSImage {
+        let size = NSSize(width: CGFloat(MascotFigure.width) * pixel, height: CGFloat(MascotFigure.height) * pixel)
+        let img = NSImage(size: size, flipped: true) { _ in
+            NSColor.black.setFill()
+            for p in MascotFigure.pixels() where p.part != .eye && p.part != .mouth {
+                NSRect(x: CGFloat(p.x) * pixel, y: CGFloat(p.y) * pixel, width: pixel, height: pixel).fill()
             }
             return true
         }
@@ -70,59 +201,22 @@ struct ClaudeSpark: View {
     }
 }
 
-/// The little pixel creature of Claude Code, here with its broom, at rest.
-/// At work (scanning, cleaning, translating…), `BusyMascot` shows it busy with the task.
+/// The mascot at rest, blinking now and then. At work (scanning, cleaning, translating…), `BusyMascot` shows it busy.
 struct PixelMascot: View {
     var pixel: CGFloat = 4
-    var color: Color = Theme.brand
-    var broom = false
     @State private var blink = false
 
-    // 1 = body, 2 = eye, 0 = empty
-    private static let grid: [[Int]] = [
-        [0, 1, 1, 1, 1, 1, 1, 1, 0],
-        [0, 1, 2, 1, 1, 1, 2, 1, 0],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [0, 1, 1, 1, 1, 1, 1, 1, 0],
-        [0, 1, 0, 1, 0, 1, 0, 1, 0]
-    ]
-
-    // A broom held on the right side: handle (3) and bristles (4).
-    private static let broomGrid: [(x: Int, y: Int, v: Int)] = [
-        (11, -2, 3), (11, -1, 3), (11, 0, 3), (11, 1, 3), (11, 2, 3), (11, 3, 3),
-        (10, 4, 4), (11, 4, 4), (12, 4, 4), (10, 5, 4), (11, 5, 4), (12, 5, 4)
-    ]
-
     var body: some View {
-        if Theme.current.spec.mascot { mascot }
+        if Theme.current.spec.mascot { figure }
     }
 
-    @ViewBuilder
-    private var mascot: some View {
-        let cols: CGFloat = broom ? 13 : 9
-        let rows: CGFloat = broom ? 8 : 5
-        let yOff: CGFloat = broom ? 2 : 0
+    private var figure: some View {
         Canvas { ctx, _ in
-            for (y, row) in Self.grid.enumerated() {
-                for (x, v) in row.enumerated() where v != 0 {
-                    let rect = CGRect(x: CGFloat(x) * pixel, y: (CGFloat(y) + yOff) * pixel, width: pixel, height: pixel)
-                    if v == 2 {
-                        ctx.fill(Path(rect), with: .color(blink ? color : Theme.onBrand))
-                    } else {
-                        ctx.fill(Path(rect), with: .color(color))
-                    }
-                }
-            }
-            if broom {
-                for b in Self.broomGrid {
-                    let rect = CGRect(x: CGFloat(b.x) * pixel, y: (CGFloat(b.y) + yOff) * pixel, width: pixel, height: pixel)
-                    ctx.fill(Path(rect), with: .color(b.v == 3 ? Theme.text2 : Theme.warn))
-                }
-                // The arm reaching the handle.
-                ctx.fill(Path(CGRect(x: 9 * pixel, y: (2 + yOff) * pixel, width: 2 * pixel, height: pixel)), with: .color(color))
-            }
+            MascotFigure.draw(in: ctx, at: CGPoint(x: pixel, y: pixel), pixel: pixel, pose: MascotFigure.Pose(blink: blink),
+                              contour: true)
         }
-        .frame(width: pixel * cols, height: pixel * rows)
+        .frame(width: pixel * CGFloat(MascotFigure.width + 2), height: pixel * CGFloat(MascotFigure.height + 1))
+        .allowsHitTesting(false)
         .task {
             // Blinks now and then: two tiny updates every few seconds, nothing per frame.
             while !Task.isCancelled {
@@ -135,45 +229,59 @@ struct PixelMascot: View {
     }
 }
 
-/// Faint columns of random characters, like the Claude Code tab background.
-struct MatrixBackdrop: View {
+/// Faint dust and a few small feathers in a header, as if the mascot had just been through: denser at the top,
+/// fading downward. Drawn once, nothing moves.
+struct DustBackdrop: View {
     var seed: UInt64 = 7
     var opacity: Double = 0.5
 
     var body: some View {
-        // Equatable: SwiftUI skips redrawing hundreds of glyphs each time the page around it refreshes.
+        // Equatable: SwiftUI skips redrawing the specks each time the page around it refreshes.
         if Theme.current.spec.backdrop {
-            MatrixCanvas(seed: seed, opacity: opacity, color: Theme.matrix, font: .mono(10.5)).equatable()
+            DustCanvas(seed: seed, opacity: opacity, color: Theme.matrix).equatable()
         }
     }
 }
 
-private struct MatrixCanvas: View, Equatable {
+private struct DustCanvas: View, Equatable {
     var seed: UInt64
     var opacity: Double
     var color: Color
-    var font: Font
+
+    /// A small feather in pixels, its quill pointing down to the left.
+    private static let feather = [
+        "...##",
+        "..###",
+        ".###.",
+        "###..",
+        "#....",
+    ]
 
     var body: some View {
         Canvas { ctx, size in
             var rng = SplitMix(seed: seed)
-            let chars = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-            let colW: CGFloat = 8.2
-            let rowH: CGFloat = 13
-            let cols = Int(size.width / colW)
-            let rows = Int(size.height / rowH)
-            for c in 0..<max(0, cols) {
-                let colStrength = Double(rng.next() % 100) / 100
-                guard colStrength > 0.35 else { continue }
-                let startRow = Int(rng.next() % UInt64(max(1, rows)))
-                let len = 4 + Int(rng.next() % 14)
-                for r in startRow..<max(startRow, min(rows, startRow + len)) {
-                    let ch = chars[Int(rng.next() % UInt64(chars.count))]
-                    let fade = 1 - Double(r - startRow) / Double(len)
-                    let yFade = 1 - Double(r) / Double(max(rows, 1))
-                    let text = Text(String(ch)).font(font).foregroundColor(color)
-                    ctx.opacity = opacity * fade * yFade * colStrength
-                    ctx.draw(text, at: CGPoint(x: CGFloat(c) * colW + colW / 2, y: CGFloat(r) * rowH + rowH / 2))
+            let grid: CGFloat = 3
+            let cols = max(1, Int(size.width / grid)), rows = max(1, Int(size.height / grid))
+            func fade(_ y: CGFloat) -> Double { max(0, 1 - Double(y / max(size.height, 1))) }
+            // Specks of dust, one or two pixels.
+            for _ in 0..<(cols * rows / 60) {
+                let x = CGFloat(rng.next() % UInt64(cols)) * grid
+                let y = CGFloat(Double(rng.next() % 1000) / 1000 * Double(rng.next() % 1000) / 1000) * size.height
+                let strength = Double(rng.next() % 100) / 100
+                let side = strength > 0.85 ? grid * 2 : grid
+                ctx.opacity = opacity * fade(y) * (0.25 + 0.75 * strength)
+                ctx.fill(Path(CGRect(x: x, y: (y / grid).rounded(.down) * grid, width: side, height: side)), with: .color(color))
+            }
+            // A few feathers drifting down.
+            for _ in 0..<max(1, cols / 70) {
+                let x = CGFloat(rng.next() % UInt64(cols)) * grid
+                let y = CGFloat(rng.next() % UInt64(max(1, rows / 2))) * grid
+                ctx.opacity = opacity * fade(y) * 0.8
+                for (r, line) in Self.feather.enumerated() {
+                    for (c, ch) in line.enumerated() where ch == "#" {
+                        ctx.fill(Path(CGRect(x: x + CGFloat(c) * grid, y: y + CGFloat(r) * grid, width: grid, height: grid)),
+                                 with: .color(color))
+                    }
                 }
             }
         }

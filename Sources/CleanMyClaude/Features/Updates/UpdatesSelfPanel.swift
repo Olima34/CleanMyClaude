@@ -48,12 +48,12 @@ struct UpdatesSelfPanel: View {
 
     private func header(_ m: UpdatesSelfModel) -> some View {
         ZStack(alignment: .topLeading) {
-            MatrixBackdrop(seed: 61, opacity: 0.45)
+            DustBackdrop(seed: 61, opacity: 0.45)
                 .frame(height: 120)
                 .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .top, spacing: 10) {
-                    ClaudeSpark(size: 26, animate: true)
+                    BrandMark(size: 26)
                     Spacer(minLength: 8)
                     Button { m.closePanel() } label: {
                         Image(systemName: "xmark")

@@ -8,7 +8,7 @@ import AppKit
 enum MascotActivity: String, CaseIterable, Identifiable {
     /// Storage map: files go from a messy heap to tidy piles.
     case sorting
-    /// Cleaning, Trash, uninstalling: the broom raises the dust.
+    /// Cleaning, Trash, uninstalling: leaning over a pile of files, the feathers raise the dust.
     case sweeping
     /// Translation: an open book, eyes running along the lines.
     case reading
@@ -41,7 +41,7 @@ enum MascotActivity: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .sorting: return "Je trie tes fichiers"
-        case .sweeping: return "Je balaie"
+        case .sweeping: return "J'époussette"
         case .reading: return "Je lis et je traduis"
         case .inspecting: return "J'inspecte à la loupe"
         case .checking: return "Je coche ma liste"
@@ -265,6 +265,12 @@ private struct MascotCanvas: View, Equatable {
 
     var body: some View {
         Canvas { ctx, _ in
+            // The mascot's contour first (it only shows on light backgrounds), then the scene: whatever the scene
+            // draws next to the mascot covers it, so the contour stays on the empty cells around the feathers.
+            if ink == nil {
+                var outline = MascotPainter(ctx: ctx, pixel: pixel, ink: nil, palette: Theme.palette, contourOnly: true)
+                MascotScenes.draw(activity, frame: frame, on: &outline)
+            }
             var p = MascotPainter(ctx: ctx, pixel: pixel, ink: ink, palette: Theme.palette)
             MascotScenes.draw(activity, frame: frame, on: &p)
         }
@@ -273,40 +279,27 @@ private struct MascotCanvas: View, Equatable {
     }
 }
 
-/// How the mascot holds itself in one frame.
-struct MascotPose {
-    enum Arm { case side, up, high, out, down, none }
-    enum Legs { case stand, shuffle, none }
-
-    /// -1 looks left, 0 ahead, 1 right.
-    var look = 0
-    var blink = false
-    var left: Arm = .side
-    var right: Arm = .side
-    var legs: Legs = .stand
-}
-
 /// Paints on the 24 × 14 grid with the theme's colors (or a single ink).
 private struct MascotPainter {
-    enum Tone { case body, eye, strong, line, soft, paper, accent, good, warn, chart(Int) }
+    enum Tone { case strong, line, soft, paper, accent, good, warn, feather, handle, chart(Int) }
 
     var ctx: GraphicsContext
     var pixel: CGFloat
     var ink: Color?
     var palette: [Color]
+    /// The first pass of a scene: the mascot's contour only, nothing else.
+    var contourOnly = false
 
     func color(_ tone: Tone) -> Color {
         if let ink {
             switch tone {
-            case .body, .eye, .strong: return ink
+            case .strong, .feather, .handle: return ink
             case .line, .accent, .good, .warn, .chart: return ink.opacity(0.8)
             case .soft: return ink.opacity(0.5)
             case .paper: return ink.opacity(0.35)
             }
         }
         switch tone {
-        case .body: return Theme.brand
-        case .eye: return Theme.onBrand
         case .strong: return Theme.text
         case .line: return Theme.text2
         case .soft: return Theme.text3
@@ -314,12 +307,14 @@ private struct MascotPainter {
         case .accent: return Theme.accent
         case .good: return Theme.good
         case .warn: return Theme.warn
+        case .feather: return Theme.mascot.feather
+        case .handle: return Theme.mascot.handle
         case .chart(let i): return palette.isEmpty ? Theme.accent : palette[abs(i) % palette.count]
         }
     }
 
     func rect(_ x: Int, _ y: Int, _ w: Int = 1, _ h: Int = 1, _ tone: Tone, alpha: Double = 1) {
-        guard w > 0, h > 0, alpha > 0 else { return }
+        guard !contourOnly, w > 0, h > 0, alpha > 0 else { return }
         let r = CGRect(x: CGFloat(x) * pixel, y: CGFloat(y) * pixel, width: CGFloat(w) * pixel, height: CGFloat(h) * pixel)
         ctx.fill(Path(r), with: .color(color(tone).opacity(alpha)))
     }
@@ -355,41 +350,23 @@ private struct MascotPainter {
         rect(x, y + 1, w, h - 1, .paper, alpha: alpha)
     }
 
-    /// The mascot itself, 9 × 5 pixels from (x, y): the body of `PixelMascot` with arms, eyes and legs that move.
-    func mascot(_ x: Int, _ y: Int, _ pose: MascotPose = MascotPose()) {
-        rect(x + 1, y, 7, 4, .body)
-        if !pose.blink {
-            let ex = x + 2 + pose.look
-            if ink != nil {
-                // On a filled button the eyes are holes in the single ink.
-                var cut = ctx
-                cut.blendMode = .destinationOut
-                for dx in [0, 4] {
-                    cut.fill(Path(CGRect(x: CGFloat(ex + dx) * pixel, y: CGFloat(y + 1) * pixel, width: pixel, height: pixel)), with: .color(.black))
-                }
-            } else {
-                dot(ex, y + 1, .eye)
-                dot(ex + 4, y + 1, .eye)
+    /// The mascot, 11 × 12 pixels from (x, y), its feet on row y + 11 (`MascotFigure`).
+    func mascot(_ x: Int, _ y: Int, _ pose: MascotFigure.Pose = MascotFigure.Pose()) {
+        if contourOnly {
+            let edge = Theme.mascot.contour
+            for c in MascotFigure.contour(pose) {
+                let r = CGRect(x: CGFloat(x + c.x) * pixel, y: CGFloat(y + c.y) * pixel, width: pixel, height: pixel)
+                ctx.fill(Path(r), with: .color(edge))
             }
-        }
-        arm(pose.left, x: x, y: y, dir: -1)
-        arm(pose.right, x: x + 8, y: y, dir: 1)
-        switch pose.legs {
-        case .stand: for lx in [1, 3, 5, 7] { dot(x + lx, y + 4, .body) }
-        case .shuffle: for lx in [2, 4, 6] { dot(x + lx, y + 4, .body) }
-        case .none: break
+        } else {
+            MascotFigure.draw(in: ctx, at: CGPoint(x: CGFloat(x) * pixel, y: CGFloat(y) * pixel), pixel: pixel, pose: pose, ink: ink)
         }
     }
 
-    private func arm(_ arm: MascotPose.Arm, x: Int, y: Int, dir: Int) {
-        switch arm {
-        case .side: dot(x, y + 2, .body)
-        case .up: rect(x, y, 1, 2, .body)
-        case .high: rect(x, y - 1, 1, 3, .body)
-        case .out: dot(x, y + 2, .body); dot(x + dir, y + 2, .body)
-        case .down: dot(x, y + 3, .body)
-        case .none: break
-        }
+    /// A stick arm out of the handle of the mascot standing at (x, y), on its right (or left) side, to (tx, ty).
+    /// Drawn before the mascot, it passes behind the feathers.
+    func arm(_ x: Int, _ y: Int, right: Bool = true, to tx: Int, _ ty: Int) {
+        line(x + (right ? 6 : 4), y + 9, tx, ty, .handle)
     }
 }
 
@@ -427,50 +404,46 @@ private enum MascotScenes {
             let height = [2, 3, 1][s] + (done ? 1 : 0)
             for i in 0..<height { p.rect(18 + s * 2, 13 - i, 2, 1, .chart(s), alpha: i % 2 == 0 ? 1 : 0.75) }
         }
-        let c = cycle % 3
+        let c = cycle % 3, x = 6, y = 2
         switch step {
         case 0:
-            p.mascot(8, 9, MascotPose(look: -1, left: .out))
+            p.arm(x, y, right: false, to: 7, 11)
+            p.mascot(x, y, MascotFigure.Pose(look: -1))
             p.rect(5, 10, 2, 2, .chart(c))
         case 1:
-            p.mascot(8, 9, MascotPose(left: .high, right: .high))
-            p.rect(11, 6, 2, 2, .chart(c))
+            p.arm(x, y, right: false, to: 9, 1)
+            p.arm(x, y, to: 12, 1)
+            p.mascot(x, y)
+            p.rect(10, 0, 2, 2, .chart(c))
         case 2:
-            p.mascot(8, 9, MascotPose(look: 1, right: .out))
+            p.arm(x, y, to: 16, 9)
+            p.mascot(x, y, MascotFigure.Pose(look: 1))
             p.rect(17 + c, 7, 2, 2, .chart(c))
         default:
-            p.mascot(8, 9, MascotPose(look: 1, blink: true))
+            p.mascot(x, y, MascotFigure.Pose(look: 1, blink: true))
         }
     }
 
-    /// The broom swings left and right, the dust flies off.
+    /// Leaning over a pile of files, the feathers swing to and fro and the dust flies off.
     private static func sweeping(_ t: Int, _ p: MascotPainter) {
-        let x = 4 + (t / 2) % 2
-        p.mascot(x, 9, MascotPose(look: 1, blink: t == 5, right: .out, legs: t % 4 < 2 ? .stand : .shuffle))
-        let h = x + 10
-        if t % 2 == 0 {
-            p.rect(h, 7, 1, 5, .line)
-            p.rect(h - 1, 12, 3, 1, .warn)
-            p.rect(h - 1, 13, 4, 1, .warn, alpha: 0.8)
-        } else {
-            p.rect(h, 7, 1, 2, .line)
-            p.rect(h + 1, 9, 1, 3, .line)
-            p.rect(h, 12, 3, 1, .warn)
-            p.rect(h + 1, 13, 4, 1, .warn, alpha: 0.8)
-        }
-        // A cloud of dust rising ahead of the bristles.
+        p.file(16, 8, w: 4, h: 3, band: .chart(0))
+        p.file(16, 11, w: 4, h: 3, band: .chart(1))
+        let lean = [-1, 1, 2, 3, 3, 2, 1, 0][t]
+        p.mascot(4, 2, MascotFigure.Pose(look: 1, blink: t == 6, lean: lean))
+        // A cloud of dust rising off the top of the pile.
         for i in 0..<5 {
             let ph = (t + i * 3) % 8
-            let dx = h + 3 + ph + (i % 2)
-            let dy = 13 - ph / 2 - (i % 3)
-            if dx < BusyMascot.columns { p.dot(dx, dy, .line, alpha: 0.9 - Double(ph) / 10) }
+            let dx = 17 + ph + (i % 2)
+            let dy = 7 - ph / 2 - (i % 3)
+            if dx < BusyMascot.columns, dy >= 0 { p.dot(dx, dy, .line, alpha: 0.9 - Double(ph) / 10) }
         }
     }
 
     /// An open book on the ground: the line being read lights up, a page turns, translated words fly away.
     private static func reading(_ t: Int, _ p: MascotPainter) {
         let bx = 11, by = 9
-        p.mascot(1, 9, MascotPose(look: 1, blink: t == 7, right: .out))
+        p.arm(0, 2, to: 10, 11)
+        p.mascot(0, 2, MascotFigure.Pose(look: 1, blink: t == 7))
         // Pages, the spine dipping in the middle, the cover underneath.
         p.rect(bx + 1, by, 5, 1, .paper)
         p.rect(bx + 7, by, 5, 1, .paper)
@@ -507,8 +480,8 @@ private enum MascotScenes {
             p.file(x, 11, band: .chart(i))
             if x == lx + 1 || x + 1 == lx + 2 { under = i }
         }
-        p.mascot(1, 9, MascotPose(look: 1, blink: t == 6, right: .up))
-        p.line(10, 9, lx, ly + 4, .line)
+        p.arm(0, 2, to: lx, ly + 4)
+        p.mascot(0, 2, MascotFigure.Pose(look: 1, blink: t == 6))
         // The lens: a ring of 5 × 5 without its corners.
         p.rect(lx + 1, ly, 3, 1, .strong)
         p.rect(lx + 1, ly + 4, 3, 1, .strong)
@@ -525,7 +498,8 @@ private enum MascotScenes {
 
     /// A clipboard held up, one line ticked after the other.
     private static func checking(_ t: Int, _ p: MascotPainter) {
-        p.mascot(1, 9, MascotPose(look: 1, blink: t == 4, right: .out))
+        p.arm(0, 2, to: 11, 9)
+        p.mascot(0, 2, MascotFigure.Pose(look: 1, blink: t == 4))
         p.frame(12, 2, 9, 12, .line)
         p.rect(13, 3, 7, 10, .paper)
         p.rect(15, 1, 3, 2, .strong)
@@ -547,7 +521,7 @@ private enum MascotScenes {
     /// A torch sweeps the dark; the files it lights up show.
     private static func searching(_ t: Int, _ p: MascotPainter) {
         let sweep = [0, -1, -2, -3, -2, -1, 0, 1][t]
-        let ox = 12, oy = 11
+        let ox = 13, oy = 11
         let slope = Double(sweep) / 6
         var lit: Set<Int> = []
         for x in (ox + 1)..<BusyMascot.columns {
@@ -565,9 +539,9 @@ private enum MascotScenes {
             let shown = lit.contains(x * 100 + y + 1) || lit.contains((x + 1) * 100 + y + 1)
             p.file(x, y, band: .chart(c), alpha: shown ? 1 : 0.15)
         }
-        p.mascot(0, 9, MascotPose(look: 1, blink: t == 5, right: .out))
-        p.rect(10, 11, 2, 1, .line)
-        p.rect(12, 10, 1, 3, .strong)
+        p.arm(0, 2, to: 10, 11)
+        p.mascot(0, 2, MascotFigure.Pose(look: 1, blink: t == 5))
+        p.rect(11, 10, 2, 3, .strong)
     }
 
     /// An arrow falls from the cloud into an open box; the mascot cheers when it lands.
@@ -594,8 +568,12 @@ private enum MascotScenes {
             p.dot(18 + r * 2, 8 - r, .accent)
             p.dot(17, 7 - r, .accent, alpha: 0.7)
         }
-        let cheer = t == 7
-        p.mascot(2, 9, MascotPose(look: 1, blink: t == 3, left: cheer ? .high : .side, right: cheer ? .high : .side))
+        let cheer = t == 7, y = cheer ? 1 : 2
+        if cheer {
+            p.arm(1, y, right: false, to: 0, 6)
+            p.arm(1, y, to: 12, 6)
+        }
+        p.mascot(1, y, MascotFigure.Pose(look: 1, blink: t == 3))
     }
 
     /// The box opens, the new app rises out of it in sparkles.
@@ -604,7 +582,7 @@ private enum MascotScenes {
         if let y = tileY {
             p.rect(16, y, 2, 4, .accent)
             p.rect(15, y + 1, 4, 2, .accent)
-            p.rect(16, y + 1, 2, 2, .body)
+            p.rect(16, y + 1, 2, 2, .feather)
         }
         p.rect(13, 10, 8, 4, .warn)
         switch t {
@@ -628,29 +606,37 @@ private enum MascotScenes {
             p.dot(19 + r, 4, .accent, alpha: t == 7 ? 0.5 : 1)
             p.dot(17, 1 - min(r, 1), .good, alpha: 0.8)
         }
-        let cheer = t == 5 || t == 6
-        p.mascot(1, 9, MascotPose(look: 1, blink: t == 7, left: cheer ? .high : .side, right: cheer ? .high : (t == 1 || t == 2 ? .out : .side)))
+        let cheer = t == 5 || t == 6, y = cheer ? 1 : 2
+        if cheer {
+            p.arm(1, y, right: false, to: 0, 6)
+            p.arm(1, y, to: 12, 6)
+        } else if t == 1 || t == 2 {
+            p.arm(1, y, to: 12, 9)
+        }
+        p.mascot(1, y, MascotFigure.Pose(look: 1, blink: t == 7))
     }
 
     /// A tall file goes into the gear machine and comes out wide, in another color.
     private static func converting(_ t: Int, _ p: MascotPainter) {
-        p.rect(10, 7, 9, 7, .soft, alpha: 0.25)
-        p.frame(10, 7, 9, 7, .line)
+        p.rect(12, 7, 9, 7, .soft, alpha: 0.25)
+        p.frame(12, 7, 9, 7, .line)
         // The hopper on top.
-        p.rect(11, 5, 7, 1, .line, alpha: 0.7)
-        p.rect(12, 6, 5, 1, .line)
-        gear(13, 10, phase: t % 3, tone: .accent, p)
-        gear(16, 11, phase: (3 - t % 3) % 3, tone: .line, p)
-        switch t {
-        case 0: p.file(3, 5, band: .chart(0))
-        case 1: p.file(7, 2, band: .chart(0))
-        case 2: p.file(13, 2, band: .chart(0))
-        case 3: p.dot(18, 5, .soft, alpha: 0.7); p.dot(19, 4, .soft, alpha: 0.4)
-        default:
-            let x = t == 4 ? 19 : 21
-            p.file(x, 12, w: 3, h: 2, band: .chart(2))
+        p.rect(13, 5, 7, 1, .line, alpha: 0.7)
+        p.rect(14, 6, 5, 1, .line)
+        gear(15, 10, phase: t % 3, tone: .accent, p)
+        gear(18, 11, phase: (3 - t % 3) % 3, tone: .line, p)
+        if t == 0 {
+            p.arm(0, 2, right: false, to: 7, 1)
+            p.arm(0, 2, to: 10, 1)
         }
-        p.mascot(0, 9, MascotPose(look: 1, blink: t == 4, left: t == 0 ? .high : .side, right: t == 0 ? .high : .side))
+        p.mascot(0, 2, MascotFigure.Pose(look: 1, blink: t == 4))
+        switch t {
+        case 0: p.file(8, 0, w: 2, h: 2, band: .chart(0))
+        case 1: p.file(11, 1, band: .chart(0))
+        case 2: p.file(15, 2, band: .chart(0))
+        case 3: p.dot(21, 5, .soft, alpha: 0.7); p.dot(22, 4, .soft, alpha: 0.4)
+        default: p.file(t == 4 ? 20 : 21, 12, w: 3, h: 2, band: .chart(2))
+        }
     }
 
     private static func gear(_ cx: Int, _ cy: Int, phase: Int, tone: MascotPainter.Tone, _ p: MascotPainter) {
@@ -662,43 +648,44 @@ private enum MascotScenes {
         }
     }
 
-    /// A thought bubble whose dots light up in turn.
+    /// The chin on the hand, eyes up: a thought bubble whose dots light up in turn.
     private static func thinking(_ t: Int, _ p: MascotPainter) {
-        p.mascot(2, 9, MascotPose(look: 1, blink: t == 4, right: .up))
-        p.dot(12, 8, .soft)
-        p.rect(13, 5, 2, 2, .soft)
+        p.arm(2, 2, to: 10, 10)
+        p.mascot(2, 2, MascotFigure.Pose(look: 1, up: true, blink: t == 4))
+        p.dot(13, 8, .soft)
+        p.rect(14, 6, 2, 2, .soft)
         p.rect(15, 0, 8, 1, .paper)
         p.rect(14, 1, 10, 3, .paper)
         p.rect(15, 4, 8, 1, .paper)
         for i in 0..<3 {
             let on = t % 3 == i
-            p.rect(15 + i * 3, 2, 2, 1, on ? .accent : .soft, alpha: on ? 1 : 0.55)
+            p.rect(16 + i * 3, 2, 2, 1, on ? .accent : .soft, alpha: on ? 1 : 0.55)
         }
     }
 
-    /// Dumbbells up to the chest, the head, overhead; squinting at the top.
+    /// A barbell up to the chest, in front of the face, overhead; the eyes screwed up at the top.
     private static func lifting(_ t: Int, _ p: MascotPainter) {
-        let x = 7, y = 9
+        let x = 6, y = 2
         let height = [0, 1, 2, 2, 1, 0][t]
-        let bar = [y + 2, y - 1, y - 3][height]
-        p.mascot(x, y, MascotPose(blink: height == 2, left: .none, right: .none, legs: height == 2 ? .shuffle : .stand))
-        if height > 0 {
-            p.rect(x, bar + 1, 1, y + 2 - bar, .body)
-            p.rect(x + 8, bar + 1, 1, y + 2 - bar, .body)
-        }
-        p.rect(x - 3, bar, 15, 1, .line)
-        p.rect(x - 5, bar - 1, 2, 3, .strong)
-        p.rect(x + 11, bar - 1, 2, 3, .strong)
+        let bar = [10, 6, 1][height]
+        // Arms and barbell first: the feathers pass in front of them.
+        p.arm(x, y, right: false, to: x - 1, bar)
+        p.arm(x, y, to: x + 11, bar)
+        p.rect(x - 2, bar, 15, 1, .line)
+        p.rect(x - 4, bar - 1, 2, 3, .strong)
+        p.rect(x + 13, bar - 1, 2, 3, .strong)
+        p.mascot(x, y, MascotFigure.Pose(squint: height == 2))
         if t == 3 {
-            p.dot(x + 10, y + 1, .chart(1), alpha: 0.8)
-            p.dot(x - 2, y + 2, .chart(1), alpha: 0.6)
+            p.dot(x + 12, y + 4, .chart(1), alpha: 0.8)
+            p.dot(x - 2, y + 5, .chart(1), alpha: 0.6)
         }
     }
 
     /// Holding up an antenna; waves go out, bits come back.
     private static func beaming(_ t: Int, _ p: MascotPainter) {
-        let cx = 11, cy = 3
-        p.mascot(2, 9, MascotPose(look: 1, blink: t == 5, right: .high))
+        let cx = 12, cy = 3
+        p.arm(0, 2, to: cx - 1, 9)
+        p.mascot(0, 2, MascotFigure.Pose(look: 1, blink: t == 5))
         p.rect(cx, cy + 1, 1, 10, .line)
         p.rect(cx - 1, 13, 3, 1, .line)
         p.dot(cx, cy, .accent, alpha: t % 2 == 0 ? 1 : 0.5)
@@ -735,8 +722,14 @@ private enum MascotScenes {
             p.dot(21, 4, .accent, alpha: 0.7)
             p.dot(13, 5, .accent, alpha: 0.7)
         }
-        p.mascot(0, full ? 8 : 9, MascotPose(look: 1, blink: t == 2, left: full ? .high : .side, right: full ? .high : .out))
-        if !full { p.rect(10, 11, 2, 1, .line) }
+        let y = full ? 1 : 2
+        if full {
+            p.arm(0, y, right: false, to: 0, 6)
+            p.arm(0, y, to: 11, 6)
+        } else {
+            p.arm(0, y, to: 11, 10)
+        }
+        p.mascot(0, y, MascotFigure.Pose(look: 1, blink: t == 2))
     }
 
     /// Typing on a small computer, the lines of the screen filling in.
@@ -751,7 +744,8 @@ private enum MascotScenes {
         }
         let last = lines[min(t, lines.count - 1)]
         p.dot(last.0 + last.1 + 1, 6 + min(t, lines.count - 1), .strong, alpha: t % 2 == 0 ? 1 : 0.3)
-        p.mascot(1, 9, MascotPose(look: 1, blink: t == 3, right: t % 2 == 0 ? .out : .side, legs: .stand))
+        p.arm(0, 2, to: t % 2 == 0 ? 12 : 14, 12)
+        p.mascot(0, 2, MascotFigure.Pose(look: 1, blink: t == 3))
     }
 }
 

@@ -140,7 +140,7 @@ struct TranslatorPanelView: View {
                     .font(.ui(11.5)).foregroundStyle(Theme.text2).lineLimit(2)
             } else if let by = m.resultEngine, !m.resultText.isEmpty {
                 HStack(spacing: 5) {
-                    if by == .claude { ClaudeSpark(size: 10) } else { Image(systemName: "lock.laptopcomputer").font(.ui(10)) }
+                    if by == .claude { Image(systemName: "sparkles").font(.ui(10)) } else { Image(systemName: "lock.laptopcomputer").font(.ui(10)) }
                     Text(by == .claude ? "Claude · \(m.claudeModel.familyTitle)" : "Sur ton Mac, hors ligne").font(.ui(11))
                 }
                 .foregroundStyle(Theme.text3)

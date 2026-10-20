@@ -34,18 +34,15 @@ struct DashboardPage: View {
 
     private var hero: some View {
         ZStack(alignment: .topLeading) {
-            MatrixBackdrop(seed: 11, opacity: 0.45)
+            DustBackdrop(seed: 11, opacity: 0.45)
                 .frame(height: 170)
                 .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
                 .offset(y: -10)
             HStack(alignment: .center, spacing: 24) {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 14) {
-                        ClaudeSpark(size: 34, animate: true)
-                        Text(Fmt.greeting(name: Fmt.firstName))
-                            .font(.serif(36))
-                            .foregroundStyle(Theme.text)
-                    }
+                    Text(Fmt.greeting(name: Fmt.firstName))
+                        .font(.serif(36))
+                        .foregroundStyle(Theme.text)
                     Text(heroSentence)
                         .font(.ui(14))
                         .foregroundStyle(Theme.text2)
@@ -61,7 +58,7 @@ struct DashboardPage: View {
                 if app.smartScanRunning {
                     BusyMascot(.inspecting, pixel: 5)
                 } else {
-                    PixelMascot(pixel: 7, broom: true)
+                    PixelMascot(pixel: 5)
                 }
             }
             .padding(.top, 14)
@@ -327,7 +324,7 @@ struct Recommendations: View {
             VStack(alignment: .leading, spacing: 10) {
                 if list.isEmpty {
                     HStack(spacing: 12) {
-                        PixelMascot(pixel: 4)
+                        PixelMascot(pixel: 1.5)
                         Text(app.smartScanDate == nil ? "Lance une analyse intelligente : j'aurai sûrement quelques idées." : "Rien à signaler. Ton Mac est en pleine forme.")
                             .font(.ui(12)).foregroundStyle(Theme.text2)
                     }

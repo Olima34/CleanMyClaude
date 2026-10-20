@@ -32,6 +32,7 @@ enum CommandIcon {
     case file(String)
     case emoji(String)
     case color(Color)
+    /// The app's own mark: the mascot.
     case spark
 }
 

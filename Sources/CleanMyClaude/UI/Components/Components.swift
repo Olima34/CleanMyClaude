@@ -182,7 +182,7 @@ struct PageHero<Trailing: View>: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            MatrixBackdrop(seed: seed, opacity: 0.4)
+            DustBackdrop(seed: seed, opacity: 0.4)
                 .frame(height: 130)
                 .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
                 .offset(y: -12)
@@ -732,8 +732,8 @@ struct DrawnAppIcon: View {
         ZStack {
             tile.fill(LinearGradient(colors: [Color(hex: icon.top), Color(hex: icon.bottom)], startPoint: .top, endPoint: .bottom))
             tile.strokeBorder(.white.opacity(0.14), lineWidth: max(0.5, s * 0.012))
-            if icon.spark {
-                ClaudeSpark(size: s * 0.64, color: .white, ornament: false)
+            if icon.brand {
+                BrandMark(size: s * 0.66, ornament: false)
             } else {
                 Image(systemName: icon.symbol)
                     .font(.system(size: s * 0.46, weight: .semibold))

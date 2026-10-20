@@ -30,7 +30,7 @@ struct HotkeysPage: View {
                 VStack(spacing: 6) {
                     if model.bindings.isEmpty {
                         HStack(spacing: 12) {
-                            PixelMascot(pixel: 4)
+                            PixelMascot(pixel: 1.5)
                             Text("Aucun raccourci pour l'instant. Ajoute une app, ou pioche dans les suggestions : je lui donne ⌃⌥⌘ + une lettre de son nom, que tu peux changer.")
                                 .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                         }

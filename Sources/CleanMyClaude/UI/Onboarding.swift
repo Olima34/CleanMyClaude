@@ -285,7 +285,7 @@ struct OnboardingCardFrame<Art: View, Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack {
-                MatrixBackdrop(seed: seed, opacity: 0.4)
+                DustBackdrop(seed: seed, opacity: 0.4)
                     .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
                 art
             }
@@ -338,11 +338,8 @@ struct OnboardingWelcomeCard: View {
             artHeight: Theme.current.spec.mascot ? 112 : 26,
             seed: 41
         ) {
-            HStack(spacing: 18) {
-                ClaudeSpark(size: 46, animate: true)
-                PixelMascot(pixel: 7, broom: true)
-            }
-            .padding(.top, 8)
+            PixelMascot(pixel: 7)
+                .padding(.top, 4)
         } content: {
             VStack(alignment: .leading, spacing: 14) {
                 Grid(horizontalSpacing: 10, verticalSpacing: 10) {
@@ -350,7 +347,7 @@ struct OnboardingWelcomeCard: View {
                     GridRow { tile(2); tile(3) }
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Je reste discret, sans icône dans le Dock : l'étincelle de la barre des menus me rouvre.")
+                    Text("Je reste discret, sans icône dans le Dock : ma silhouette dans la barre des menus me rouvre.")
                         .font(.ui(11.5))
                         .foregroundStyle(Theme.text3)
                         .fixedSize(horizontal: false, vertical: true)

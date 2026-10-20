@@ -206,7 +206,7 @@ struct TranslatorPage: View {
                         VStack(alignment: .leading, spacing: 2) {
                             HStack(spacing: 6) {
                                 Text("\(TranslatorLanguage.named(e.from)) → \(TranslatorLanguage.named(e.to))").font(.ui(10.5, .semibold)).foregroundStyle(Theme.text3)
-                                if e.engine == .claude { ClaudeSpark(size: 9) }
+                                if e.engine == .claude { Image(systemName: "sparkles").font(.ui(9)).foregroundStyle(Theme.text3) }
                                 Spacer()
                                 Text(Fmt.relative(e.date)).font(.ui(10.5)).foregroundStyle(Theme.text3)
                             }

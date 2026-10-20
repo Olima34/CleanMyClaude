@@ -291,7 +291,7 @@ struct ClipboardWindowView: View {
                 m.openPage()
             } label: {
                 HStack(spacing: 5) {
-                    ClaudeSpark(size: 11)
+                    BrandMark(size: 11)
                     Text("Presse-papiers").font(.serif(12))
                 }
                 .foregroundStyle(Theme.text2)

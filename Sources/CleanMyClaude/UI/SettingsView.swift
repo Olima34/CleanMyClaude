@@ -172,10 +172,7 @@ struct CleanupSettings: View {
 struct AboutSettings: View {
     var body: some View {
         VStack(spacing: 14) {
-            HStack(spacing: 12) {
-                ClaudeSpark(size: 36)
-                PixelMascot(pixel: 5, broom: true)
-            }
+            PixelMascot(pixel: 5)
             Text("Clean My Claude").font(.serif(24))
             Text("Version \(UpdatesSelfBuild.current.label)")
                 .font(.ui(12)).foregroundStyle(.secondary)

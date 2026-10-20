@@ -150,7 +150,7 @@ struct Sidebar: View {
             Color.clear.frame(height: 38)
 
             HStack(spacing: 9) {
-                ClaudeSpark(size: 20)
+                BrandMark(size: 20)
                 Text("Clean My Claude")
                     .font(.serif(18, .medium))
                     .foregroundStyle(Theme.text)

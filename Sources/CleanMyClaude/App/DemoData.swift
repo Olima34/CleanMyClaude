@@ -28,12 +28,13 @@ enum DemoData {
 
     // MARK: - Apps
 
-    /// The look of an app icon drawn by `FileIcon` (gradient tile and SF Symbol, or the Claude spark).
+    /// The look of an app icon drawn by `FileIcon` (gradient tile and SF Symbol, or the app's mascot).
     struct Icon {
         let symbol: String
         let top: UInt32
         let bottom: UInt32
-        var spark = false
+        /// The app's own icon: the mascot on the tile.
+        var brand = false
     }
 
     private struct App {
@@ -76,7 +77,7 @@ enum DemoData {
         App(name: "Hélios Code", bundleID: "com.helios.code", version: "1.104.2", size: 0.62,
             icon: Icon(symbol: "chevron.left.forwardslash.chevron.right", top: 0x3BA7E8, bottom: 0x1B4F8C), lastUsed: 0, running: true),
         App(name: "Claude", bundleID: "com.anthropic.claudefordesktop", version: "1.4.2", size: 0.61,
-            icon: Icon(symbol: "", top: 0xE08A68, bottom: 0xC4603F, spark: true), lastUsed: 0, running: true),
+            icon: Icon(symbol: "sparkle", top: 0xE08A68, bottom: 0xC4603F), lastUsed: 0, running: true),
         App(name: "Ruche", bundleID: "com.ruche.desktop", version: "4.42.0", size: 0.51,
             icon: Icon(symbol: "bubble.left.and.bubble.right.fill", top: 0xF7C948, bottom: 0xD68910), lastUsed: 0, running: true),
         App(name: "Tisserand", bundleID: "app.tisserand.mac", version: "2.9", size: 0.36,
@@ -102,7 +103,7 @@ enum DemoData {
         App(name: "Mosaïque", bundleID: "fr.mosaique.windows", version: "1.5", size: 0.022,
             icon: Icon(symbol: "square.grid.2x2.fill", top: 0x8C7AE6, bottom: 0x341F97), lastUsed: 0, running: true),
         App(name: "Clean My Claude", bundleID: "io.github.olima34.cleanmyclaude", version: "1.0", size: 0.009,
-            icon: Icon(symbol: "", top: 0x5FA8EC, bottom: 0x2C6FB8, spark: true), lastUsed: 0, running: true),
+            icon: Icon(symbol: "", top: 0x5FA8EC, bottom: 0x2C6FB8, brand: true), lastUsed: 0, running: true),
         // Shipped with macOS: not listed in the inventory, but they run and get permissions.
         App(name: "Safari", bundleID: "com.apple.Safari", version: "27.1", size: 0,
             icon: Icon(symbol: "safari.fill", top: 0x5AC8FA, bottom: 0x1E6FD9), lastUsed: 0, running: true, installed: false),

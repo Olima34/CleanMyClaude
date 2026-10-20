@@ -51,12 +51,15 @@ enum Theme {
     // Accent, and what reads on top of it
     static var accent: Color { current.accent }
     static var onAccent: Color { current.onAccent }
-    /// Claude's orange in Atelier: the logo, the mascot and a few keys.
+    /// The theme's signature color (an orange in Atelier): a few keys and highlights.
     static var brand: Color { current.brand }
     static var onBrand: Color { current.onBrand }
     /// Claude's own orange, the default of the color picker.
     static let brandHex: UInt32 = 0xD97757
+    /// The faint specks of the header backdrops.
     static var matrix: Color { current.matrix }
+    /// The mascot's feathers, face and handle (see `MascotFigure`).
+    static var mascot: MascotColors { current.mascot }
 
     // Status
     static var good: Color { current.good }
@@ -95,6 +98,12 @@ enum Theme {
     }
 }
 
+/// The mascot's colors, drawn from the theme: feathers from the lightest tip to the shade, the handle and arms,
+/// the contour (only on light backgrounds), the face, the cheeks, the sneakers and the ring under the feathers.
+struct MascotColors {
+    let tip, light, feather, shade, handle, contour, eye, cheek, shoe, ferrule: Color
+}
+
 /// A theme turned into ready-to-draw values, once per change (views read them hundreds of times per frame).
 final class ThemeResolved: @unchecked Sendable {
     let spec: ThemeSpec
@@ -103,6 +112,7 @@ final class ThemeResolved: @unchecked Sendable {
     let accent, onAccent, brand, onBrand, matrix: Color
     let good, warn, bad, onBad: Color
     let palette: [Color]
+    let mascot: MascotColors
     let radiusScale: CGFloat
     let line: CGFloat
     let textScale: CGFloat
@@ -128,6 +138,25 @@ final class ThemeResolved: @unchecked Sendable {
         good = c(.good); warn = c(.warn); bad = c(.bad)
         onBad = make(spec.light[.bad].readableInk, spec.dark[.bad].readableInk)
         palette = (0..<ThemePalette.chartCount).map { make(spec.light.chart[$0], spec.dark.chart[$0]) }
+        // The mascot keeps the bright warm color of the dark appearance everywhere; on a light background only,
+        // a contour keeps its pale feather tips readable.
+        let gold = spec.dark[.warn], red = spec.dark[.bad], black = ThemeColor(0x000000)
+        func fixed(_ c: ThemeColor) -> Color { Color(hex: c.hex) }
+        func onLight(_ c: ThemeColor) -> Color {
+            switch spec.appearance {
+            case .light: return Color(hex: c.hex)
+            case .dark: return .clear
+            case .system:
+                return Color(nsColor: NSColor(name: nil) { appearance in
+                    appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .clear : NSColor(hex: c.hex)
+                })
+            }
+        }
+        mascot = MascotColors(
+            tip: fixed(gold.mixed(with: .white, 0.5)), light: fixed(gold.mixed(with: .white, 0.22)),
+            feather: fixed(gold), shade: fixed(gold.mixed(with: black, 0.2)),
+            handle: fixed(gold.mixed(with: black, 0.48)), contour: onLight(gold.mixed(with: black, 0.5)),
+            eye: fixed(.ink), cheek: fixed(red.mixed(with: .white, 0.2)), shoe: fixed(red), ferrule: c(.text3))
         radiusScale = CGFloat(spec.radius)
         line = CGFloat(spec.borderWidth)
         textScale = CGFloat(spec.textScale)

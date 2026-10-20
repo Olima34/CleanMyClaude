@@ -208,7 +208,7 @@ Le classement favorise le nom exact, puis le début du nom, puis le début d'un 
 
 ## Toujours là, sans prendre de place
 
-Comme Raycast, Clean My Claude n'a pas d'icône dans le Dock : il vit dans la barre des menus et derrière `⌥Espace`. Il s'ouvre à l'ouverture de session sans afficher de fenêtre (réglable), et sa fenêtre se rouvre depuis l'étincelle de la barre des menus, le lanceur ou en relançant l'app. Les réglages permettent de garder l'icône dans le Dock, toujours ou seulement quand la fenêtre est ouverte. Au repos, fenêtre ouverte et tous les modules actifs : environ 1,7 % de processeur et 93 Mo de mémoire.
+Comme Raycast, Clean My Claude n'a pas d'icône dans le Dock : il vit dans la barre des menus et derrière `⌥Espace`. Il s'ouvre à l'ouverture de session sans afficher de fenêtre (réglable), et sa fenêtre se rouvre depuis la mascotte de la barre des menus, le lanceur ou en relançant l'app. Les réglages permettent de garder l'icône dans le Dock, toujours ou seulement quand la fenêtre est ouverte. Au repos, fenêtre ouverte et tous les modules actifs : environ 1,7 % de processeur et 93 Mo de mémoire.
 
 ## Mises à jour de Clean My Claude
 
@@ -304,7 +304,7 @@ Réglages (⌘,) › Apparence change toute l'app d'un clic, fenêtre, lanceur e
 | Thème | Le style |
 | --- | --- |
 | **Atelier** | Le thème d'origine : papier chaud, titres à empattements, bleu Claude. Suit le mode clair ou sombre de macOS. |
-| **Graphite** | Le contraire d'une app d'IA : gris neutres, une seule encre, angles droits, aucune ombre, ni icônes décoratives, ni étincelle, ni mascotte. |
+| **Graphite** | Le contraire d'une app d'IA : gris neutres, une seule encre, angles droits, aucune ombre, ni icônes décoratives, ni mascotte, ni poussière derrière les titres. |
 | **Phosphore** | Un vieux terminal : verre noir, lettres vertes, tout en chasse fixe, couleurs ANSI. Toujours sombre. |
 | **Sorbet** | Pastel et joueur : police arrondie, angles très ronds, couleurs acidulées, ombres douces. Toujours clair. |
 | **Minuit** | Bleu nuit profond, reflets violets et turquoise, titres fins, angles adoucis. Toujours sombre. |
@@ -388,7 +388,7 @@ Sources/CleanMyClaude/
 
 Chaque module de `Features/` se branche sur `App/ModuleRegistry.swift` (commandes du lanceur, données de démo, autotests, captures, interrupteurs du menu d'état). Les règles pour en écrire un sont dans [`CLAUDE.md`](../CLAUDE.md).
 
-Le thème Atelier reprend le design de [ClaudeStats](https://github.com/Olima34/ClaudeStats) : surfaces chaudes, titres en serif, accent bleu, étincelle et créature de Claude. Les vues lisent tout dans `Theme` (couleurs, `Theme.r(…)` pour les angles, `PillShape` pour les capsules, `Theme.line` pour les bordures, `Theme.icons` pour les icônes décoratives) : `ThemeStore` est observable, changer de thème redessine l'app sans la relancer.
+Le thème Atelier reprend le design de [ClaudeStats](https://github.com/Olima34/ClaudeStats) : surfaces chaudes, titres en serif, accent bleu. La mascotte, un petit personnage en plumes dessiné en pixels, est la même dans tous les thèmes (`MascotFigure`, `UI/Components/Brand.swift`) : ses couleurs viennent de la couleur d'alerte du thème, avec un contour sur les fonds clairs. Les vues lisent tout dans `Theme` (couleurs, `Theme.r(…)` pour les angles, `PillShape` pour les capsules, `Theme.line` pour les bordures, `Theme.icons` pour les icônes décoratives) : `ThemeStore` est observable, changer de thème redessine l'app sans la relancer.
 
 ## Feuille de route
 

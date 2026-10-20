@@ -308,7 +308,7 @@ struct ThemeSpec: Hashable, Identifiable {
     var icons: ThemeIconStyle
     /// The faint columns of characters behind the page titles.
     var backdrop: Bool
-    /// The Claude spark and the pixel mascot.
+    /// The pixel mascot, at rest, at work and as the brand mark.
     var mascot: Bool
 
     var isBuiltIn: Bool { ThemeSpec.builtIns.contains { $0.id == id } }

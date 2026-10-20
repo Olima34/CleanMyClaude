@@ -232,7 +232,7 @@ struct AssistantConversation: View {
                 if model.entries.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 12) {
-                            ClaudeSpark(size: 28)
+                            BrandMark(size: 28)
                             Text("Que veux-tu savoir sur ton Mac ?").font(.serif(21)).foregroundStyle(Theme.text)
                         }
                         FlowLayout(spacing: 8, lineSpacing: 8) {
@@ -280,7 +280,7 @@ struct AssistantEntryView: View {
             }
         case .assistant(let text):
             HStack(alignment: .top, spacing: 10) {
-                ClaudeSpark(size: 18).padding(.top, 2)
+                BrandMark(size: 18).padding(.top, 2)
                 Text(Self.markdown(text)).font(.ui(13)).foregroundStyle(Theme.text)
                     .fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)

@@ -22,7 +22,7 @@ struct MenuBarPage: View {
                         .themedShadow(color: .black.opacity(0.25), radius: 18, y: 8)
                 }
                 VStack(alignment: .leading, spacing: 14) {
-                    Panel(title: "Dans la barre des menus", subtitle: "Ce qui s'affiche à côté de l'étincelle", symbol: "textformat") {
+                    Panel(title: "Dans la barre des menus", subtitle: "Ce qui s'affiche à côté de la mascotte", symbol: "textformat") {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(MenuMetric.allCases) { mm in
                                 Button { metric = mm } label: {
@@ -102,7 +102,7 @@ struct MenuBarLabelPreview: View {
     var body: some View {
         let m = app.monitor
         HStack(spacing: 4) {
-            ClaudeSpark(size: 12, color: Theme.text)
+            BrandMark(size: 12, ink: Theme.text)
             switch metric {
             case .icon: EmptyView()
             case .cpu: Text("\(Int((m.cpu * 100).rounded())) %")

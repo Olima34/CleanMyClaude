@@ -82,7 +82,7 @@ struct CleanupIntro: View {
                     .padding(.top, 4)
                 }
                 Spacer(minLength: 0)
-                PixelMascot(pixel: 7, broom: true)
+                PixelMascot(pixel: 5)
                     .padding(.top, 20)
                     .padding(.trailing, 12)
             }

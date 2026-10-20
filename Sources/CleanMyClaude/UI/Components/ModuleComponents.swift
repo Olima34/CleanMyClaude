@@ -30,7 +30,7 @@ struct ModulePlaceholder: View {
                         }
                     }
                     Spacer(minLength: 0)
-                    PixelMascot(pixel: 6, broom: true).padding(.top, 16)
+                    PixelMascot(pixel: 3.5).padding(.top, 16)
                 }
             }
         }
