@@ -313,9 +313,11 @@ struct PerformanceGroup: Sendable {
     var launchedByFront = false
     /// Processes macOS already keeps in the background band itself (App Nap, hidden browser tabs, indexing): never touched.
     var alreadyBackground: Set<PerformancePID> = []
+    /// Its extensions, which work for other apps and for macOS (File Provider, Quick Look, Share…): never touched.
+    var serving: Set<PerformancePID> = []
 
     /// What the Boost can actually move.
-    var movable: [PerformancePID] { pids.filter { !alreadyBackground.contains($0) } }
+    var movable: [PerformancePID] { pids.filter { !alreadyBackground.contains($0) && !serving.contains($0) } }
 }
 
 /// Whether a group may be moved, and why not.
@@ -368,6 +370,33 @@ enum PerformancePlanner {
         return syncClients.contains { id.hasPrefix($0.lowercased()) }
     }
 
+    /// Apps the whole Mac waits on when they are slow: the network itself (VPN), a screen shared with someone, the
+    /// passwords every app asks for. Never slowed by a mode or a sweep (the user may still slow one by hand).
+    static let infrastructure = [
+        "com.wireguard.macos", "io.tailscale.ipn", "com.cisco.anyconnect", "com.cisco.secureclient", "com.paloaltonetworks.globalprotect",
+        "com.fortinet", "ch.protonvpn", "com.nordvpn", "net.mullvad", "com.expressvpn", "com.surfshark", "com.privateinternetaccess",
+        "com.teamviewer", "com.philandro.anydesk", "tv.parsec", "com.google.chromeremotedesktop", "com.realvnc", "com.microsoft.rdc",
+        "com.1password", "com.agilebits", "com.bitwarden", "com.dashlane", "com.lastpass", "com.apple.passwords", "com.keepassxc",
+        "org.keepassxc", "com.enpass", "com.nordpass"
+    ]
+
+    static func isInfrastructure(_ bundleID: String?) -> Bool {
+        guard let id = bundleID?.lowercased() else { return false }
+        return infrastructure.contains { id.hasPrefix($0) }
+    }
+
+    /// An app extension (`.appex`) works for others: a File Provider for every Open dialog and the Finder, a Quick Look
+    /// or Share extension for the app that calls it. Slowed with its app, it would slow the whole Mac; and its work, done
+    /// for others, never gets its app slowed either.
+    static func isServing(_ path: String) -> Bool {
+        path.contains(".appex/")
+    }
+
+    /// % of one core above which the group counts as busy: a menu bar app is allowed more (it often works for the user).
+    static func busyThreshold(_ g: PerformanceGroup) -> Double {
+        g.kind == .menuBar && !isSyncClient(g.bundleID) ? busyMenuBarCPU : busyCPU
+    }
+
     /// The decision for one group. `busyFor`: how long it has been busy without a break (seconds).
     static func verdict(_ g: PerformanceGroup, mode: PerformanceMode, frontKey: String?, ownKey: String,
                         rules: PerformanceRules, busyFor: TimeInterval) -> PerformanceVerdict {
@@ -381,10 +410,13 @@ enum PerformancePlanner {
         if g.watchesKeyboard { return .keep("Surveille le clavier ou la souris") }
         if rules.protected.contains(where: { $0 == g.bundleID || $0 == g.key }) { return .keep("Protégée") }
         if rules.alwaysSlow.contains(g.key) { return .demote(.rule) }
+        if isInfrastructure(g.bundleID) { return .keep("Réseau, partage d'écran ou mots de passe") }
         switch g.kind {
         case .menuBar:
-            if isSyncClient(g.bundleID) { return mode.isWide || busy ? .demote(mode.isWide ? .mode : .busy) : .keep("Calme") }
-            return busy && g.cpu >= busyMenuBarCPU ? .demote(.busy) : .keep("App de la barre des menus")
+            // The other apps wait for their files from it: only when it runs wild, whatever the mode.
+            if isSyncClient(g.bundleID) { return busy ? .demote(.busy) : .keep("Calme") }
+            // Counted at its own threshold already: a short reading between two sweeps does not undo it.
+            return busy ? .demote(.busy) : .keep("App de la barre des menus")
         case .app, .helper, .daemon:
             if mode.isWide { return .demote(.mode) }
             return busy ? .demote(.busy) : .keep("Calme")
@@ -426,6 +458,7 @@ enum PerformancePlanner {
                                                              bundleID: info?.bundleID ?? identity.app.flatMap(bundleIdentifier), kind: kind, pids: [])
             g.pids.append(p.id)
             if p.priority <= 4 { g.alreadyBackground.insert(p.id) }
+            if isServing(p.path) { g.serving.insert(p.id) }
             g.launchedByFront = g.launchedByFront || frontTree.contains(p.id.pid)
             g.memory += p.memory
             g.audio = g.audio || audio.contains(p.id.pid)
@@ -507,11 +540,19 @@ final class PerformanceGovernorEngine: @unchecked Sendable {
     private var lastSweep: Date?
     /// How long each group has been busy without a break, counted on full sweeps only.
     private var busyFor: [String: TimeInterval] = [:]
+    /// How long an app slowed for running wild stays so before it is measured again: doubled each time it is slowed
+    /// again soon after (two minutes, then four, eight… half an hour at most), so a greedy app does not swing back and forth.
+    private var holds: [String: TimeInterval] = [:]
+    /// When an app slowed for running wild got its speed back at the end of its hold.
+    private var released: [String: Date] = [:]
     private let ownKey: String
 
     /// Sweeps closer together than this (an app came to the front, a sound started) decide with the current measure
     /// but do not move the baseline nor count as busy time: a burst of a few seconds never gets an app slowed.
     static let fullSweep: TimeInterval = 5
+    /// An app slowed because it ran wild is measured again after this long: calm by then, it gets its speed back,
+    /// even if it never comes to the front (a menu bar app almost never does).
+    static let busyHold: TimeInterval = 120
 
     init() {
         ownKey = ProcessList.identity(of: Bundle.main.executablePath ?? "").key
@@ -623,7 +664,7 @@ final class PerformanceGovernorEngine: @unchecked Sendable {
         // Processor use since the last full sweep, per group.
         let dt = lastSweep.map { now.timeIntervalSince($0) } ?? 0
         if dt > 0.5 {
-            for p in procs {
+            for p in procs where !PerformancePlanner.isServing(p.path) {
                 guard let before = lastCPU[p.id], p.cpuTime >= before else { continue }
                 let key = ProcessList.identity(of: p.path).key
                 groups[key]?.cpu += Double(p.cpuTime - before) / 1e9 / dt * 100
@@ -646,10 +687,12 @@ final class PerformanceGovernorEngine: @unchecked Sendable {
         }
 
         for (key, g) in groups {
+            let hold = holds[key] ?? Self.busyHold
             if full && dt > 0 {
-                if g.cpu >= PerformancePlanner.busyCPU {
+                // One threshold for counting and deciding: an app that calms down just below it is never swung back and forth.
+                if g.cpu >= PerformancePlanner.busyThreshold(g) {
                     busyFor[key, default: 0] += dt
-                } else if demoted[key] == nil {
+                } else if demoted[key].map({ $0.cause != .busy || now.timeIntervalSince($0.since) >= hold }) ?? true {
                     busyFor[key] = 0
                 }
             }
@@ -667,22 +710,41 @@ final class PerformanceGovernorEngine: @unchecked Sendable {
                 } else {
                     let moved = g.movable.filter { PerformanceProcScan.setBackground($0, true) }
                     guard !moved.isEmpty else { continue }
+                    if cause == .busy {
+                        // Busy again soon after its speed came back: it waits twice as long before the next measure.
+                        let again = released[key].map { now.timeIntervalSince($0) < 600 } ?? false
+                        holds[key] = again ? min(1800, hold * 2) : Self.busyHold
+                    }
                     demoted[key] = PerformanceDemotion(key: key, name: g.name, appPath: g.appPath, bundleID: g.bundleID, pids: moved,
                                                        since: now, cause: cause, cpuBefore: g.cpu, cpuNow: g.cpu)
                 }
             case .keep:
                 // Back to full speed: it came to the front, plays sound, got protected, or the mode no longer moves it.
                 if let d = demoted[key] {
-                    // Slowed because it was busy or on request: it stays so until it comes to the front.
-                    let sticky = (d.cause == .busy || d.cause == .manual) && ctx.mode != .off && key != frontKey && !g.audio
-                        && !g.watchesKeyboard && !g.launchedByFront && !ctx.rules.protected.contains(where: { $0 == g.bundleID || $0 == key })
-                    if !sticky { restoreGroup(key, procs: procs) } else { demoted[key]?.cpuNow = g.cpu }
+                    // Slowed on request: it stays so until it comes to the front. Slowed because it was busy: for two
+                    // minutes at least, then as long as it stays busy.
+                    // Measured again only at a full sweep: a reading over a fraction of a second is no proof of calm.
+                    let held = d.cause == .manual || (d.cause == .busy && (now.timeIntervalSince(d.since) < hold || !full))
+                    // A VPN or a password manager is only ever slowed by hand.
+                    let stays = ctx.mode != .off && key != frontKey && !g.audio && !g.watchesKeyboard && !g.launchedByFront
+                        && (d.cause == .manual || !PerformancePlanner.isInfrastructure(g.bundleID))
+                        && !ctx.rules.protected.contains(where: { $0 == g.bundleID || $0 == key })
+                    if held && stays {
+                        demoted[key]?.cpuNow = g.cpu
+                    } else {
+                        // Its hold ran out (not the front, a sound or the mode): the next one, if it runs wild again, is longer.
+                        if d.cause == .busy, !held, stays { released[key] = now }
+                        restoreGroup(key, procs: procs)
+                    }
                 }
             }
         }
         busyFor = busyFor.filter { groups[$0.key] != nil }
+        holds = holds.filter { groups[$0.key] != nil }
+        released = released.filter { groups[$0.key] != nil && now.timeIntervalSince($0.value) < 600 }
         let busy = groups.values
-            .filter { demoted[$0.key] == nil && $0.key != frontKey && $0.key != ownKey && $0.kind != .other && $0.cpu >= 5 && !$0.movable.isEmpty }
+            .filter { demoted[$0.key] == nil && $0.key != frontKey && $0.key != ownKey && $0.kind != .other && $0.cpu >= 5 && !$0.movable.isEmpty
+                && !PerformancePlanner.isInfrastructure($0.bundleID) }
             .sorted { $0.cpu > $1.cpu }
         return PerformanceSweepResult(demotions: list, busy: Array(busy.prefix(6)), frontKey: frontKey)
     }

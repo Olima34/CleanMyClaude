@@ -25,6 +25,10 @@ enum AppPermission: String, CaseIterable {
         }
     }
 
+    /// One manager for every check: each new one costs a round trip to the location daemon (the Network page asks
+    /// every few seconds while the Wi-Fi name is hidden).
+    @MainActor private static let locationManager = CLLocationManager()
+
     @MainActor
     var isGranted: Bool {
         if DemoData.isEnabled { return true }
@@ -32,7 +36,7 @@ enum AppPermission: String, CaseIterable {
         case .fullDiskAccess: return Permissions.hasFullDiskAccess
         case .accessibility: return AXIsProcessTrusted()
         case .location:
-            let s = CLLocationManager().authorizationStatus
+            let s = Self.locationManager.authorizationStatus
             return s == .authorizedAlways || s == .authorized
         case .notifications: return Notifier.available
         }

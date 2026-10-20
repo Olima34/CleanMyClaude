@@ -53,11 +53,15 @@ final class ClipboardWindow {
 
     private func makePanel() -> FloatingPanel {
         let p = FloatingPanel(size: NSSize(width: Self.width, height: Self.height))
-        p.onClose = { [weak self] in
+        p.onClose = { [weak self, weak p] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 self.isOpen = false
                 self.removeKeyMonitor()
+                // The closed window keeps no view: each copy no longer recomputes a list nobody sees.
+                DispatchQueue.main.async { [weak p] in
+                    if let p, !p.isVisible { p.contentView = nil }
+                }
             }
         }
         panel = p
@@ -134,6 +138,8 @@ final class ClipboardWindow {
         removeKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let panel = self.panel, event.window === panel, let m = self.model else { return event }
+            // A held ↩ pastes once, not once per key repeat.
+            if event.isARepeat, [kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode)) { return nil }
             let flags = event.modifierFlags
             let command = flags.contains(.command)
             switch Int(event.keyCode) {

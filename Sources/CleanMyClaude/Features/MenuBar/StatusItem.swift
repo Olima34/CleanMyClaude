@@ -6,22 +6,36 @@ extension MenuMetric {
     /// The text next to the mascot in the menu bar ("" for the icon alone).
     @MainActor
     func text(_ m: SystemMonitor) -> String {
+        // The monitor's figures for the menu bar: fresh at its light pace too, when nothing else reads it.
+        let f = m.menuFigures
         switch self {
         case .icon: return ""
-        case .cpu: return "\(Int((m.cpu * 100).rounded())) %"
-        case .memory: return "\(Int((m.memFraction * 100).rounded())) %"
-        case .cpuMemory: return "\(Int((m.cpu * 100).rounded()))% · \(Int((m.memFraction * 100).rounded()))%"
-        case .network: return "↓\(Fmt.speed(m.netIn)) ↑\(Fmt.speed(m.netOut))"
-        case .disk: return Fmt.bytes(m.diskFree)
+        case .cpu: return "\(Int((f.cpu * 100).rounded())) %"
+        case .memory: return "\(Int((f.memory * 100).rounded())) %"
+        case .cpuMemory: return "\(Int((f.cpu * 100).rounded()))% · \(Int((f.memory * 100).rounded()))%"
+        case .network: return "↓\(Fmt.speed(f.netIn)) ↑\(Fmt.speed(f.netOut))"
+        case .disk: return Fmt.bytes(f.diskFree)
         case .temperature: return PerformanceSensorReader.shared.quickTemperature().map { "\(Int($0.rounded()))°" } ?? "—"
+        }
+    }
+
+    /// What the monitor must read for this text when the menu bar alone shows it (the temperature has its own sensors).
+    var readings: SystemMonitor.Readings {
+        switch self {
+        case .icon, .temperature: return []
+        case .cpu: return .cpu
+        case .memory: return .memory
+        case .cpuMemory: return [.cpu, .memory]
+        case .network: return .network
+        case .disk: return .disk
         }
     }
 }
 
 /// The menu bar item, built with AppKit. Changing its text is a cheap property update,
 /// whereas a SwiftUI `MenuBarExtra` label rebuilds the whole app menu at every refresh (measured: ~2 % of CPU).
-/// The text follows the monitor's samples; with the icon alone, the item keeps the monitor running only while its
-/// panel is open.
+/// The text follows the monitor's samples; alone on screen it has the monitor read only what it shows, every 5 s.
+/// With the icon alone, the item keeps the monitor running only while its panel is open.
 @MainActor
 final class StatusItemController: NSObject, NSPopoverDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -34,6 +48,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var shownMood: RefugeMood?
     /// The download shown in the item: its whole percent (-1 before the first figure, -2 while it waits), nil when none.
     private var shownDownload: Int?
+    /// The temperature is read at most every 5 s, even while the window has the monitor sample every 2 s.
+    private var temperatureText = "—"
+    private var temperatureRead = Date.distantPast
 
     nonisolated private static var savedMetric: MenuMetric {
         MenuMetric(rawValue: UserDefaults.standard.string(forKey: Preferences.menuMetricKey) ?? "") ?? .cpuMemory
@@ -52,6 +69,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         app.monitor.onSample = { [weak self] in self?.update() }
+        app.monitor.menuBarReadings = metric.readings
         app.monitor.show(.menuBar, metric != .icon)
         update()
         watchDownloads()
@@ -65,7 +83,9 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         let saved = Self.savedMetric
         guard saved != metric else { return }
         metric = saved
+        app.monitor.menuBarReadings = metric.readings
         app.monitor.show(.menuBar, metric != .icon)
+        temperatureRead = .distantPast
         update()
     }
 
@@ -77,10 +97,19 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             shownMood = app.refuge.menuMood
             button.image = shownMood.map { RefugeFigure.menuImage($0) } ?? Self.icon
         }
-        let text = metric.text(app.monitor)
+        let text = metric == .temperature ? temperature() : metric.text(app.monitor)
         guard text != lastText, let button = item.button else { return }
         lastText = text
         button.attributedTitle = NSAttributedString(string: text.isEmpty ? "" : " " + text, attributes: [.font: font])
+    }
+
+    /// The sensors are read in the background: each call shows the figure of the previous reading. Read again after
+    /// 5 s, or at once while there is no figure yet.
+    private func temperature() -> String {
+        guard temperatureText == "—" || Date().timeIntervalSince(temperatureRead) >= 4.5 else { return temperatureText }
+        temperatureRead = Date()
+        temperatureText = metric.text(app.monitor)
+        return temperatureText
     }
 
     // MARK: Downloads

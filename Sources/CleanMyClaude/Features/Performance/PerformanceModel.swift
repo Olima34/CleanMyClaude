@@ -103,8 +103,15 @@ final class PerformanceModel {
     var lastQuit: String?
 
     @ObservationIgnored private var timer: Timer?
-    @ObservationIgnored private var samplers = 0
+    /// The views showing processes: in the main window (Moniteur, Boost, Menu d'état) and in the menu bar panel.
+    @ObservationIgnored private var windowSamplers = 0
+    @ObservationIgnored private var panelSamplers = 0
+    @ObservationIgnored private var windowOnScreen = true
     @ObservationIgnored private var sampling = false
+    @ObservationIgnored private var lastSample = Date.distantPast
+
+    /// The list of processes is from the last few seconds (a page left in a hidden window keeps an old one).
+    var processesFresh: Bool { !processes.isEmpty && Date().timeIntervalSince(lastSample) < 6 }
 
     var sortedProcesses: [ProcessGroup] {
         processes.sorted { sort == .cpu ? ($0.cpu, $0.memory) > ($1.cpu, $1.memory) : $0.memory > $1.memory }
@@ -112,13 +119,37 @@ final class PerformanceModel {
 
     var topByCPU: [ProcessGroup] { processes.sorted { $0.cpu > $1.cpu } }
 
-    /// Views that show processes call this on appear and `stopSampling` on disappear.
-    func startSampling() {
+    /// Views that show processes call this on appear and `stopSampling` on disappear (`inMainWindow` false: the menu bar
+    /// panel). The list is read every 3 s while one of them is on screen: the panel, or the main window when it is.
+    func startSampling(inMainWindow: Bool = true) {
         // A snapshot is a still frame: no sample may land halfway through the render.
         guard !Snapshot.isActive else { return }
-        samplers += 1
+        if inMainWindow { windowSamplers += 1 } else { panelSamplers += 1 }
+        updateTimer()
+    }
+
+    func stopSampling(inMainWindow: Bool = true) {
+        if inMainWindow { windowSamplers = max(0, windowSamplers - 1) } else { panelSamplers = max(0, panelSamplers - 1) }
+        updateTimer()
+    }
+
+    /// The main window came on screen or went away (minimised, hidden, covered, on another Space).
+    func setWindowOnScreen(_ on: Bool) {
+        windowOnScreen = on
+        updateTimer()
+    }
+
+    private var needsSampling: Bool { panelSamplers > 0 || (windowSamplers > 0 && windowOnScreen) }
+
+    private func updateTimer() {
+        guard needsSampling else {
+            timer?.invalidate()
+            timer = nil
+            return
+        }
         guard timer == nil else { return }
-        Task { await sampleProcesses() }
+        // Back on screen: fresh figures right away, unless the last ones are only a moment old.
+        if Date().timeIntervalSince(lastSample) > 1.5 { Task { await sampleProcesses() } }
         let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
             _ = MainActor.assumeIsolated { Task { await self?.sampleProcesses() } }
         }
@@ -127,19 +158,16 @@ final class PerformanceModel {
         timer = t
     }
 
-    func stopSampling() {
-        samplers = max(0, samplers - 1)
-        if samplers == 0 {
-            timer?.invalidate()
-            timer = nil
-        }
-    }
-
+    /// `ps` and the Rosetta apps are read off the main thread; only the result lands here.
     func sampleProcesses() async {
         guard !sampling else { return }
         sampling = true
-        processes = await Task.detached(priority: .utility) { ProcessList.sample() }.value
-        rosetta = PerformanceDiagnosis.rosettaApps()
+        let (list, translated) = await Task.detached(priority: .utility) {
+            (ProcessList.sample(), PerformanceDiagnosis.rosettaApps())
+        }.value
+        processes = list
+        if translated != rosetta { rosetta = translated }
+        lastSample = Date()
         sampling = false
     }
 

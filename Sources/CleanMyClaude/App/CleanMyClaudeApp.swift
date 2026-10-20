@@ -29,14 +29,17 @@ enum AppContext {
         }
     }
 
-    /// The system monitor samples only while something shows its values: here, the main window on screen
-    /// (not closed, minimised, hidden, on another Space or fully covered).
+    /// The system monitor samples at its full pace only while something shows its values: here, the main window on
+    /// screen (not closed, minimised, hidden, on another Space or fully covered). The pages' own samples and small
+    /// animations follow the same state (`AppModel.mainWindowOnScreen`).
     /// The pages, though, stay drawn until the window closes, so that they keep their state off screen.
     static func noteMainWindowVisibility(closing: Bool = false) {
         let windows = closing ? [] : NSApp.windows.filter { $0.identifier?.rawValue.hasPrefix("main") ?? false }
         // Closing is the only way to lose the pages; any way back on screen (Dock, menu bar, Window menu) brings them back.
         if closing { setMainWindowOpen(false) } else if windows.contains(where: \.isVisible) { setMainWindowOpen(true) }
-        model?.monitor.show(.window, windows.contains { $0.isVisible && $0.occlusionState.contains(.visible) })
+        let onScreen = !NSApp.isHidden
+            && windows.contains { $0.isVisible && !$0.isMiniaturized && $0.occlusionState.contains(.visible) }
+        model?.setMainWindowOnScreen(onScreen)
     }
 
     private static func setMainWindowOpen(_ open: Bool) {
@@ -198,9 +201,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     AppContext.noteMainWindowVisibility()
                 }
             }
-            NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main) { note in
-                guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }
-                MainActor.assumeIsolated { AppContext.noteMainWindowVisibility() }
+            // Covered, on another Space, minimised or back: the occlusion changes. Minimising and ⌘H are listened to as
+            // well, so the state never waits for the occlusion to settle.
+            for name in [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+                         NSWindow.didDeminiaturizeNotification] {
+                NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                    guard let w = note.object as? NSWindow, w.identifier?.rawValue.hasPrefix("main") ?? false else { return }
+                    MainActor.assumeIsolated { AppContext.noteMainWindowVisibility() }
+                }
+            }
+            for name in [NSApplication.didHideNotification, NSApplication.didUnhideNotification] {
+                NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                    MainActor.assumeIsolated { AppContext.noteMainWindowVisibility() }
+                }
             }
         }
         MainActor.assumeIsolated {
@@ -238,6 +251,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MainActor.assumeIsolated {
             if let app = AppContext.model { ModuleRegistry.stopAll(app, only: app.startedModules) }
         }
+        // The JSON stores write in the background: what was saved a moment ago reaches the disk before the app ends.
+        // The last changes still waiting for their half second, then every write under way.
+        DataStore.savePending()
+        DataStore.waitForWrites()
     }
 
     /// The menu bar keeps running when the window is closed.

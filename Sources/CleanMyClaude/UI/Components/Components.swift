@@ -705,18 +705,34 @@ struct ScanButton: View {
 struct FileIcon: View {
     var path: String
     var size: CGFloat = 24
+    /// The file's own icon once read in the background (a file on a slow disk never holds the main thread).
+    @State private var loaded: (path: String, image: CGImage)?
 
     var body: some View {
         Group {
             if DemoData.isEnabled, let icon = DemoData.icon(for: path) {
                 DrawnAppIcon(icon: icon, size: size)
-            } else if let cg = DemoData.isEnabled ? IconCache.genericIcon(for: path) : IconCache.icon(for: path) {
+            } else if let cg = image {
                 Image(decorative: cg, scale: 2).resizable().interpolation(.high)
             } else {
                 Image(systemName: "doc").resizable().scaledToFit().foregroundStyle(Theme.text3)
             }
         }
         .frame(width: size, height: size)
+        .task(id: path) {
+            guard !DemoData.isEnabled, !Snapshot.isActive, IconCache.cached(path) == nil else { return }
+            let target = path
+            let cg = await DiskQueue.read { IconCache.icon(for: target) } ?? nil
+            if let cg, !Task.isCancelled { loaded = (target, cg) }
+        }
+    }
+
+    /// Snapshots draw at once, without the background read; otherwise the icon of the type stands in until the file's own.
+    private var image: CGImage? {
+        if DemoData.isEnabled { return IconCache.genericIcon(for: path) }
+        if Snapshot.isActive { return IconCache.icon(for: path) }
+        if let loaded, loaded.path == path { return loaded.image }
+        return IconCache.cached(path) ?? IconCache.genericIcon(for: path)
     }
 }
 
@@ -755,6 +771,13 @@ enum IconCache {
         flattened(path) { NSWorkspace.shared.icon(forFile: path) }
     }
 
+    /// The icon of `path` if it was already read, without touching the disk.
+    static func cached(_ path: String) -> CGImage? {
+        lock.lock()
+        defer { lock.unlock() }
+        return cache[path]
+    }
+
     /// The icon macOS gives a type of file (or a folder), guessed from the extension without opening anything.
     static func genericIcon(for path: String) -> CGImage? {
         let ext = (path as NSString).pathExtension
@@ -775,9 +798,8 @@ enum IconCache {
     }
 
     private static func flattened(_ key: String, _ make: () -> NSImage) -> CGImage? {
-        lock.lock()
-        defer { lock.unlock() }
-        if let img = cache[key] { return img }
+        if let img = cached(key) { return img }
+        // Read and drawn without the lock: a slow file (a network disk) never holds up the icons of the others.
         // Redrawn into a plain sRGB bitmap: icons may come in wide color spaces that skew off-screen renders.
         let side = 128
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
@@ -789,6 +811,8 @@ enum IconCache {
         icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
         NSGraphicsContext.restoreGraphicsState()
         guard let cg = ctx.makeImage() else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
         // The app lives for weeks in the menu bar: thousands of files must not keep their icons forever.
         if cache.count > 600 { cache.removeAll(keepingCapacity: true) }
         cache[key] = cg

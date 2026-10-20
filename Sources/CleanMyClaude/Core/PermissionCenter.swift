@@ -99,6 +99,14 @@ final class PermissionCenter {
     @ObservationIgnored private var remembered: [PermissionKind: PermissionState] = [:]
     @ObservationIgnored private var lastNetworkCheck = Date.distantPast
     @ObservationIgnored private var skipWait = false
+    /// One location manager for every check (each new one costs a round trip to the location daemon), made on first use.
+    @ObservationIgnored private var locationManager: CLLocationManager?
+
+    private var locationStatus: CLAuthorizationStatus {
+        let manager = locationManager ?? CLLocationManager()
+        locationManager = manager
+        return manager.authorizationStatus
+    }
 
     private static let askedKey = "permissions.asked"
 
@@ -119,7 +127,7 @@ final class PermissionCenter {
         } else {
             s[.notifications] = .notAsked
         }
-        switch CLLocationManager().authorizationStatus {
+        switch locationStatus {
         case .authorizedAlways, .authorized: s[.location] = .granted
         case .denied, .restricted: s[.location] = .denied
         default: s[.location] = .notAsked
@@ -211,7 +219,7 @@ final class PermissionCenter {
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
         case .location:
             LocationAsker.shared.ask()
-            await wait(seconds: 30) { CLLocationManager().authorizationStatus != .notDetermined }
+            await wait(seconds: 30) { self.locationStatus != .notDetermined }
         case .finder:
             _ = await Self.automation("com.apple.finder", ask: true)
         case .systemEvents:

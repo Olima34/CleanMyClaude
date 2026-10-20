@@ -85,6 +85,32 @@ enum DarkModeInvert {
         }
         return isOn == on
     }
+
+    /// Off, whatever was read last: asked of the daemon even if the screen does not look inverted yet (a switch on its
+    /// way through it is applied first, then this one), and checked back for half a second at most.
+    static func forceOff() {
+        guard !DemoData.isEnabled, !Snapshot.isActive, let setter, getter != nil else { return }
+        setter(0)
+        for _ in 0..<10 where isOn { Thread.sleep(forTimeInterval: 0.05) }
+    }
+
+    /// The same switch without holding the main thread while the daemon applies it: `done` gets macOS' answer, read
+    /// back every 50 ms for half a second at most.
+    @MainActor
+    static func set(_ on: Bool, then done: @escaping @MainActor (Bool) -> Void) {
+        guard !DemoData.isEnabled, !Snapshot.isActive, let setter, getter != nil else { return done(false) }
+        if isOn == on { return done(true) }
+        setter(on ? 1 : 0)
+        check(on, left: 10, done)
+    }
+
+    @MainActor
+    private static func check(_ on: Bool, left: Int, _ done: @escaping @MainActor (Bool) -> Void) {
+        if isOn == on || left == 0 { return done(isOn == on) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            MainActor.assumeIsolated { check(on, left: left - 1, done) }
+        }
+    }
 }
 
 /// Inverts the screen while an app chosen "Inversée" is in front, and puts it back when another one comes forward.
@@ -94,6 +120,10 @@ final class DarkModeInvertWatcher {
     private var observer: NSObjectProtocol?
     /// The inversion was switched on here (an inversion the user put on by hand is never switched off).
     private(set) var invertedByUs = false
+    /// A switch macOS has not applied yet (its target): one at a time, the app in front is looked at again after it.
+    private var switching: Bool?
+    /// Bumped by `stop`: an answer for a switch from before is ignored.
+    private var generation = 0
     var apps: Set<String> = []
     /// Called when macOS refused: the page says so.
     var onFailure: (() -> Void)?
@@ -115,22 +145,50 @@ final class DarkModeInvertWatcher {
     }
 
     private func activated(_ id: String?) {
+        guard switching == nil else { return }
         let wanted = id.map(apps.contains) ?? false
         if wanted, !invertedByUs {
             guard !DarkModeInvert.isOn else { return }
-            if DarkModeInvert.set(true) { invertedByUs = true } else { onFailure?() }
+            switchInvert(true)
         } else if !wanted, invertedByUs {
-            DarkModeInvert.set(false)
-            invertedByUs = false
+            switchInvert(false)
+        }
+    }
+
+    /// Switches without waiting on the main thread; once macOS has applied it, the app in front by then decides
+    /// whether to switch back (a quick ⌘⇥ during the switch).
+    private func switchInvert(_ on: Bool) {
+        switching = on
+        let current = generation
+        DarkModeInvert.set(on) { [weak self] ok in
+            guard let self, self.generation == current else { return }
+            self.switching = nil
+            if on {
+                guard ok else {
+                    // Refused: tried again at the next switch to an app chosen "Inversée", not in a loop.
+                    self.onFailure?()
+                    return
+                }
+                self.invertedByUs = true
+            } else {
+                self.invertedByUs = false
+            }
+            self.activated(NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
         }
     }
 
     func stop() {
         if let observer { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
         observer = nil
-        if invertedByUs {
+        generation += 1
+        // At once, even while a switch is under way: the app may be quitting. A switch to inverted still on its way
+        // through the daemon would land after a plain "off" that saw nothing to undo: it is turned off regardless.
+        if switching == true {
+            DarkModeInvert.forceOff()
+        } else if invertedByUs {
             DarkModeInvert.set(false)
-            invertedByUs = false
         }
+        invertedByUs = false
+        switching = nil
     }
 }

@@ -615,16 +615,16 @@ struct ToolboxTimeTab: View {
                     ToolboxSwitch(title: "En minuscules", isOn: $m.settings.uuidLowercase)
                 }
                 Panel(title: "Maintenant", subtitle: "L'heure Unix, seconde après seconde", symbol: "clock", tint: Theme.palette[7]) {
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    ToolboxEverySecond { date in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .firstTextBaseline) {
-                                Text(ToolboxTime.unix(ctx.date)).font(.serif(30)).foregroundStyle(Theme.text).monospacedDigit()
+                                Text(ToolboxTime.unix(date)).font(.serif(30)).foregroundStyle(Theme.text).monospacedDigit()
                                 Spacer()
-                                ToolboxCopyButton(text: ToolboxTime.unix(ctx.date), label: "Copier", prominent: true)
+                                ToolboxCopyButton(text: ToolboxTime.unix(date), label: "Copier", prominent: true)
                             }
                             VStack(spacing: 2) {
-                                ToolboxValueRow(label: "Millisecondes", value: ToolboxTime.unixMillis(ctx.date), labelWidth: 100)
-                                ToolboxValueRow(label: "ISO 8601", value: ToolboxTime.isoString(ctx.date), labelWidth: 100)
+                                ToolboxValueRow(label: "Millisecondes", value: ToolboxTime.unixMillis(date), labelWidth: 100)
+                                ToolboxValueRow(label: "ISO 8601", value: ToolboxTime.isoString(date), labelWidth: 100)
                             }
                         }
                     }
@@ -659,10 +659,10 @@ struct ToolboxCaffeineTab: View {
         VStack(alignment: .leading, spacing: 14) {
             Card(padding: 24) {
                 HStack(alignment: .center, spacing: 28) {
-                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    ToolboxEverySecond { date in
                         ZStack {
                             // The ring moves every 15 s (its animation would otherwise run every second).
-                            let step = Date(timeIntervalSince1970: (ctx.date.timeIntervalSince1970 / 15).rounded(.down) * 15)
+                            let step = Date(timeIntervalSince1970: (date.timeIntervalSince1970 / 15).rounded(.down) * 15)
                             ProgressRing(progress: m.caffeineActive ? m.caffeineFraction(step) : 0, tint: Theme.brand, lineWidth: 9)
                             VStack(spacing: 4) {
                                 if Theme.icons != .hidden {
@@ -670,7 +670,7 @@ struct ToolboxCaffeineTab: View {
                                         .font(.ui(22, .medium))
                                         .foregroundStyle(m.caffeineActive ? Theme.brand : Theme.text3)
                                 }
-                                Text(countdown(m, ctx.date))
+                                Text(countdown(m, date))
                                     .font(.serif(m.caffeineActive && m.caffeineEnd == nil ? 30 : 22))
                                     .foregroundStyle(Theme.text)
                                     .monospacedDigit()
@@ -740,5 +740,20 @@ struct ToolboxCaffeineTab: View {
         let what = m.settings.caffeineDisplay ? "Ni le Mac ni l'écran ne se mettront en veille" : "Le Mac ne se mettra pas en veille (l'écran peut s'éteindre)"
         if let end = m.caffeineEnd { return "\(what) jusqu'à \(Fmt.clock(end)), puis tout reprendra son cours." }
         return "\(what) tant que tu n'arrêtes pas Caféine."
+    }
+}
+
+/// Redrawn every second while the main window is on screen; frozen on the time it went away otherwise (no timer runs),
+/// and on time again as soon as it comes back.
+private struct ToolboxEverySecond<Content: View>: View {
+    @ViewBuilder var content: (Date) -> Content
+    @Environment(\.mainWindowOnScreen) private var onScreen
+
+    var body: some View {
+        if onScreen {
+            TimelineView(.periodic(from: .now, by: 1)) { ctx in content(ctx.date) }
+        } else {
+            content(Date())
+        }
     }
 }

@@ -536,7 +536,6 @@ struct OnboardingPermissionsCard: View {
     @State private var center = PermissionCenter.shared
     /// What the user leaves for later.
     @State private var later: Set<PermissionKind> = []
-    private let tick = Timer.publish(every: 1.5, tolerance: 0.5, on: .main, in: .common).autoconnect()
 
     /// The two System Settings switches first, Full Disk Access leading: once it is on, macOS no longer asks for
     /// the three folders. Every permission of `PermissionCenter` is here.
@@ -562,8 +561,17 @@ struct OnboardingPermissionsCard: View {
             }
         }
         .task(id: active) { if active { await center.refresh() } }
-        .onReceive(tick) { _ in
-            // Not while macOS shows its own question.
+        // Read again quickly only while a switch of System Settings is awaited; otherwise when the app comes back to
+        // the front (from System Settings, typically). Never while macOS shows its own question.
+        .task(id: active && center.waitingForSettings) {
+            guard active, center.waitingForSettings else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1.5), tolerance: .seconds(0.5))
+                guard !Task.isCancelled else { return }
+                await center.refresh()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             guard active, !center.isRunning || center.waitingForSettings else { return }
             Task { await center.refresh() }
         }

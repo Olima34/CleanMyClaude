@@ -60,7 +60,12 @@ final class LauncherFileIndex: @unchecked Sendable {
         "tvlibrary", "imovielibrary", "fcpbundle", "logicx", "band", "xcodeproj", "xcworkspace", "xcarchive", "xcassets",
         "playground", "dsym", "rtfd", "pages", "numbers", "key", "sparsebundle", "scptd", "workflow", "nib", "storyboardc", "lpdf"
     ]
-    static let maxItems = 1_500_000
+    /// About 300 bytes a name in memory: bounded by the Mac's memory (500 000 names on 8 GB, ≈ 150 MB at most), so that
+    /// a full home folder never pushes a small Mac into swapping.
+    static let maxItems: Int = {
+        let gigabytes = ProcessInfo.processInfo.physicalMemory >> 30
+        return gigabytes <= 8 ? 500_000 : (gigabytes <= 16 ? 1_000_000 : 1_500_000)
+    }()
 
     let roots: [String]
     let home: String
@@ -72,6 +77,8 @@ final class LauncherFileIndex: @unchecked Sendable {
     private var tree: [String: [Child]] = [:]
     private var stream: FSEventStreamRef?
     private var snapshotScheduled = false
+    /// Seconds the last rebuild of the snapshot took.
+    private var lastSnapshotCost = 0.0
     private var running = false
 
     init(home: String = FS.home) {
@@ -120,6 +127,19 @@ final class LauncherFileIndex: @unchecked Sendable {
         return (snapshot.count, Date().timeIntervalSince(t))
     }
 
+    /// The file window opens: changes waiting for their rebuild are taken in now (a file just downloaded is found at once).
+    func catchUp() {
+        queue.async { [self] in
+            guard running, let stream else { return }
+            FSEventStreamFlushAsync(stream)
+            queue.asyncAfter(deadline: .now() + 0.2) { [self] in
+                guard running, snapshotScheduled else { return }
+                snapshotScheduled = false
+                makeSnapshot()
+            }
+        }
+    }
+
     /// Reads everything again (once a day, or on request), without stopping the searches meanwhile.
     func rebuild() {
         queue.async { [self] in
@@ -129,11 +149,27 @@ final class LauncherFileIndex: @unchecked Sendable {
     }
 
     private func fullBuild() {
+        // The old tree goes first (the snapshot keeps answering the searches meanwhile): never two trees in memory at once.
+        tree = [:]
         var fresh: [String: [Child]] = [:]
         var count = 0
-        for root in roots { Self.scan(root, home: home, into: &fresh, count: &count) }
+        // The folders that matter most first: if the home folder holds more than the index may keep, it is the rest
+        // that is left out, never the Desktop, Documents, Downloads or iCloud Drive.
+        let firsts = ["Desktop", "Documents", "Downloads"].map { home + "/" + $0 }.filter(FS.isDirectory)
+        Self.throttled {
+            for root in firsts + roots.dropFirst() { Self.scan(root, home: home, into: &fresh, count: &count) }
+            Self.scan(home, home: home, into: &fresh, count: &count, listedOnly: Set(firsts))
+        }
         tree = fresh
         makeSnapshot()
+    }
+
+    /// Reads the disk at the lowest priority: the other apps' reads and writes always go first.
+    private static func throttled(_ work: () -> Void) {
+        let before = getiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD)
+        setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_THROTTLE)
+        defer { setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, before) }
+        work()
     }
 
     // MARK: Reading the disk
@@ -166,13 +202,17 @@ final class LauncherFileIndex: @unchecked Sendable {
         return !parts.contains { kind($0, isDir: true) != .dir }
     }
 
-    /// Walks a folder with fts(3), without stat (the directory entries say what is a folder).
-    private static func scan(_ root: String, home: String, into tree: inout [String: [Child]], count: inout Int) {
+    /// Walks a folder with fts(3), without stat (the directory entries say what is a folder). `listedOnly`: folders read
+    /// already, only listed in their parent.
+    private static func scan(_ root: String, home: String, into tree: inout [String: [Child]], count: inout Int,
+                             listedOnly: Set<String> = []) {
+        // Known even when the index is full: a later change there must not look like a folder never read.
+        if tree[root] == nil { tree[root] = [] }
+        guard count < maxItems else { return }
         var argv: [UnsafeMutablePointer<CChar>?] = [strdup(root), nil]
         defer { free(argv[0]) }
         guard let fts = fts_open(&argv, FTS_PHYSICAL | FTS_NOCHDIR | FTS_NOSTAT, nil) else { return }
         defer { fts_close(fts) }
-        if tree[root] == nil { tree[root] = [] }
         while let ent = fts_read(fts) {
             let info = Int32(ent.pointee.fts_info)
             let level = Int(ent.pointee.fts_level)
@@ -185,6 +225,11 @@ final class LauncherFileIndex: @unchecked Sendable {
             var k = kind(name, isDir: isDir)
             // ~/Library holds the system's and the apps' files, not the user's: left out (iCloud Drive is its own root).
             if isDir, level == 1, root == home, name == "Library" { k = .skip }
+            if isDir, level == 1, listedOnly.contains(path) {
+                fts_set(fts, ent, FTS_SKIP)
+                tree[parent, default: []].append(Child(name: name, folded: fold(name), isDir: true))
+                continue
+            }
             switch k {
             case .skip:
                 if isDir { fts_set(fts, ent, FTS_SKIP) }
@@ -219,8 +264,14 @@ final class LauncherFileIndex: @unchecked Sendable {
             index.handle(events)
         }
         let flags = FSEventStreamCreateFlags(kFSEventStreamCreateFlagUseCFTypes | kFSEventStreamCreateFlagWatchRoot)
+        // Changes are gathered for 2 s: a download or an unzip wakes the index a few times, not at every file.
         guard let s = FSEventStreamCreate(kCFAllocatorDefault, callback, &context, roots as CFArray,
-                                          FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 1.0, flags) else { return }
+                                          FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 2.0, flags) else { return }
+        // The folders of ~/Library where the apps write all day long (never indexed): the system no longer wakes the
+        // index for them. iCloud Drive (~/Library/Mobile Documents) is still watched.
+        let busy = ["Caches", "Containers", "Group Containers", "Application Support", "Logs", "Developer", "Saved Application State",
+                    "HTTPStorages"].map { home + "/Library/" + $0 }
+        _ = FSEventStreamSetExclusionPaths(s, busy as CFArray)
         FSEventStreamSetDispatchQueue(s, queue)
         FSEventStreamStart(s)
         stream = s
@@ -229,6 +280,10 @@ final class LauncherFileIndex: @unchecked Sendable {
     /// Called on `queue`: FSEvents gives the folders whose content changed.
     private func handle(_ events: [(String, FSEventStreamEventFlags)]) {
         guard running else { return }
+        Self.throttled { apply(events) }
+    }
+
+    private func apply(_ events: [(String, FSEventStreamEventFlags)]) {
         let deep = FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs | kFSEventStreamEventFlagUserDropped | kFSEventStreamEventFlagKernelDropped)
         var seen = Set<String>()
         var changed = false
@@ -270,6 +325,9 @@ final class LauncherFileIndex: @unchecked Sendable {
         var oldDirs = Set((tree[dir] ?? []).filter(\.isDir).map(\.name))
         var children: [Child] = []
         for name in names {
+            // ~/Library is never indexed (iCloud Drive inside it is its own root): a change in the home folder, the
+            // shell's history for instance, must not read all of it.
+            if dir == home, name == "Library" { continue }
             var childIsDir: ObjCBool = false
             let full = dir + "/" + name
             FileManager.default.fileExists(atPath: full, isDirectory: &childIsDir)
@@ -328,15 +386,21 @@ final class LauncherFileIndex: @unchecked Sendable {
     private func scheduleSnapshot() {
         guard !snapshotScheduled else { return }
         snapshotScheduled = true
-        // A burst of changes (a download, an unzip, a build) costs one rebuild, not one per second.
-        queue.asyncAfter(deadline: .now() + 1.5) { [self] in
+        // A burst of changes (a download, an unzip, a build) costs one rebuild, not one per second; and a big index,
+        // whose rebuild takes long, waits ten times that long before the next one (a build that never stops writing
+        // costs a tenth of a core at most).
+        queue.asyncAfter(deadline: .now() + max(1.5, lastSnapshotCost * 10)) { [self] in
+            // Taken in already (the file window opened meanwhile).
+            guard snapshotScheduled else { return }
             snapshotScheduled = false
             makeSnapshot()
         }
     }
 
     private func makeSnapshot() {
+        let start = DispatchTime.now().uptimeNanoseconds
         publish(Self.snapshot(of: tree, home: home))
+        lastSnapshotCost = Double(DispatchTime.now().uptimeNanoseconds - start) / 1e9
         onChange?(.ready(count: snapshot.count))
     }
 
@@ -399,16 +463,18 @@ final class LauncherFileIndex: @unchecked Sendable {
         // One word must be in the name itself: the longest first (the fewest candidates), then the next ones,
         // until something matches ("administratif avis" finds Administratif/Avis d'imposition.pdf).
         var tried: [[UInt8]] = []
+        // Only the best ones are kept while scanning: two letters match hundreds of thousands of names, never all sorted.
+        let keep = checkDates ? max(160, limit) : limit
         var candidates: [(index: Int, score: Double)] = []
         for primary in tokens.sorted(by: { $0.count > $1.count }) where !tried.contains(primary) {
             tried.append(primary)
-            candidates = matches(in: s, primary: primary, others: tokens.filter { $0 != primary }, whole: whole)
+            candidates = matches(in: s, primary: primary, others: tokens.filter { $0 != primary }, whole: whole, keep: keep)
             if !candidates.isEmpty { break }
         }
         // Dates only for the best candidates: a stat each, a few microseconds.
         candidates.sort { $0.score > $1.score }
         var hits: [Hit] = []
-        for c in candidates.prefix(checkDates ? 160 : limit) {
+        for c in candidates.prefix(keep) {
             let dir = s.dirs[Int(s.parents[c.index])]
             let path = dir + "/" + s.names[c.index]
             var score = c.score
@@ -425,9 +491,9 @@ final class LauncherFileIndex: @unchecked Sendable {
         return Array(hits.prefix(limit))
     }
 
-    /// Every name that contains `primary`, whose other words are in the name or its folder, with its base score.
-    private static func matches(in s: Snapshot, primary: [UInt8], others: [[UInt8]], whole: [UInt8]) -> [(index: Int, score: Double)] {
-        var candidates: [(index: Int, score: Double)] = []
+    /// The `keep` best names that contain `primary`, whose other words are in the name or its folder, with their base score.
+    private static func matches(in s: Snapshot, primary: [UInt8], others: [[UInt8]], whole: [UInt8], keep: Int) -> [(index: Int, score: Double)] {
+        var best = LauncherFileTop(keep)
         s.folded.withUnsafeBufferPointer { buf in
             let n = primary.count
             let first = primary[0]
@@ -455,11 +521,11 @@ final class LauncherFileIndex: @unchecked Sendable {
                     break
                 }
                 guard ok else { continue }
-                candidates.append((i, baseScore(buf, start: start, end: end, position: position, primary: primary, whole: whole,
-                                               inFolder: inFolder, snapshot: s, index: i)))
+                best.add(i, baseScore(buf, start: start, end: end, position: position, primary: primary, whole: whole,
+                                      inFolder: inFolder, snapshot: s, index: i))
             }
         }
-        return candidates
+        return best.items
     }
 
     private static func baseScore(_ buf: UnsafeBufferPointer<UInt8>, start: Int, end: Int, position: Int, primary: [UInt8], whole: [UInt8],
@@ -518,5 +584,41 @@ final class LauncherFileIndex: @unchecked Sendable {
 
     private static func contains(_ hay: [UInt8], _ t: [UInt8]) -> Bool {
         hay.withUnsafeBufferPointer { contains($0, 0, hay.count, t) }
+    }
+}
+
+/// The `capacity` best scores seen, without keeping the others: a heap whose root is the weakest one kept.
+struct LauncherFileTop {
+    private(set) var items: [(index: Int, score: Double)] = []
+    let capacity: Int
+
+    init(_ capacity: Int) {
+        self.capacity = max(1, capacity)
+        items.reserveCapacity(self.capacity)
+    }
+
+    mutating func add(_ index: Int, _ score: Double) {
+        if items.count < capacity {
+            items.append((index, score))
+            var i = items.count - 1
+            while i > 0 {
+                let parent = (i - 1) / 2
+                guard items[i].score < items[parent].score else { break }
+                items.swapAt(i, parent)
+                i = parent
+            }
+        } else if score > items[0].score {
+            items[0] = (index, score)
+            var i = 0
+            while true {
+                let l = 2 * i + 1, r = l + 1
+                var low = i
+                if l < items.count, items[l].score < items[low].score { low = l }
+                if r < items.count, items[r].score < items[low].score { low = r }
+                if low == i { break }
+                items.swapAt(i, low)
+                i = low
+            }
+        }
     }
 }

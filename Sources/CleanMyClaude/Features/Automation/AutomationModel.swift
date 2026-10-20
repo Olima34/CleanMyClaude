@@ -178,6 +178,7 @@ final class AutomationModel: AppModule {
     private func settingsChanged(from old: AutomationSettings) {
         settingsStore.value = settings
         reseal()
+        if Self.anyActive(settings) != Self.anyActive(old) { updateSchedule() }
         if (settings.rules != old.rules || settings.downloadsFolder != old.downloadsFolder) && downloadsPreview != nil {
             // Keep the dry run in step with the rules being edited.
             previewWork?.cancel()
@@ -240,10 +241,24 @@ final class AutomationModel: AppModule {
     func start(app: AppModel) {
         self.app = app
         checkIntegrity()
-        // A light check every quarter of an hour; each automation decides whether it is due.
-        Scheduler.shared.register(Self.jobID, every: 900) { [weak self] in
-            await self?.tick()
+        updateSchedule()
+    }
+
+    /// A light check every quarter of an hour, only while an automation is on (each one decides whether it is due);
+    /// nothing at all otherwise. Called again whenever one is turned on or off.
+    private func updateSchedule() {
+        guard app != nil else { return }
+        if Self.anyActive(settings) {
+            Scheduler.shared.register(Self.jobID, every: 900) { [weak self] in
+                await self?.tick()
+            }
+        } else {
+            Scheduler.shared.unregister(Self.jobID)
         }
+    }
+
+    static func anyActive(_ s: AutomationSettings) -> Bool {
+        s.cleanupEnabled || s.trashEnabled || s.downloadsEnabled || s.healthEnabled
     }
 
     func stop() {
@@ -830,6 +845,10 @@ final class AutomationModel: AppModule {
         if AutomationSettings().cleanupEnabled || AutomationSettings().trashEnabled || AutomationSettings().downloadsEnabled || AutomationSettings().healthEnabled {
             f.append("une automatisation est active par défaut")
         }
+        // The quarter-hour check is registered only while one of them is on.
+        var one = AutomationSettings()
+        one.healthEnabled = true
+        if Self.anyActive(AutomationSettings()) || !Self.anyActive(one) { f.append("vérification planifiée sans automatisation active") }
         return f
     }
 

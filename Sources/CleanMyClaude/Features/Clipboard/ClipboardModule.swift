@@ -81,6 +81,28 @@ enum ClipboardAccess {
     }
 }
 
+/// The app in front when something was copied.
+private struct ClipboardSource: Sendable {
+    var name: String?
+    var id: String?
+    var path: String?
+}
+
+/// What one copy holds, read from the pasteboard on the main thread (AppKit does not promise more), and weighed,
+/// digested and stored off it.
+private enum ClipboardRaw: Sendable {
+    case files([String])
+    case text(String)
+    case image(Data)
+}
+
+/// One copy, prepared off the main thread.
+private enum ClipboardRead: Sendable {
+    case item(ClipboardItem)
+    case skipped
+    case nothing
+}
+
 @Observable
 @MainActor
 final class ClipboardModel: AppModule {
@@ -109,13 +131,22 @@ final class ClipboardModel: AppModule {
 
     /// The general pasteboard; the live tests swap in a private one so the user's clipboard is never touched.
     @ObservationIgnored var pasteboard = NSPasteboard.general
-    @ObservationIgnored private let historyStore = JSONStore<[ClipboardItem]>("clipboard-history", default: [], excludeFromBackup: true)
+    /// Compact JSON: the history can weigh a few megabytes of text, rewritten after each copy.
+    @ObservationIgnored private let historyStore = JSONStore<[ClipboardItem]>("clipboard-history", default: [], excludeFromBackup: true,
+                                                                              compact: true)
     @ObservationIgnored private let settingsStore = JSONStore<ClipboardSettings>("clipboard", default: ClipboardSettings())
     @ObservationIgnored private var keys: [UUID: String] = [:]
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var lastChange = 0
     @ObservationIgnored private var started = false
     @ObservationIgnored private var terminateObserver: NSObjectProtocol?
+    /// A copy being read off the main thread: the next poll waits for it (one copy at a time, in order).
+    @ObservationIgnored private var reading = false
+    /// Moves on when the history is cleared or the watch stops: a copy being prepared then is dropped.
+    @ObservationIgnored private var readGeneration = 0
+    /// Screen asleep or session switched away: nobody copies, the poll rests.
+    @ObservationIgnored private var resting = false
+    @ObservationIgnored private var restObservers: [NSObjectProtocol] = []
     @ObservationIgnored private weak var app: AppModel?
 
     init() {
@@ -205,27 +236,71 @@ final class ClipboardModel: AppModule {
 
     // MARK: Watching
 
-    /// Reads only the change counter, twice a second or so; the content is read only when it changed.
+    /// Reads only the change counter, once a second; the content is read only when it changed.
     private func startWatching() {
         guard started, timer == nil, isActive, !DemoData.isEnabled, !Snapshot.isActive else { return }
         // What was already on the clipboard before is not recorded.
         lastChange = pasteboard.changeCount
-        let t = Timer(timeInterval: 0.75, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
-        }
-        t.tolerance = 0.3
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
         watching = true
+        watchRest()
+        if !resting { startTimer() }
     }
 
     private func stopWatching() {
+        readGeneration += 1
         timer?.invalidate()
         timer = nil
         watching = false
+        let center = NSWorkspace.shared.notificationCenter
+        for o in restObservers { center.removeObserver(o) }
+        restObservers = []
+        resting = false
     }
 
+    private func startTimer() {
+        guard timer == nil else { return }
+        let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.poll() }
+        }
+        t.tolerance = 0.5
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    /// The poll rests while the screens sleep or another user's session is in front, and looks once on waking up
+    /// (a copy made meanwhile, from another device for instance, is recorded then).
+    private func watchRest() {
+        guard restObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        let pairs: [(NSNotification.Name, Bool)] = [
+            (NSWorkspace.screensDidSleepNotification, true), (NSWorkspace.sessionDidResignActiveNotification, true),
+            (NSWorkspace.screensDidWakeNotification, false), (NSWorkspace.sessionDidBecomeActiveNotification, false)
+        ]
+        restObservers = pairs.map { name, rest in
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.setResting(rest) }
+            }
+        }
+    }
+
+    private func setResting(_ rest: Bool) {
+        guard rest != resting else { return }
+        resting = rest
+        guard watching else { return }
+        if rest {
+            timer?.invalidate()
+            timer = nil
+        } else {
+            startTimer()
+            poll()
+        }
+    }
+
+    /// The marker of Universal Clipboard: the content is still on the other device, and reading it waits for it.
+    static let remoteType = "com.apple.is-remote-clipboard"
+
     private func poll() {
+        guard !reading else { return }
         let pb = pasteboard
         let change = pb.changeCount
         guard change != lastChange else { return }
@@ -233,53 +308,81 @@ final class ClipboardModel: AppModule {
         // Reading the list of types does not read the content (and does not make macOS ask anything).
         let types = (pb.types ?? []).map(\.rawValue)
         guard !types.isEmpty else { return }
+        // A copy made on the iPhone or another Mac is not kept: its content is still on the other device, and reading it
+        // would hold the whole app until that device answers (seconds when it is locked or out of reach).
+        guard !types.contains(Self.remoteType) else { return }
         let front = NSWorkspace.shared.frontmostApplication
         if ClipboardFilter.isSensitive(types) || ClipboardFilter.isExcluded(front?.bundleIdentifier, list: settings.excluded) {
             skipped += 1
             return
         }
         if ClipboardAccess.current == .denied { return }
-        let source = (name: front?.localizedName, id: front?.bundleIdentifier, path: front?.bundleURL?.path)
-        let now = Date()
-
-        // The types were read for an earlier change: if another copy landed in between (a password manager writing
-        // its concealed item, typically), what was just read is not what they described. Left for the next poll.
-        func unchanged() -> Bool { pb.changeCount == change }
-
-        if types.contains(NSPasteboard.PasteboardType.fileURL.rawValue) {
-            // Files left out: the file name the Finder also puts on the clipboard as text is not kept either.
-            guard settings.keepFiles else { return }
-            if let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-                guard unchanged() else { return }
-                let paths = urls.map(\.path)
-                add(ClipboardItem(kind: .files, files: paths, digest: ClipboardStorage.digest(Data(paths.joined(separator: "\n").utf8)),
-                                  date: now, firstDate: now, appName: source.name, appBundleID: source.id, appPath: source.path))
-                return
-            }
-        }
-        if let text = pb.string(forType: .string), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            guard unchanged() else { return }
-            guard text.utf8.count <= ClipboardHistory.maxTextBytes else { skipped += 1; return }
-            // A key, a token or a password copied from a browser or a terminal carries no marker: recognized by its look.
-            if settings.skipSecrets && ClipboardFilter.looksSecret(text) {
-                skipped += 1
-                return
-            }
-            add(ClipboardItem(kind: .text, text: text, digest: ClipboardStorage.digest(Data(text.utf8)),
-                              date: now, firstDate: now, appName: source.name, appBundleID: source.id, appPath: source.path))
+        let hasFiles = types.contains(NSPasteboard.PasteboardType.fileURL.rawValue)
+        // Files left out: the file name the Finder also puts on the clipboard as text is not kept either.
+        if hasFiles && !settings.keepFiles { return }
+        let raw: ClipboardRaw
+        if hasFiles, let urls = pb.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            raw = .files(urls.map(\.path))
+        } else if let text = pb.string(forType: .string), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            raw = .text(text)
+        } else if settings.keepImages,
+                  // The compressed kinds first: a TIFF next to a PNG weighs many times more.
+                  let type = [.png, NSPasteboard.PasteboardType("public.jpeg"), NSPasteboard.PasteboardType("public.heic"), .tiff]
+                      .first(where: { types.contains($0.rawValue) }),
+                  let data = pb.data(forType: type) {
+            raw = .image(data)
+        } else {
             return
         }
-        guard settings.keepImages else { return }
-        let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff, NSPasteboard.PasteboardType("public.jpeg"), NSPasteboard.PasteboardType("public.heic")]
-        guard let type = imageTypes.first(where: { types.contains($0.rawValue) }), let data = pb.data(forType: type),
-              unchanged(), data.count <= ClipboardStorage.maxImageBytes else { return }
-        Task.detached(priority: .utility) { [self] in
-            guard let p = ClipboardStorage.prepare(data) else { return }
-            await MainActor.run {
-                let info = ClipboardImageInfo(file: p.file, thumb: p.thumb, width: p.width, height: p.height, bytes: p.bytes)
-                self.add(ClipboardItem(id: p.id, kind: .image, image: info, digest: p.digest, date: now, firstDate: now,
-                                       appName: source.name, appBundleID: source.id, appPath: source.path))
+        // The types were read for an earlier change: if another copy landed in between (a password manager writing
+        // its concealed item, typically), what was just read is not what they described. Left for the next poll.
+        guard pb.changeCount == change else { return }
+        let source = ClipboardSource(name: front?.localizedName, id: front?.bundleIdentifier, path: front?.bundleURL?.path)
+        let skipSecrets = settings.skipSecrets
+        let generation = readGeneration
+        // Weighed, digested and stored (an image file and its thumbnail) off the main thread.
+        reading = true
+        Task {
+            let read = await Task.detached(priority: .userInitiated) {
+                Self.prepare(raw, skipSecrets: skipSecrets, source: source)
+            }.value
+            reading = false
+            // Cleared or switched off meanwhile: what was being read is not added back.
+            guard generation == readGeneration, watching else {
+                if case .item(let item) = read, let image = item.image {
+                    ClipboardStorage.remove(image.file)
+                    ClipboardStorage.remove(image.thumb)
+                }
+                return
             }
+            switch read {
+            case .item(let item): add(item)
+            case .skipped: skipped += 1
+            case .nothing: break
+            }
+        }
+    }
+
+    /// What one copy gives.
+    nonisolated private static func prepare(_ raw: ClipboardRaw, skipSecrets: Bool, source: ClipboardSource) -> ClipboardRead {
+        let now = Date()
+        func item(_ kind: ClipboardKind, text: String? = nil, files: [String]? = nil, image: ClipboardImageInfo? = nil,
+                  id: UUID = UUID(), digest: String) -> ClipboardRead {
+            .item(ClipboardItem(id: id, kind: kind, text: text, files: files, image: image, digest: digest, date: now, firstDate: now,
+                                appName: source.name, appBundleID: source.id, appPath: source.path))
+        }
+        switch raw {
+        case .files(let paths):
+            return item(.files, files: paths, digest: ClipboardStorage.digest(Data(paths.joined(separator: "\n").utf8)))
+        case .text(let text):
+            guard text.utf8.count <= ClipboardHistory.maxTextBytes else { return .skipped }
+            // A key, a token or a password copied from a browser or a terminal carries no marker: recognized by its look.
+            if skipSecrets && ClipboardFilter.looksSecret(text) { return .skipped }
+            return item(.text, text: text, digest: ClipboardStorage.digest(Data(text.utf8)))
+        case .image(let data):
+            guard data.count <= ClipboardStorage.maxImageBytes, let p = ClipboardStorage.prepare(data) else { return .nothing }
+            let info = ClipboardImageInfo(file: p.file, thumb: p.thumb, width: p.width, height: p.height, bytes: p.bytes)
+            return item(.image, image: info, id: p.id, digest: p.digest)
         }
     }
 
@@ -408,6 +511,7 @@ final class ClipboardModel: AppModule {
 
     /// Clears the history; pinned items stay unless `includingPinned`.
     func clear(includingPinned: Bool = false) {
+        readGeneration += 1
         let removed = items.filter { includingPinned || !$0.pinned }
         deleteFiles(of: removed)
         items.removeAll { includingPinned || !$0.pinned }

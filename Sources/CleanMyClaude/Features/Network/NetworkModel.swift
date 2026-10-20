@@ -66,6 +66,12 @@ final class NetworkModel: AppModule {
     @ObservationIgnored private var progressTimer: Timer?
     @ObservationIgnored private var speedCancel: CancelFlag?
     @ObservationIgnored private var addressesRead = Date.distantPast
+    /// The connection tab is shown (`startLive`), and the main window is on screen.
+    @ObservationIgnored private var liveWanted = false
+    @ObservationIgnored private var windowOnScreen = true
+    /// A local reading in progress (the page's), or the launcher's: never two at once.
+    @ObservationIgnored private var reading = false
+    @ObservationIgnored private var launcherReading = false
 
     init() {
         history = store.value
@@ -77,30 +83,64 @@ final class NetworkModel: AppModule {
 
     // MARK: Connection
 
-    /// Reads Wi-Fi and addresses (local calls, no network).
+    /// Reads Wi-Fi and addresses (local calls, no network), off the main thread: System Configuration, CoreWLAN and
+    /// getifaddrs may each take a moment. A snapshot, a still frame, reads them at once.
     func refreshLocal() {
         guard !DemoData.isEnabled else { return }
-        addresses = NetworkLocal.read()
-        addressesRead = Date()
-        wifi = NetworkWiFi.read()
-        wifiNameHidden = wifi.map { $0.connected && $0.ssid == nil } == true && !AppPermission.location.isGranted
+        if Snapshot.isActive {
+            apply(NetworkLocal.read(), NetworkWiFi.read())
+            return
+        }
+        guard !reading else { return }
+        reading = true
+        Task {
+            let (a, w) = await Task.detached(priority: .utility) { (NetworkLocal.read(), NetworkWiFi.read()) }.value
+            reading = false
+            apply(a, w)
+        }
     }
 
-    /// Refreshes the connection tab every 3 seconds while it is on screen.
+    /// Assigns only what changed: the page is not redrawn every 3 s for the same values.
+    private func apply(_ a: NetworkAddresses, _ w: NetworkWiFi?) {
+        if a != addresses { addresses = a }
+        addressesRead = Date()
+        if w != wifi { wifi = w }
+        let hidden = w.map { $0.connected && $0.ssid == nil } == true && !AppPermission.location.isGranted
+        if hidden != wifiNameHidden { wifiNameHidden = hidden }
+    }
+
+    /// Refreshes the connection tab every 3 seconds while it is on screen (paused while the main window is not).
     func startLive() {
+        liveWanted = true
+        updateLive()
+    }
+
+    func stopLive() {
+        liveWanted = false
+        updateLive()
+    }
+
+    /// The main window came on screen or went away (minimised, hidden, covered, on another Space).
+    func setWindowOnScreen(_ on: Bool) {
+        windowOnScreen = on
+        updateLive()
+    }
+
+    private func updateLive() {
+        guard liveWanted, windowOnScreen else {
+            liveTimer?.invalidate()
+            liveTimer = nil
+            return
+        }
+        guard liveTimer == nil else { return }
         refreshLocal()
-        guard !DemoData.isEnabled, !Snapshot.isActive, liveTimer == nil else { return }
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
         let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshLocal() }
         }
         t.tolerance = 1
         RunLoop.main.add(t, forMode: .common)
         liveTimer = t
-    }
-
-    func stopLive() {
-        liveTimer?.invalidate()
-        liveTimer = nil
     }
 
     /// Asks the public address to the service named in the interface, only after a click.
@@ -181,14 +221,16 @@ final class NetworkModel: AppModule {
 
     func runPing() {
         guard !DemoData.isEnabled, !pingState.isRunning else { return }
-        refreshLocal()
-        let router = addresses.router
-        pingRouterHost = router
         pingInternet = NetworkPingStats()
         pingRouter = NetworkPingStats()
         pingState = .running
-        ActionLog.write("RÉSEAU ping \(Self.internetHost)\(router.map { " et \($0)" } ?? "")")
         Task {
+            // The router of the moment, read off the main thread.
+            let (a, w) = await Task.detached(priority: .userInitiated) { (NetworkLocal.read(), NetworkWiFi.read()) }.value
+            apply(a, w)
+            let router = a.router
+            pingRouterHost = router
+            ActionLog.write("RÉSEAU ping \(Self.internetHost)\(router.map { " et \($0)" } ?? "")")
             async let internet: Void = ping(Self.internetHost, router: false)
             if let router { await ping(router, router: true) }
             await internet
@@ -319,7 +361,7 @@ final class NetworkModel: AppModule {
             AppCommand(id: "net_local_ip", title: "Mon adresse IP locale", subtitle: "Sur le réseau de la maison ou du bureau",
                        keywords: ["ip", "ip locale", "local ip", "adresse"], icon: .symbol("network", Theme.palette[1]), group: .tools,
                        assistantSafe: true, hint: "Copier") { ctx in
-                let a = DemoData.isEnabled ? NetworkDemo.addresses : NetworkLocal.read()
+                let a = DemoData.isEnabled ? NetworkDemo.addresses : await Task.detached(priority: .userInitiated) { NetworkLocal.read() }.value
                 guard let ip = a.localIP else { return .failed("Aucune adresse : ce Mac n'est relié à aucun réseau.") }
                 return Self.copy(ip)
             },
@@ -347,10 +389,7 @@ final class NetworkModel: AppModule {
     func results(for query: String, app: AppModel) -> [AppCommand] {
         let words = Fuzzy.fold(query).split(whereSeparator: { $0 == " " || $0 == "-" }).map(String.init)
         guard words.contains(where: { ["ip", "ipv4", "ipv6", "ips"].contains($0) }) else { return [] }
-        if !DemoData.isEnabled, Date().timeIntervalSince(addressesRead) > 5 {
-            addresses = NetworkLocal.read()
-            addressesRead = Date()
-        }
+        if !DemoData.isEnabled, Date().timeIntervalSince(addressesRead) > 5 { readForLauncher(app) }
         // "ipv6" asks for the IPv6 address first.
         let v6 = words.contains("ipv6")
         var out: [AppCommand] = []
@@ -366,6 +405,22 @@ final class NetworkModel: AppModule {
                                   group: .tools, hint: "Copier", boost: 380) { _ in Self.copy(r) })
         }
         return out
+    }
+
+    /// Called at each keystroke: the addresses are read off the main thread (at most every 5 s, never two at once), and
+    /// the launcher, if still open, shows them once they are in. Its refresh asks again within the 5 s: no new reading.
+    private func readForLauncher(_ app: AppModel) {
+        guard !launcherReading else { return }
+        launcherReading = true
+        addressesRead = Date()
+        Task {
+            let a = await Task.detached(priority: .userInitiated) { NetworkLocal.read() }.value
+            launcherReading = false
+            addressesRead = Date()
+            guard a != addresses else { return }
+            addresses = a
+            if app.launcher.isOpen { app.launcher.refreshKeepingSelection() }
+        }
     }
 
     func selfTest() -> [String] {

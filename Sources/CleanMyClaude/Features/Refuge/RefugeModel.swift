@@ -114,7 +114,7 @@ final class RefugeModel: AppModule {
         let hour = Calendar.current.component(.hour, from: now)
         let hungry = RefugeRules.hungry(state, now: now)
         guard let app else { return RefugeSignals(hour: hour, hungry: hungry) }
-        let recent = app.monitor.cpuHistory.suffix(5)
+        let recent = app.monitor.recentCPU.suffix(5)
         let busy = recent.count >= 3 && recent.reduce(0, +) / Double(recent.count) >= 0.8
         return RefugeSignals(hour: hour,
                              junk: app.cleanup.hasResults ? app.cleanup.recommendedSize : 0,

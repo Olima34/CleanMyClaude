@@ -1,13 +1,21 @@
 import SwiftUI
 import AppKit
-import Combine
 
 /// Réglages › Autorisations: every permission at a glance, and one button to ask for all of them.
 struct PermissionsSettings: View {
     @Environment(AppModel.self) private var app
     @State private var center = PermissionCenter.shared
+    /// The settings window is on screen (closed, minimised or covered: nothing is checked).
+    @State private var onScreen = true
+    /// Permissions asked from a row, still waiting for macOS' or the user's answer.
+    @State private var asking = 0
     private let stable = PermissionCenter.hasStableSignature
-    private let tick = Timer.publish(every: 1.5, tolerance: 0.5, on: .main, in: .common).autoconnect()
+
+    /// Checked quickly only while a permission asked for is awaited; otherwise when the window shows and when the app
+    /// comes back to the front (from System Settings, typically).
+    private var polling: Bool {
+        onScreen && (center.waitingForSettings || (asking > 0 && !center.isRunning))
+    }
 
     var body: some View {
         Form {
@@ -46,7 +54,12 @@ struct PermissionsSettings: View {
                 ForEach(PermissionKind.allCases) { kind in
                     PermissionSettingsRow(kind: kind, state: center.states[kind] ?? .notAsked,
                                           isCurrent: center.current == kind, center: center) {
-                        Task { await center.request(kind); await center.refresh() }
+                        Task {
+                            asking += 1
+                            await center.request(kind)
+                            await center.refresh()
+                            asking -= 1
+                        }
                     }
                 }
             } footer: {
@@ -55,9 +68,19 @@ struct PermissionsSettings: View {
             }
         }
         .formStyle(.grouped)
-        .task { await center.refresh() }
-        .onReceive(tick) { _ in
-            guard !center.isRunning || center.waitingForSettings else { return }
+        .background { if !Snapshot.isActive { MascotWindowProbe(onScreen: $onScreen) } }
+        // Shown again: the states as they are now.
+        .task(id: onScreen) { if onScreen { await center.refresh() } }
+        .task(id: polling) {
+            guard polling else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1.5), tolerance: .seconds(0.5))
+                guard !Task.isCancelled else { return }
+                await center.refresh()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            guard onScreen, !center.isRunning || center.waitingForSettings else { return }
             Task { await center.refresh() }
         }
     }

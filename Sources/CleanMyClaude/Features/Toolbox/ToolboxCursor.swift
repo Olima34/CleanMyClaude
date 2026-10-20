@@ -104,6 +104,8 @@ final class ToolboxCursorHider {
     private var settings = ToolboxCursorSettings()
     private var timer: Timer?
     private var monitors: [Any] = []
+    /// Who shows the pointer again, the watchdog (the app stopped answering) or the app: exactly one of them.
+    private var showClaim: ToolboxCursorClaim?
     private var activation: NSObjectProtocol?
     private static var background: Bool?
 
@@ -162,6 +164,13 @@ final class ToolboxCursorHider {
     private func conceal() {
         guard !isHidden, CGDisplayHideCursor(CGMainDisplayID()) == .success else { return }
         isHidden = true
+        // Only a mouse event handled here brings the pointer back: if the app hangs meanwhile, the watchdog does, from
+        // its own thread (a pointer gone from every app would make the whole Mac look dead).
+        let claim = ToolboxCursorClaim()
+        showClaim = claim
+        MainWatchdog.shared.arm("cursor") {
+            if claim.take() { CGDisplayShowCursor(CGMainDisplayID()) }
+        }
         // Mouse events reach a global monitor without the Accessibility permission (only keys need it).
         if let m = NSEvent.addGlobalMonitorForEvents(matching: Self.wakeEvents, handler: { [weak self] _ in
             MainActor.assumeIsolated { self?.moved() }
@@ -183,7 +192,9 @@ final class ToolboxCursorHider {
         for m in monitors { NSEvent.removeMonitor(m) }
         monitors.removeAll()
         guard isHidden else { return }
-        CGDisplayShowCursor(CGMainDisplayID())
+        MainWatchdog.shared.disarm("cursor")
+        if showClaim?.take() ?? true { CGDisplayShowCursor(CGMainDisplayID()) }
+        showClaim = nil
         isHidden = false
         onChange?(false)
     }
@@ -213,4 +224,18 @@ final class ToolboxCursorHider {
 
     /// For `dump()`: nil until the hider first ran.
     static var backgroundAllowed: Bool? { background }
+}
+
+/// Taken once: the pointer hidden once is shown once (the window server counts them).
+final class ToolboxCursorClaim: @unchecked Sendable {
+    private let lock = NSLock()
+    private var taken = false
+
+    func take() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !taken else { return false }
+        taken = true
+        return true
+    }
 }

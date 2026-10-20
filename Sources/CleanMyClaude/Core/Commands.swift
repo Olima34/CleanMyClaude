@@ -94,20 +94,49 @@ enum Fuzzy {
         s.folding(options: [.diacriticInsensitive, .caseInsensitive, .widthInsensitive], locale: Fmt.fr).lowercased()
     }
 
+    /// A text folded once, with its words and initials. The launcher keeps its catalogue this way: a keystroke then
+    /// only compares, instead of folding thousands of titles and keywords again.
+    struct Prepared {
+        let folded: String
+        let length: Int
+        let words: [Substring]
+        let initials: String
+
+        init(_ text: String) {
+            folded = Fuzzy.fold(text)
+            length = folded.count
+            words = folded.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "." || $0 == "_" })
+            initials = String(words.compactMap(\.first))
+        }
+    }
+
+    /// What is typed, folded once for all the texts it is compared to.
+    struct Query {
+        let folded: String
+        let length: Int
+
+        init(_ text: String) {
+            folded = Fuzzy.fold(text).trimmingCharacters(in: .whitespaces)
+            length = folded.count
+        }
+    }
+
     /// nil when `query` does not match `text` at all; higher is better.
     static func score(_ query: String, in text: String, subsequence: Bool = true) -> Double? {
-        let q = fold(query).trimmingCharacters(in: .whitespaces)
-        let t = fold(text)
+        score(Query(query), in: Prepared(text), subsequence: subsequence)
+    }
+
+    static func score(_ query: Query, in text: Prepared, subsequence: Bool = true) -> Double? {
+        let q = query.folded, t = text.folded
         guard !q.isEmpty, !t.isEmpty else { return nil }
+        let extra = Double(text.length - query.length)
         if t == q { return 1000 }
-        if t.hasPrefix(q) { return 850 - Double(t.count - q.count) }
-        let words = t.split(whereSeparator: { $0 == " " || $0 == "-" || $0 == "." || $0 == "_" }).map(String.init)
-        if words.contains(where: { $0.hasPrefix(q) }) { return 700 - Double(t.count - q.count) * 0.5 }
-        let initials = String(words.compactMap(\.first))
-        if q.count >= 2, initials.hasPrefix(q) { return 620 }
-        if t.contains(q) { return 500 - Double(t.count - q.count) * 0.5 }
+        if t.hasPrefix(q) { return 850 - extra }
+        if text.words.contains(where: { $0.hasPrefix(q) }) { return 700 - extra * 0.5 }
+        if query.length >= 2, text.initials.hasPrefix(q) { return 620 }
+        if t.contains(q) { return 500 - extra * 0.5 }
         // Letters in order, with a penalty for gaps (titles only, and only when fairly tight).
-        guard subsequence, q.count >= 2 else { return nil }
+        guard subsequence, query.length >= 2 else { return nil }
         var gaps = 0
         var ti = t.startIndex
         for c in q where c != " " {
@@ -120,8 +149,15 @@ enum Fuzzy {
     }
 
     static func best(_ query: String, title: String, keywords: [String]) -> Double? {
-        let candidates = [score(query, in: title)] + keywords.map { score(query, in: $0, subsequence: false).map { $0 * 0.92 } }
-        return candidates.compactMap { $0 }.max()
+        best(Query(query), title: Prepared(title), keywords: keywords.map(Prepared.init))
+    }
+
+    static func best(_ query: Query, title: Prepared, keywords: [Prepared]) -> Double? {
+        var top = score(query, in: title)
+        for k in keywords {
+            if let s = score(query, in: k, subsequence: false).map({ $0 * 0.92 }), s > (top ?? -.infinity) { top = s }
+        }
+        return top
     }
 }
 

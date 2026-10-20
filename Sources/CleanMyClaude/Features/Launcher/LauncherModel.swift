@@ -32,8 +32,11 @@ final class LauncherModel: AppModule {
     static let defaultCombo = KeyCombo(keyCode: KeyCombo.space, modifiers: UInt32(optionKey))
 
     var query = "" {
-        didSet { if query != oldValue { refresh() } }
+        didSet { if query != oldValue { queryChanged() } }
     }
+    /// Keys coming faster than anyone types (a burst, a tool typing for the user): the list is computed once they stop.
+    @ObservationIgnored private var lastRefresh: UInt64 = 0
+    @ObservationIgnored private var pendingRefresh: DispatchWorkItem?
     var sections: [LauncherSection] = []
     var selection = 0
     /// Set by the arrow keys: only then does the list scroll to the selection (never while the trackpad scrolls it).
@@ -107,7 +110,25 @@ final class LauncherModel: AppModule {
     @ObservationIgnored private var recentQuery: NSMetadataQuery?
     @ObservationIgnored private var recentObserver: NSObjectProtocol?
     @ObservationIgnored private var keyMonitor: Any?
-    @ObservationIgnored private var catalog: [AppCommand] = []
+    @ObservationIgnored private var catalog: [AppCommand] = [] {
+        didSet {
+            // Folded again only for what changed since the last opening (a new app, a renamed command).
+            var kept: [String: LauncherSearchable.Texts] = [:]
+            searchable = catalog.map { c in
+                let key = LauncherSearchable.key(c)
+                let texts = preparedTexts[key] ?? LauncherSearchable.Texts(c)
+                kept[key] = texts
+                return LauncherSearchable(command: c, texts: texts)
+            }
+            preparedTexts = kept
+        }
+    }
+    @ObservationIgnored private var preparedTexts: [String: LauncherSearchable.Texts] = [:]
+    /// The catalogue with its texts folded once: a keystroke only compares them to what is typed.
+    @ObservationIgnored private var searchable: [LauncherSearchable] = []
+    /// Favourite files and folders found missing when the panel opened (looked for off the main thread: a favourite on
+    /// a disk that is gone must never hold the keyboard).
+    @ObservationIgnored private var missingFavorites: Set<String> = []
     @ObservationIgnored private var apps: [LauncherApp] = []
     @ObservationIgnored private var appsIndexedAt = Date.distantPast
     @ObservationIgnored private var fileResults: [AppCommand] = []
@@ -122,6 +143,24 @@ final class LauncherModel: AppModule {
     /// The demo's fictional files, searched like the real index.
     @ObservationIgnored private var demoFiles: LauncherFileIndex.Snapshot?
     @ObservationIgnored private var fileKinds: [String: Bool] = [:]
+    /// The file window's searches run on their own queue: a name looked for among a million never holds the keyboard.
+    @ObservationIgnored private let fileQueue = DispatchQueue(label: "cleanmyclaude.launcher.files", qos: .userInitiated)
+    /// The folders typed in the file window are read here: a volume that does not answer holds this queue alone.
+    @ObservationIgnored private let folderQueue = DispatchQueue(label: "cleanmyclaude.launcher.folders", qos: .userInitiated)
+    /// The folder typed is still being read: ↩, ⇥ and the shortcuts wait for it (they would act on the previous list).
+    @ObservationIgnored private var folderPending = false
+    /// Where the Spotlight queries gather and sort their results, away from the main thread.
+    @ObservationIgnored private let spotlightQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "cleanmyclaude.launcher.spotlight"
+        q.maxConcurrentOperationCount = 1
+        q.qualityOfService = .userInitiated
+        return q
+    }()
+    /// Moves on at each new text of the file window: an answer computed for an older one is dropped.
+    @ObservationIgnored private let fileTicket = LauncherTicket()
+    /// The answer being computed, done right away when ↩ comes first (never a result of the previous text).
+    @ObservationIgnored private var fileSettle: (() -> Void)?
 
     /// Flat list of what is shown, in order (for keyboard navigation).
     var flat: [AppCommand] { sections.flatMap(\.items) }
@@ -139,8 +178,10 @@ final class LauncherModel: AppModule {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.indexState = state
-                    if self.isOpen, case .ready = state { self.refreshKeepingSelection() }
+                    // Written only when it changes: the pages that show it are not redrawn for nothing.
+                    if self.indexState != state { self.indexState = state }
+                    // Only the file window searches the index: the launcher has nothing to redo.
+                    if self.isOpen, self.scope == .files, case .ready = state { self.refreshKeepingSelection() }
                 }
             }
         }
@@ -450,20 +491,32 @@ final class LauncherModel: AppModule {
         for (window, words) in [(LauncherScope.all, ["chrome", "réglages wifi", "facture edf", "2*3+4", ":coeur", "dans devis"]),
                                 (.files, ["facture", "de", "rapport annuel", "~/Documents/"])] {
             scope = window
-            var worst = 0.0, total = 0.0, keys = 0
+            var worst = (ms: 0.0, typed: ""), total = 0.0, keys = 0
             for word in words {
                 query = ""
                 for end in word.indices {
                     let t = DispatchTime.now().uptimeNanoseconds
                     query = String(word[...end])
+                    // A burst waits for its last key, and the file window searches on its own queue: both done right
+                    // here, to measure the work itself.
+                    if pendingRefresh != nil { settleRefresh() }
+                    fileSettle?()
                     let ms = Double(DispatchTime.now().uptimeNanoseconds - t) / 1e6
-                    worst = max(worst, ms)
+                    if ms > worst.ms { worst = (ms, query) }
                     total += ms
                     keys += 1
                 }
             }
-            lines.append("frappe (\(window == .all ? "lanceur" : "fichiers")) : \(String(format: "%.1f", total / Double(max(1, keys)))) ms en moyenne, \(String(format: "%.1f", worst)) ms au pire, \(keys) touches")
+            lines.append("frappe (\(window == .all ? "lanceur" : "fichiers")) : \(String(format: "%.1f", total / Double(max(1, keys)))) ms en moyenne, \(String(format: "%.1f", worst.ms)) ms au pire (« \(worst.typed) »), \(keys) touches")
         }
+        // The slowest modules for one letter, the widest search.
+        var slow: [(String, Double)] = []
+        for (page, module) in ModuleRegistry.modules(app) {
+            let t = DispatchTime.now().uptimeNanoseconds
+            for q in ["c", "ch", "fa"] { _ = module.results(for: q, app: app) }
+            slow.append((page.title, Double(DispatchTime.now().uptimeNanoseconds - t) / 3e6))
+        }
+        lines.append("résultats des modules : " + slow.sorted { $0.1 > $1.1 }.prefix(5).map { "\($0.0) \(String(format: "%.2f", $0.1)) ms" }.joined(separator: " · "))
         stopFileSearch()
         query = ""
         scope = .all
@@ -514,8 +567,10 @@ final class LauncherModel: AppModule {
         catalog = ModuleRegistry.commands(app) + LauncherAppIndex.commands(apps)
         leaveMode()
         if newScope == .files, text.isEmpty { loadRecentFiles() }
-        query = text
-        refresh()
+        if newScope == .files { fileIndex.catchUp() }
+        checkFavorites()
+        // Set once: a new text already refreshes the results by itself.
+        if query == text { refresh() } else { query = text }
         let p = activePanel ?? makePanel(for: newScope)
         p.setContent(LauncherView().environment(app))
         p.present()
@@ -595,9 +650,22 @@ final class LauncherModel: AppModule {
                 self.marked = []
                 self.leaveMode()
                 self.removeKeyMonitor()
-                self.fileQuery?.stop()
-                self.recentQuery?.stop()
-                self.fileSearchPending = false
+                self.stopFileSearch()
+                self.stopSpotlight(self.recentQuery)
+                self.recentQuery = nil
+                self.folderPending = false
+                self.pendingRefresh?.cancel()
+                self.pendingRefresh = nil
+                self.fileTicket.next()
+                self.fileSettle = nil
+                // Refilled by the next search: the paths of a whole session never pile up.
+                self.fileKinds = [:]
+                self.app?.translator.launcherClosed()
+                // The closed panel keeps no view: nothing in it is redrawn behind the scenes (nor a Quick Look preview
+                // played) until it opens again with a new one.
+                DispatchQueue.main.async { [weak p] in
+                    if let p, !p.isVisible { p.contentView = nil }
+                }
             }
         }
         if scope == .files { filesPanel = p } else { panel = p }
@@ -609,6 +677,9 @@ final class LauncherModel: AppModule {
         removeKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let panel = self.activePanel, event.window === panel else { return event }
+            // A held ↩ runs its result once, not once per key repeat (each one could start a scan or a Claude process).
+            if event.isARepeat, [kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode)),
+               self.mode != .translator || event.modifierFlags.intersection([.shift, .option]).isEmpty { return nil }
             switch self.mode {
             case .search: return self.searchKey(event)
             case .translator: return self.translatorKey(event)
@@ -619,6 +690,18 @@ final class LauncherModel: AppModule {
     }
 
     private func searchKey(_ event: NSEvent) -> NSEvent? {
+            // ⇥, ↩, the arrows and the shortcuts act on the answer to what is typed, not on a list of the previous text.
+            // Never ⌥ alone: it types characters (~, |, [ on a French keyboard).
+            let acting = !event.modifierFlags.intersection([.command, .control]).isEmpty
+                || [kVK_Tab, kVK_Return, kVK_ANSI_KeypadEnter, kVK_UpArrow, kVK_DownArrow, kVK_Escape].contains(Int(event.keyCode))
+            if acting {
+                if pendingRefresh != nil { settleRefresh() }
+                fileSettle?()
+                // A folder still being read (a slow disk): nothing opens rather than the wrong file (⎋ and the arrows still work).
+                let opens = !event.modifierFlags.intersection([.command, .control]).isEmpty
+                    || [kVK_Tab, kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode))
+                if folderPending, opens { return nil }
+            }
             if actionsTarget != nil { return actionsKey(event) }
             if event.modifierFlags.contains(.command), event.charactersIgnoringModifiers?.lowercased() == "k" {
                 // The actions of the selected result: an app, a file, a folder or a command each get their own.
@@ -824,6 +907,9 @@ final class LauncherModel: AppModule {
     }
 
     func runSelected(alternate: Bool = false) {
+        // ↩ right after a keystroke: the answer to what is typed, not a result of the previous text.
+        if pendingRefresh != nil { settleRefresh() }
+        fileSettle?()
         let items = flat
         guard items.indices.contains(selection) else { return }
         run(items[selection], alternate: alternate)
@@ -848,7 +934,32 @@ final class LauncherModel: AppModule {
         }
     }
 
+    /// A new text: the list follows at once, or 30 ms after the last of a burst of keys.
+    private func queryChanged() {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard isOpen, !Snapshot.isActive, now &- lastRefresh < 30_000_000 else {
+            settleRefresh()
+            return
+        }
+        pendingRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.settleRefresh() }
+        }
+        pendingRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03, execute: work)
+    }
+
+    /// The list for what is typed now (also before a key acts on it: ↩, the arrows, the shortcuts).
+    private func settleRefresh() {
+        pendingRefresh?.cancel()
+        pendingRefresh = nil
+        refresh()
+    }
+
     func refresh() {
+        pendingRefresh?.cancel()
+        pendingRefresh = nil
+        lastRefresh = DispatchTime.now().uptimeNanoseconds
         guard let app else { sections = []; return }
         let q = query.trimmingCharacters(in: .whitespaces)
         selection = 0
@@ -867,9 +978,10 @@ final class LauncherModel: AppModule {
         }
         var scored: [(AppCommand, Double)] = []
         let hidden = Set(hiddenIDs)
-        for c in catalog where !hidden.contains(c.id) {
-            if let s = Fuzzy.best(q, title: c.title, keywords: c.keywords + [c.subtitle ?? ""]) {
-                scored.append((c, s + CommandRunner.frecency(c.id) + c.boost))
+        let typed = Fuzzy.Query(q)
+        for entry in searchable where !hidden.contains(entry.command.id) {
+            if let s = Fuzzy.best(typed, title: entry.title, keywords: entry.keywords) {
+                scored.append((entry.command, s + CommandRunner.frecency(entry.command.id) + entry.command.boost))
             }
         }
         let answers = ModuleRegistry.results(for: q, app: app)
@@ -887,6 +999,9 @@ final class LauncherModel: AppModule {
 
     /// The file window: the index (or Spotlight) for a name, the folders for a path, recent files when nothing is typed.
     private func refreshFiles(_ q: String) {
+        fileTicket.next()
+        fileSettle = nil
+        folderPending = false
         if q.isEmpty {
             stopFileSearch()
             fileResults = []
@@ -897,31 +1012,114 @@ final class LauncherModel: AppModule {
         // "~/Documents/fa" or "/Applications": browse the folders, nothing else.
         if isPathQuery(q) {
             stopFileSearch()
-            let items = pathResults(q)
-            sections = items.isEmpty ? [] : [LauncherSection(id: "path", title: "Dossier", items: items)]
+            if DemoData.isEnabled || Snapshot.isActive {
+                showFolder(Self.folderRows(q, demo: DemoData.isEnabled))
+            } else {
+                answerFiles({ Self.folderRows(q, demo: false) }, onDisk: true) { [weak self] rows in self?.showFolder(rows) }
+            }
             return
         }
-        let instant = instantFiles(q)
-        if let instant {
-            fileResults = instant
-            fileResultsQuery = q
-        } else if fileResultsQuery != q {
-            // Spotlight answers later: until then, nothing rather than the files of the previous query.
+        switch fileSource(q) {
+        case .none:
+            stopFileSearch()
             fileResults = []
             fileResultsQuery = q
-        }
-        let ranked = fileResults.map { ($0, $0.boost + CommandRunner.frecency($0.id)) }.sorted { $0.1 > $1.1 }.map(\.0)
-        sections = ranked.isEmpty ? [] : [LauncherSection(id: "files", title: instant == nil ? "Résultats Spotlight" : "Résultats", items: ranked)]
-        if instant != nil {
+            showFileResults(instant: true)
+        case .index(let snapshot):
             stopFileSearch()
-        } else if !keepFileSearch {
-            scheduleFileSearch(q)
+            let checkDates = !DemoData.isEnabled
+            // A small index answers at once; a big one on its own queue, the keyboard never waits for it.
+            if DemoData.isEnabled || Snapshot.isActive || snapshot.count < 20_000 {
+                showHits(LauncherFileIndex.search(q, in: snapshot, limit: 40, checkDates: checkDates), for: q)
+            } else {
+                answerFiles({ LauncherFileIndex.search(q, in: snapshot, limit: 40, checkDates: checkDates) }) { [weak self] hits in
+                    self?.showHits(hits, for: q)
+                }
+            }
+        case .spotlight:
+            if fileResultsQuery != q {
+                // Spotlight answers later: until then, nothing rather than the files of the previous query.
+                fileResults = []
+                fileResultsQuery = q
+            }
+            showFileResults(instant: false)
+            if !keepFileSearch { scheduleFileSearch(q) }
         }
+    }
+
+    /// Where the file window's answer comes from: nothing (too short), the instant index, or Spotlight (content searches,
+    /// index not ready).
+    private enum FileSource {
+        case none, index(LauncherFileIndex.Snapshot), spotlight
+    }
+
+    private func fileSource(_ q: String) -> FileSource {
+        guard q.count >= 2, !q.hasPrefix(":"), !q.hasPrefix("?") else { return .none }
+        if isContentQuery(q) { return .spotlight }
+        if let demoFiles { return .index(demoFiles) }
+        if case .ready = indexState { return .index(fileIndex.snapshot) }
+        return .spotlight
+    }
+
+    /// Computes on the file queue, then shows the answer if the text is still the same. Until then ↩ computes it right away
+    /// (a search in the index, in memory). `onDisk`: a folder read on the disk queue, which may wait on a slow volume:
+    /// never on the file queue (a stuck volume would hold every search) nor on the main thread.
+    private func answerFiles<T: Sendable>(_ compute: @escaping @Sendable () -> T, onDisk: Bool = false,
+                                          apply: @escaping @MainActor (T) -> Void) {
+        let ticket = fileTicket.next()
+        folderPending = onDisk
+        fileSettle = onDisk ? nil : { [weak self] in
+            guard let self, self.fileTicket.isCurrent(ticket) else { return }
+            self.fileTicket.next()
+            self.fileSettle = nil
+            apply(compute())
+        }
+        let work: @Sendable () -> Void = { [weak self, fileTicket] in
+            // Typed on meanwhile: this text is already out of date.
+            guard fileTicket.isCurrent(ticket) else { return }
+            let answer = compute()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, self.fileTicket.isCurrent(ticket) else { return }
+                    self.fileSettle = nil
+                    self.folderPending = false
+                    // The arrows may have moved meanwhile: the selection stays where it is.
+                    let keep = self.selection
+                    apply(answer)
+                    self.selection = min(keep, max(0, self.flat.count - 1))
+                }
+            }
+        }
+        if onDisk { folderQueue.async(execute: work) } else { fileQueue.async(execute: work) }
+    }
+
+    private func showHits(_ hits: [LauncherFileIndex.Hit], for q: String) {
+        fileResults = hits.enumerated().map { rank, hit in
+            fileKinds[hit.path] = hit.isDir
+            return fileCommand(hit.path, isDir: hit.isDir, boost: hit.score * 0.45 - Double(rank) * 0.01)
+        }
+        fileResultsQuery = q
+        showFileResults(instant: true)
+    }
+
+    private func showFileResults(instant: Bool) {
+        let ranked = fileResults.map { ($0, $0.boost + CommandRunner.frecency($0.id)) }.sorted { $0.1 > $1.1 }.map(\.0)
+        sections = ranked.isEmpty ? [] : [LauncherSection(id: "files", title: instant ? "Résultats" : "Résultats Spotlight", items: ranked)]
+    }
+
+    private func showFolder(_ folder: LauncherFolderRows) {
+        let items = folder.rows.enumerated().map { rank, row -> AppCommand in
+            let path = (folder.dir == "/" ? "" : folder.dir) + "/" + row.name
+            fileKinds[path] = row.isDir
+            return fileCommand(path, isDir: row.isDir, boost: 400 - Double(rank))
+        }
+        sections = items.isEmpty ? [] : [LauncherSection(id: "path", title: "Dossier", items: items)]
     }
 
     private func stopFileSearch() {
         fileWork?.cancel()
-        fileQuery?.stop()
+        stopSpotlight(fileQuery)
+        fileQuery = nil
         fileSearchPending = false
     }
 
@@ -985,7 +1183,8 @@ final class LauncherModel: AppModule {
             recentFiles = LauncherDemoFiles.recent
             return
         }
-        recentQuery?.stop()
+        stopSpotlight(recentQuery)
+        recentQuery = nil
         if let recentObserver { NotificationCenter.default.removeObserver(recentObserver) }
         guard !Snapshot.isActive, let app, app.fullDiskAccess || indexConsent else { recentFiles = []; return }
         let mq = NSMetadataQuery()
@@ -993,24 +1192,38 @@ final class LauncherModel: AppModule {
         mq.predicate = NSPredicate(format: "kMDItemLastUsedDate >= %@ AND NOT (kMDItemContentType == 'com.apple.application-bundle') AND NOT (kMDItemContentType == 'public.folder')", since)
         mq.searchScopes = [NSMetadataQueryUserHomeScope]
         mq.sortDescriptors = [NSSortDescriptor(key: "kMDItemLastUsedDate", ascending: false)]
-        recentObserver = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: mq, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let mq = self.recentQuery else { return }
-                mq.stop()
-                let library = FS.home + "/Library/"
-                var found: [(path: String, isDir: Bool)] = []
-                for i in 0..<min(mq.resultCount, 80) where found.count < 12 {
-                    guard let item = mq.result(at: i) as? NSMetadataItem,
-                          let path = item.value(forAttribute: NSMetadataItemPathKey) as? String,
-                          !path.contains("/."), !path.hasPrefix(library) || path.hasPrefix(library + "Mobile Documents/") else { continue }
-                    found.append((path, false))
+        // Gathered and sorted on the Spotlight queue: a month of files never weighs on the main thread.
+        mq.operationQueue = spotlightQueue
+        let ref = LauncherQueryRef(mq)
+        recentObserver = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: mq, queue: nil) { [weak self] _ in
+            guard let mq = ref.query else { return }
+            mq.stop()
+            let library = FS.home + "/Library/"
+            var found: [LauncherSpotlightHit] = []
+            for i in 0..<min(mq.resultCount, 80) where found.count < 12 {
+                guard let item = mq.result(at: i) as? NSMetadataItem,
+                      let path = item.value(forAttribute: NSMetadataItemPathKey) as? String,
+                      !path.contains("/."), !path.hasPrefix(library) || path.hasPrefix(library + "Mobile Documents/") else { continue }
+                found.append(LauncherSpotlightHit(path: path, isDir: false))
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, let current = self.recentQuery, current === ref.query else { return }
+                    self.recentFiles = found.map { ($0.path, $0.isDir) }
+                    if self.isOpen, self.scope == .files, self.query.isEmpty { self.refreshKeepingSelection() }
                 }
-                self.recentFiles = found
-                if self.isOpen, self.scope == .files, self.query.isEmpty { self.refreshKeepingSelection() }
             }
         }
         recentQuery = mq
-        mq.start()
+        spotlightQueue.addOperation { ref.query?.start() }
+    }
+
+    /// A query is only touched from its own queue.
+    private func stopSpotlight(_ mq: NSMetadataQuery?) {
+        guard let mq else { return }
+        // Kept until stopped, so that it also goes away on its own queue.
+        let ref = LauncherQueryRef(mq, keep: true)
+        spotlightQueue.addOperation { ref.query?.stop() }
     }
 
     private func suggestions() -> [LauncherSection] {
@@ -1020,7 +1233,7 @@ final class LauncherModel: AppModule {
         let used = shown.filter { CommandRunner.frecency($0.id) > 0 }
             .sorted { CommandRunner.frecency($0.id) > CommandRunner.frecency($1.id) }
             .prefix(6)
-        let picks = ["act_smart_scan", "open_converter", "open_clipboard", "sys_darkmode", "sys_empty_trash", "act_free_ram"]
+        let picks = ["act_smart_scan", "open_converter", "open_clipboard", "sys_darkmode", "sys_empty_trash", Self.filesCommandID]
         let defaults = picks.compactMap { id in shown.first { $0.id == id } }.filter { d in !used.contains { $0.id == d.id } }
         var out: [LauncherSection] = []
         if !favorites.isEmpty { out.append(LauncherSection(id: "favorites", title: "Favoris", items: favorites)) }
@@ -1033,9 +1246,20 @@ final class LauncherModel: AppModule {
     private func favoriteCommands() -> [AppCommand] {
         favoriteItems.compactMap { f in
             guard let path = f.path else { return catalog.first { $0.id == f.id } }
-            guard DemoData.isEnabled || FS.exists(path) else { return nil }
+            guard DemoData.isEnabled || !missingFavorites.contains(path) else { return nil }
             fileKinds[path] = f.isDir
             return fileCommand(path, isDir: f.isDir, boost: 0)
+        }
+    }
+
+    /// Looks for the favourite files and folders off the main thread, once per opening.
+    private func checkFavorites() {
+        let paths = favoriteItems.compactMap(\.path)
+        guard !paths.isEmpty, !DemoData.isEnabled, !Snapshot.isActive else { return }
+        Task {
+            guard let missing = await DiskQueue.read({ Set(paths.filter { !FS.exists($0) }) }), missing != missingFavorites else { return }
+            missingFavorites = missing
+            if isOpen, query.trimmingCharacters(in: .whitespaces).isEmpty { refreshKeepingSelection() }
         }
     }
 
@@ -1052,27 +1276,8 @@ final class LauncherModel: AppModule {
         Self.contentPrefixes.contains { q.lowercased().hasPrefix($0) }
     }
 
-    /// Results from the instant index, or nil when Spotlight must answer (content search, index not ready).
-    private func instantFiles(_ q: String) -> [AppCommand]? {
-        guard q.count >= 2, !q.hasPrefix(":"), !q.hasPrefix("?") else { return [] }
-        if isContentQuery(q) { return nil }
-        let snapshot: LauncherFileIndex.Snapshot
-        if let demoFiles {
-            snapshot = demoFiles
-        } else if case .ready = indexState {
-            snapshot = fileIndex.snapshot
-        } else {
-            return nil
-        }
-        let hits = LauncherFileIndex.search(q, in: snapshot, limit: 40, checkDates: !DemoData.isEnabled)
-        return hits.enumerated().map { rank, hit in
-            fileKinds[hit.path] = hit.isDir
-            return fileCommand(hit.path, isDir: hit.isDir, boost: hit.score * 0.45 - Double(rank) * 0.01)
-        }
-    }
-
-    /// The content of the folder being typed, filtered by the last part.
-    private func pathResults(_ q: String) -> [AppCommand] {
+    /// The content of the folder being typed, filtered by the last part (on the file queue for a real folder).
+    nonisolated static func folderRows(_ q: String, demo: Bool) -> LauncherFolderRows {
         let expanded = FS.expand(q)
         let dir: String, partial: String
         if expanded.hasSuffix("/") || q == "~" {
@@ -1083,31 +1288,39 @@ final class LauncherModel: AppModule {
             partial = (expanded as NSString).lastPathComponent
         }
         let folder = dir.isEmpty ? "/" : dir
-        let names: [String]
         // The demo browses its fictional files, never this Mac's.
-        let demoDirs = DemoData.isEnabled ? Set(LauncherDemoFiles.paths.filter(\.isDir).map(\.path)) : []
-        if DemoData.isEnabled {
-            names = LauncherDemoFiles.paths.map(\.path).filter { ($0 as NSString).deletingLastPathComponent == folder }
-                .map { ($0 as NSString).lastPathComponent }
+        var entries: [(name: String, isDir: Bool?)] = []
+        if demo {
+            let demoDirs = Set(LauncherDemoFiles.paths.filter(\.isDir).map(\.path))
+            entries = LauncherDemoFiles.paths.map(\.path).filter { ($0 as NSString).deletingLastPathComponent == folder }
+                .map { (($0 as NSString).lastPathComponent, demoDirs.contains($0)) }
         } else {
-            guard let found = try? FileManager.default.contentsOfDirectory(atPath: folder) else { return [] }
-            names = found
+            // One read of the folder with what each entry is (no stat per entry).
+            let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey]
+            guard let urls = try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: folder), includingPropertiesForKeys: keys)
+            else { return LauncherFolderRows(dir: dir, rows: []) }
+            entries = urls.map { url in
+                let v = try? url.resourceValues(forKeys: Set(keys))
+                // A link is followed below, only if it is kept.
+                return (url.lastPathComponent, v?.isSymbolicLink == true ? nil : v?.isDirectory == true)
+            }
         }
         let wanted = Fuzzy.fold(partial)
-        var rows: [(name: String, isDir: Bool, score: Int)] = []
-        for name in names where partial.hasPrefix(".") || !name.hasPrefix(".") {
-            let folded = Fuzzy.fold(name)
-            let score = wanted.isEmpty ? 1 : (folded.hasPrefix(wanted) ? 2 : (folded.contains(wanted) ? 1 : 0))
+        var rows: [(name: String, lower: String, isDir: Bool, score: Int)] = []
+        for e in entries where partial.hasPrefix(".") || !e.name.hasPrefix(".") {
+            let score: Int
+            if wanted.isEmpty {
+                score = 1
+            } else {
+                let folded = Fuzzy.fold(e.name)
+                score = folded.hasPrefix(wanted) ? 2 : (folded.contains(wanted) ? 1 : 0)
+            }
             guard score > 0 else { continue }
-            let full = (dir == "/" ? "" : dir) + "/" + name
-            rows.append((name, DemoData.isEnabled ? demoDirs.contains(full) : FS.isDirectory(full), score))
+            let isDir = e.isDir ?? FS.isDirectory((dir == "/" ? "" : dir) + "/" + e.name)
+            rows.append((e.name, e.name.lowercased(), isDir, score))
         }
-        rows.sort { ($0.score, $0.isDir ? 1 : 0, $1.name.lowercased()) > ($1.score, $1.isDir ? 1 : 0, $0.name.lowercased()) }
-        return rows.prefix(40).enumerated().map { rank, row in
-            let path = (dir == "/" ? "" : dir) + "/" + row.name
-            fileKinds[path] = row.isDir
-            return fileCommand(path, isDir: row.isDir, boost: 400 - Double(rank))
-        }
+        rows.sort { ($0.score, $0.isDir ? 1 : 0, $1.lower) > ($1.score, $1.isDir ? 1 : 0, $0.lower) }
+        return LauncherFolderRows(dir: dir, rows: rows.prefix(40).map { ($0.name, $0.isDir) })
     }
 
     /// Spotlight, a moment after the last keystroke: for content searches, and while the index is not ready.
@@ -1115,7 +1328,8 @@ final class LauncherModel: AppModule {
         fileWork?.cancel()
         let content = Self.contentPrefixes.first { q.lowercased().hasPrefix($0) }
         let text = content.map { String(q.dropFirst($0.count)).trimmingCharacters(in: .whitespaces) } ?? q
-        guard text.count >= (content == nil ? 3 : 2), !DemoData.isEnabled, !q.hasPrefix(":") else {
+        // Three letters at least: fewer would ask Spotlight for nearly every file (and their content).
+        guard text.count >= 3, !DemoData.isEnabled, !q.hasPrefix(":") else {
             if !fileResults.isEmpty { fileResults = [] }
             fileSearchPending = false
             return
@@ -1129,7 +1343,7 @@ final class LauncherModel: AppModule {
     }
 
     private func searchSpotlight(_ text: String, query q: String, content: Bool) {
-        fileQuery?.stop()
+        stopSpotlight(fileQuery)
         if let fileObserver { NotificationCenter.default.removeObserver(fileObserver) }
         let mq = NSMetadataQuery()
         mq.predicate = content
@@ -1137,26 +1351,34 @@ final class LauncherModel: AppModule {
             : NSPredicate(format: "kMDItemDisplayName CONTAINS[cd] %@ AND NOT (kMDItemContentType == 'com.apple.application-bundle')", text)
         mq.searchScopes = [NSMetadataQueryUserHomeScope]
         mq.sortDescriptors = [NSSortDescriptor(key: "kMDItemLastUsedDate", ascending: false)]
-        fileObserver = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: mq, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self, let mq = self.fileQuery, self.query.trimmingCharacters(in: .whitespaces) == q else { return }
-                mq.stop()
-                var found: [AppCommand] = []
-                for i in 0..<min(mq.resultCount, 30) {
-                    guard let item = mq.result(at: i) as? NSMetadataItem,
-                          let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else { continue }
-                    let isDir = (item.value(forAttribute: "kMDItemContentType") as? String) == "public.folder"
-                    self.fileKinds[path] = isDir
-                    found.append(self.fileCommand(path, isDir: isDir, boost: (content ? 600 : 300) - Double(i) * 5))
+        // Gathered and sorted on the Spotlight queue: thousands of matches never weigh on the main thread.
+        mq.operationQueue = spotlightQueue
+        let ref = LauncherQueryRef(mq)
+        fileObserver = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: mq, queue: nil) { [weak self] _ in
+            guard let mq = ref.query else { return }
+            mq.stop()
+            var found: [LauncherSpotlightHit] = []
+            for i in 0..<min(mq.resultCount, 30) {
+                guard let item = mq.result(at: i) as? NSMetadataItem,
+                      let path = item.value(forAttribute: NSMetadataItemPathKey) as? String else { continue }
+                found.append(LauncherSpotlightHit(path: path, isDir: (item.value(forAttribute: "kMDItemContentType") as? String) == "public.folder"))
+            }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, let current = self.fileQuery, current === ref.query,
+                          self.query.trimmingCharacters(in: .whitespaces) == q else { return }
+                    self.fileResults = found.enumerated().map { i, hit in
+                        self.fileKinds[hit.path] = hit.isDir
+                        return self.fileCommand(hit.path, isDir: hit.isDir, boost: (content ? 600 : 300) - Double(i) * 5)
+                    }
+                    self.fileResultsQuery = q
+                    self.fileSearchPending = false
+                    self.refreshKeepingSelection()
                 }
-                self.fileResults = found
-                self.fileResultsQuery = q
-                self.fileSearchPending = false
-                self.refreshKeepingSelection()
             }
         }
         fileQuery = mq
-        mq.start()
+        spotlightQueue.addOperation { ref.query?.start() }
     }
 
     /// Re-ranks with the latest file results, without starting a new file search.
@@ -1185,5 +1407,72 @@ final class LauncherModel: AppModule {
             if ctx.alternate { Finder.reveal(path) } else { NSWorkspace.shared.open(URL(fileURLWithPath: path)) }
             return .done
         }
+    }
+}
+
+/// A command of the catalogue with its texts folded once: its title, then its keywords and subtitle.
+struct LauncherSearchable {
+    struct Texts {
+        let title: Fuzzy.Prepared
+        let keywords: [Fuzzy.Prepared]
+
+        init(_ command: AppCommand) {
+            title = Fuzzy.Prepared(command.title)
+            keywords = (command.keywords + [command.subtitle ?? ""]).filter { !$0.isEmpty }.map(Fuzzy.Prepared.init)
+        }
+    }
+
+    let command: AppCommand
+    let texts: Texts
+
+    var title: Fuzzy.Prepared { texts.title }
+    var keywords: [Fuzzy.Prepared] { texts.keywords }
+
+    /// What the folded texts depend on.
+    static func key(_ c: AppCommand) -> String {
+        ([c.id, c.title, c.subtitle ?? ""] + c.keywords).joined(separator: "\u{1}")
+    }
+}
+
+/// A folder of the file window, read on its queue: the entries kept, best first.
+struct LauncherFolderRows: Sendable {
+    let dir: String
+    let rows: [(name: String, isDir: Bool)]
+}
+
+/// A number shared with the file queue: each new text takes the next one, and only the latest answer is shown.
+final class LauncherTicket: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = 0
+
+    @discardableResult
+    func next() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        value += 1
+        return value
+    }
+
+    func isCurrent(_ ticket: Int) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value == ticket
+    }
+}
+
+/// A file found by Spotlight, handed from its queue to the main thread.
+struct LauncherSpotlightHit: Sendable {
+    let path: String
+    let isDir: Bool
+}
+
+/// A Spotlight query handed to its queue, where alone it is touched once started.
+final class LauncherQueryRef: @unchecked Sendable {
+    weak var query: NSMetadataQuery?
+    private let kept: NSMetadataQuery?
+
+    init(_ query: NSMetadataQuery, keep: Bool = false) {
+        self.query = query
+        kept = keep ? query : nil
     }
 }

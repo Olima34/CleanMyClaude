@@ -289,7 +289,7 @@ final class AssistantModel: AppModule {
         }
         prompt += "QUESTION :\n\(question)"
         if allowLookups {
-            prompt += "\n\nÉTAT DU MAC (joint par Chamois, données à analyser) :\n" + Self.macContext(app)
+            prompt += "\n\nÉTAT DU MAC (joint par Chamois, données à analyser) :\n" + Self.macContext(app, processes: await Self.processes(app))
             entries.append(AssistantEntry(kind: .lookup("État du Mac joint à ta question")))
         }
         let model = modelChoice
@@ -329,7 +329,7 @@ final class AssistantModel: AppModule {
             totalTokens += answer.tokens
             return answer.text
         case .apiKey:
-            guard let key = Keychain.get(AssistantClient.keyAccount) else { throw AssistantFailure.noKey }
+            guard let key = await Self.storedKey() else { throw AssistantFailure.noKey }
             let body = AssistantClient.body(model: model, system: system, messages: [["role": "user", "content": prompt]],
                                             tools: [], effort: "low")
             let reply = try await AssistantClient.send(body: body, apiKey: key, model: model)
@@ -338,11 +338,18 @@ final class AssistantModel: AppModule {
         }
     }
 
+    /// The API key, read off the main thread: after an update macOS may ask whether the app can read it, and the whole
+    /// app would wait for that answer.
+    private static func storedKey() async -> String? {
+        let account = AssistantClient.keyAccount
+        return await Task.detached(priority: .userInitiated) { Keychain.get(account) }.value
+    }
+
     /// The tool loop: send, show text, run lookups or register proposals, send the results back, until Claude is done.
     private func converse(app: AppModel, question: String) async {
         isThinking = true
         defer { isThinking = false }
-        guard let key = Keychain.get(AssistantClient.keyAccount) else {
+        guard let key = await Self.storedKey() else {
             hasKey = false
             entries.append(AssistantEntry(kind: .notice(AssistantFailure.noKey.localizedDescription, isError: true)))
             return
@@ -383,7 +390,9 @@ final class AssistantModel: AppModule {
             // Every tool result goes back in a single user message.
             var results: [[String: Any]] = []
             for use in reply.toolUses {
-                let (output, isError) = runTool(use.name, input: use.input, app: app)
+                // The list of processes is read before, off the main thread (`ps` takes a moment).
+                let processes = use.name == "get_top_apps" ? await Self.processes(app) : []
+                let (output, isError) = runTool(use.name, input: use.input, app: app, processes: processes)
                 var r: [String: Any] = ["type": "tool_result", "tool_use_id": use.id, "content": output]
                 if isError { r["is_error"] = true }
                 results.append(r)
@@ -458,9 +467,15 @@ final class AssistantModel: AppModule {
     }
 
     /// Everything the lookups return, in one block (attached to the question when Claude Code is used).
-    static func macContext(_ app: AppModel) -> String {
-        [statusText(app), "Apps les plus gourmandes :\n" + topAppsText(app, byMemory: false), cleanupText(app), securityText(app)]
+    static func macContext(_ app: AppModel, processes: [ProcessGroup]) -> String {
+        [statusText(app), "Apps les plus gourmandes :\n" + topAppsText(processes, byMemory: false), cleanupText(app), securityText(app)]
             .joined(separator: "\n\n")
+    }
+
+    /// The processes to describe: the Moniteur's list if it is fresh, else read now, off the main thread.
+    static func processes(_ app: AppModel) async -> [ProcessGroup] {
+        if app.performance.processesFresh { return app.performance.processes }
+        return await Task.detached(priority: .userInitiated) { ProcessList.sample() }.value
     }
 
     static func statusText(_ app: AppModel) -> String {
@@ -479,8 +494,8 @@ final class AssistantModel: AppModule {
         return lines.joined(separator: "\n")
     }
 
-    static func topAppsText(_ app: AppModel, byMemory: Bool) -> String {
-        let list = (app.performance.processes.isEmpty ? ProcessList.sample() : app.performance.processes)
+    static func topAppsText(_ processes: [ProcessGroup], byMemory: Bool) -> String {
+        let list = processes
             .sorted { byMemory ? $0.memory > $1.memory : $0.cpu > $1.cpu }
             .prefix(10)
             .map { "\($0.name) : \(Fmt.dec($0.cpu)) % de processeur, \(Fmt.bytes($0.memory)) (\($0.processCount) processus)" }
@@ -507,7 +522,7 @@ final class AssistantModel: AppModule {
     }
 
     /// Runs a lookup, or registers a proposal shown as a button. Returns the text sent back to Claude.
-    private func runTool(_ name: String, input: [String: Any], app: AppModel) -> (String, Bool) {
+    private func runTool(_ name: String, input: [String: Any], app: AppModel, processes: [ProcessGroup]) -> (String, Bool) {
         switch name {
         case "run_app_command":
             guard let id = input["command_id"] as? String,
@@ -522,7 +537,7 @@ final class AssistantModel: AppModule {
             return (Self.statusText(app), false)
         case "get_top_apps" where allowLookups:
             entries.append(AssistantEntry(kind: .lookup("Apps les plus gourmandes consultées")))
-            return (Self.topAppsText(app, byMemory: input["sort"] as? String == "memory"), false)
+            return (Self.topAppsText(processes, byMemory: input["sort"] as? String == "memory"), false)
         case "get_cleanup_summary" where allowLookups:
             entries.append(AssistantEntry(kind: .lookup("Résumé du nettoyage consulté")))
             return (Self.cleanupText(app), false)

@@ -57,6 +57,31 @@ enum FileSizer {
     }
 }
 
+/// Reads that may wait on a slow disk (a network volume, a disk waking up, a folder of the cloud): on their own few
+/// threads, never on those Swift's tasks share with the rest of the app, which a stuck volume would otherwise take one
+/// by one.
+enum DiskQueue {
+    static let queue: OperationQueue = {
+        let q = OperationQueue()
+        q.name = "cleanmyclaude.disk"
+        q.maxConcurrentOperationCount = 3
+        q.qualityOfService = .userInitiated
+        return q
+    }()
+
+    /// nil when the task was cancelled before its turn came (the row went away, another file got selected).
+    static func read<T: Sendable>(_ work: @escaping @Sendable () -> T) async -> T? {
+        let cancelled = CancelFlag()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { c in
+                queue.addOperation { c.resume(returning: cancelled.isCancelled ? nil : work()) }
+            }
+        } onCancel: {
+            cancelled.cancel()
+        }
+    }
+}
+
 enum FS {
     static let fm = FileManager.default
     /// A fictional home in demo mode: nothing real is ever looked at or shown.

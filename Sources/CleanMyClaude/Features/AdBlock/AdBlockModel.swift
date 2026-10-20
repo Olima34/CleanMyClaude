@@ -173,7 +173,27 @@ final class AdBlockModel: AppModule {
 
     func results(for query: String, app: AppModel) -> [AppCommand] { AdBlockCommands.results(query, self) }
 
-    func selfTest() -> [String] { AdBlockChecks.run(self) }
+    func selfTest() -> [String] { AdBlockChecks.run(self) + Self.countChecks() }
+
+    /// The log is read an hour at a time, the last 24 hours at most, and not at all a few seconds after a reading.
+    private static func countChecks() -> [String] {
+        var f: [String] = []
+        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        let week = AdBlockLog.chunks(from: now.addingTimeInterval(-7 * 86_400), to: now)
+        if week.first?.start != now.addingTimeInterval(-AdBlockLog.maxBacklog) || week.last?.end != now || week.count != 24 {
+            f.append("Compteur : une semaine de journal n'est pas ramenée aux 24 dernières heures, par tranches d'une heure")
+        }
+        // A catch-up comes late (the scheduler checks every few minutes): the hours in between must still be read.
+        if AdBlockLog.maxBacklog < AdBlockLog.catchUpInterval + 3_600 { f.append("Compteur : un rattrapage perdrait la fin de la période") }
+        if zip(week, week.dropFirst()).contains(where: { $0.end != $1.start }) || week.contains(where: { $0.end.timeIntervalSince($0.start) > 3_600 }) {
+            f.append("Compteur : tranches du journal mal découpées")
+        }
+        let short = AdBlockLog.chunks(from: now.addingTimeInterval(-90 * 60), to: now)
+        if short.count != 2 || short.last?.end.timeIntervalSince(short.last!.start) != 1_800 { f.append("Compteur : 1 h 30 mal découpée") }
+        if !AdBlockLog.chunks(from: now.addingTimeInterval(-10), to: now).isEmpty { f.append("Compteur : relit le journal 10 s après") }
+        if AdBlockLog.catchUpInterval < 6 * 3_600 { f.append("Compteur : rattrapage plus d'une fois toutes les 6 h") }
+        return f
+    }
 
     func dump() -> [String] {
         let data = AdBlockProfile.data(level: settings.level, exceptions: settings.exceptions)
@@ -208,26 +228,32 @@ final class AdBlockModel: AppModule {
 
     // MARK: Counting
 
-    /// Every half hour while the blocker is installed (and when the page opens).
+    /// Reading the log is the costly part (several seconds of work for macOS): it happens when the page shows the
+    /// counter, and otherwise as a catch-up every 6 hours while the blocker is installed.
     private func scheduleCount() {
-        Scheduler.shared.register(Self.countJob, every: 1_800) { [weak self] in await self?.count() }
+        Scheduler.shared.register(Self.countJob, every: AdBlockLog.catchUpInterval) { [weak self] in await self?.count() }
     }
 
-    /// Reads macOS' log since the last reading (three days at most) and adds the requests answered "blocked".
+    /// Reads macOS' log since the last reading, an hour at a time, and adds the requests answered "blocked". Never more
+    /// than the last 6 hours: an older stretch is given up rather than read in one huge go.
     func count() async {
         guard installed, !counting, !DemoData.isEnabled, !Snapshot.isActive else { return }
         let end = Date()
-        let start = max(tally.readUntil ?? settings.installedAt ?? end, end.addingTimeInterval(-3 * 86_400))
-        guard end.timeIntervalSince(start) > 20 else { return }
+        let chunks = AdBlockLog.chunks(from: tally.readUntil ?? settings.installedAt ?? end, to: end)
+        guard !chunks.isEmpty else { return }
         counting = true
-        let result = await Task.detached(priority: .utility) { AdBlockLog.read(from: start, to: end) }.value
-        counting = false
-        switch result {
-        case .success(let events):
-            countError = nil
-            tally.add(events, readUntil: end)
-        case .failure(.unreadable(let why)):
-            countError = why
+        defer { counting = false }
+        for chunk in chunks {
+            let result = await Task.detached(priority: .background) { AdBlockLog.read(from: chunk.start, to: chunk.end) }.value
+            switch result {
+            case .success(let events):
+                countError = nil
+                // Each stretch read is kept at once: a stretch that fails is the only one read again next time.
+                tally.add(events, readUntil: chunk.end)
+            case .failure(.unreadable(let why)):
+                countError = why
+                return
+            }
         }
     }
 

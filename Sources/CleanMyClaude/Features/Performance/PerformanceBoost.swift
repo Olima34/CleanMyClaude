@@ -310,6 +310,7 @@ final class PerformanceBoost {
         audioWatch?.stop()
         audioWatch = nil
         engine.restoreAllNow()
+        MainWatchdog.shared.disarm("boost")
         demotions = []
         busy = []
         gameInFront = nil
@@ -437,6 +438,14 @@ final class PerformanceBoost {
         // The crash-recovery file changes only when the moved processes do (not at every new processor reading).
         func signature(_ l: [PerformanceDemotion]) -> [String] { l.map { $0.key + $0.pids.map { "\($0.pid):\($0.start)" }.joined(separator: ",") } }
         if signature(list) != signature(leftovers.value) { leftovers.value = list }
+        // Their full speed comes back through the main thread (an app coming to the front): if the app hangs, the
+        // watchdog gives it back to all of them from its own thread.
+        if list.isEmpty {
+            MainWatchdog.shared.disarm("boost")
+        } else {
+            let engine = self.engine
+            MainWatchdog.shared.arm("boost") { engine.restoreAllNow() }
+        }
     }
 
     /// An app came to the front: its processes get their priority back right away, before any sweep.

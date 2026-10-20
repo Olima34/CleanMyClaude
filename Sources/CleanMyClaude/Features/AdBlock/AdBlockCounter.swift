@@ -3,7 +3,8 @@ import SwiftUI
 // The counter of ads stopped. macOS' resolver (mDNSResponder) writes each lookup in the system log: the site's name is
 // masked (<private>), but a blocked answer reads "type: A, rdata: 0.0.0.0" in clear, with the app that asked.
 // Counting those lines tells how many ad and tracker requests the blocker stopped, app by app, without ever seeing
-// which sites are visited. Read every half hour (about 3 s of work for an hour of log), and when the page opens.
+// which sites are visited. Read when the page shows the counter, and as a catch-up every 6 hours (a few seconds of work
+// for an hour of log): an hour at a time, at background priority, the last 6 hours at most.
 
 /// What was counted, kept between launches.
 struct AdBlockTally: Codable, Equatable {
@@ -61,15 +62,46 @@ enum AdBlockLog {
         case unreadable(String)
     }
 
+    struct Chunk: Equatable {
+        var start: Date
+        var end: Date
+    }
+
+    /// The catch-up when the page has not been opened for a while.
+    static let catchUpInterval: TimeInterval = 6 * 3_600
+    /// The log is never read further back than this (an older stretch is given up): a day, so that the catch-up every
+    /// six hours, a night with the lid closed or a weekend away lose nothing of the evening before.
+    static let maxBacklog: TimeInterval = 24 * 3_600
+    /// One `log show` reads an hour at most: a short call that ends well within its time limit.
+    static let chunkLength: TimeInterval = 3_600
+
+    /// The stretches to read between the last reading and `end`, oldest first: an hour each, the last 24 hours at most,
+    /// nothing under 20 seconds.
+    static func chunks(from last: Date, to end: Date) -> [Chunk] {
+        var start = max(last, end.addingTimeInterval(-maxBacklog))
+        guard end.timeIntervalSince(start) > 20 else { return [] }
+        var out: [Chunk] = []
+        while start < end {
+            let stop = min(end, start.addingTimeInterval(chunkLength))
+            out.append(Chunk(start: start, end: stop))
+            start = stop
+        }
+        return out
+    }
+
     /// mDNSResponder's lines between `start` and `end`: the lookups answered 0.0.0.0, with the app that asked.
+    /// `log` runs at background priority (`taskpolicy -b`): slower, but it never competes with what the user does.
     static func read(from start: Date, to end: Date) -> Result<[Event], Failure> {
         guard !DemoData.isEnabled else { return .success([]) }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm:ss"
         let predicate = "process == \"mDNSResponder\" AND (eventMessage CONTAINS \"getaddrinfo start\" OR eventMessage CONTAINS \"rdata: 0.0.0.0\")"
-        let r = Shell.run("/usr/bin/log", ["show", "--start", f.string(from: start), "--end", f.string(from: end), "--style", "compact",
-                                           "--predicate", predicate], timeout: 240)
+        let args = ["show", "--start", f.string(from: start), "--end", f.string(from: end), "--style", "compact", "--predicate", predicate]
+        let policy = "/usr/sbin/taskpolicy"
+        let r = FileManager.default.isExecutableFile(atPath: policy)
+            ? Shell.run(policy, ["-b", "/usr/bin/log"] + args, timeout: 180)
+            : Shell.run("/usr/bin/log", args, timeout: 180)
         guard r.ok else {
             return .failure(.unreadable(r.err.isEmpty ? "macOS n'a pas laissé lire son journal." : r.err.trimmingCharacters(in: .whitespacesAndNewlines)))
         }

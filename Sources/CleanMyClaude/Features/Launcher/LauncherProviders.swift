@@ -296,8 +296,12 @@ enum LauncherAppActions {
                 Task { await ctx.app.storage.scan(FS.home) }
                 return .done
             },
+            // Never run without a word, even when Claude proposes it: macOS empties its disk caches and every app reads
+            // its code again, which can freeze the Mac for a few seconds.
             AppCommand(id: "act_free_ram", title: "Libérer la mémoire vive", subtitle: "Demande ton mot de passe",
-                       keywords: ["ram", "mémoire", "purge"], icon: .symbol("memorychip"), group: .actions, assistantSafe: true) { _ in
+                       keywords: ["ram", "mémoire", "purge"], icon: .symbol("memorychip"), group: .actions,
+                       risk: .confirm("macOS vide ses caches de disque : le Mac peut se figer quelques secondes, le temps que les apps relisent ce dont elles ont besoin. C'est rarement utile, macOS gère très bien sa mémoire seul."),
+                       assistantSafe: true) { _ in
                 let message = await Task.detached { QuickActions.freeMemory() }.value
                 return message.map { .message($0) } ?? .done
             },

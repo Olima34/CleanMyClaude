@@ -67,6 +67,10 @@ final class RefugeCompanion {
     private var taps: [Date] = []
     /// Walking in from off the screen.
     private var entering = false
+    /// Its window moved at the last reading: it is being dragged, the next frames follow it closely.
+    private var following = false
+    /// The screens are off or the session is not in front: it rests, nothing runs.
+    private var observers: [NSObjectProtocol] = []
 
     private enum Mode: Equatable {
         case walk, sit, sleep, jumping, falling, leaving
@@ -128,6 +132,27 @@ final class RefugeCompanion {
         p.orderFrontRegardless()
         panel = p
         refreshLook()
+        startTicking()
+        // Nobody sees it with the screens off or the session locked: it waits, without a single frame.
+        let center = NSWorkspace.shared.notificationCenter
+        for (name, on) in [(NSWorkspace.screensDidSleepNotification, false), (NSWorkspace.sessionDidResignActiveNotification, false),
+                           (NSWorkspace.screensDidWakeNotification, true), (NSWorkspace.sessionDidBecomeActiveNotification, true)] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { on ? self?.startTicking() : self?.stopTicking() }
+            })
+        }
+    }
+
+    func stop() {
+        stopTicking()
+        for o in observers { NSWorkspace.shared.notificationCenter.removeObserver(o) }
+        observers.removeAll()
+        panel?.orderOut(nil)
+        panel = nil
+    }
+
+    private func startTicking() {
+        guard timer == nil, panel != nil else { return }
         let t = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -136,11 +161,9 @@ final class RefugeCompanion {
         timer = t
     }
 
-    func stop() {
+    private func stopTicking() {
         timer?.invalidate()
         timer = nil
-        panel?.orderOut(nil)
-        panel = nil
     }
 
     /// Blueberries came in, or it ate: a little jump and a word.
@@ -200,10 +223,17 @@ final class RefugeCompanion {
         if jumpTicks > 0 { jumpTicks -= 1 }
         ticksLeft -= 1
 
-        // Twice a second, where it can stand: it follows its window, or falls when the window is gone.
-        if state.frame % 2 == 0 {
+        // Where it can stand (a description of every window, from the window server): twice a second on a window,
+        // which it follows (every frame while the window is dragged), or falls when it is gone; twice a second while
+        // it jumps or falls; right before it chooses what to do next; and every two seconds on the bottom of the
+        // screen, which only moves with the Dock.
+        let onWindow = (surface?.id ?? 0) != 0
+        let airborne = mode == .jumping || mode == .falling
+        if following || ticksLeft <= 0 || ((onWindow || airborne) && state.frame % 2 == 0) || state.frame % 8 == 0 {
+            let before = surface
             surfaces = Self.currentSurfaces(in: f)
             if [.walk, .sit, .sleep].contains(mode), !entering { holdOn(f) }
+            following = onWindow && surface?.id == before?.id && surface?.left != before?.left
         }
 
         let night = RefugeRules.isNight(Calendar.current.component(.hour, from: Date()))
@@ -284,11 +314,14 @@ final class RefugeCompanion {
                 }
             }
         }
-        panel.setFrameOrigin(NSPoint(x: origin.x.rounded(), y: origin.y.rounded()))
+        // Told to the window server only when it changes: sitting still costs it nothing.
+        let corner = NSPoint(x: origin.x.rounded(), y: origin.y.rounded())
+        if panel.frame.origin != corner { panel.setFrameOrigin(corner) }
         // Clicks go through, except on the chamois itself.
         let mouse = NSEvent.mouseLocation
         let body = Self.figure.offsetBy(dx: origin.x, dy: origin.y)
-        panel.ignoresMouseEvents = !body.insetBy(dx: 4, dy: 4).contains(mouse)
+        let through = !body.insetBy(dx: 4, dy: 4).contains(mouse)
+        if panel.ignoresMouseEvents != through { panel.ignoresMouseEvents = through }
     }
 
     /// Standing on something: it follows its window when dragged, and falls when the window closes, is covered or moves

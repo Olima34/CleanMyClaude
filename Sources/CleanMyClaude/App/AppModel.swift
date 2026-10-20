@@ -184,6 +184,10 @@ final class AppModel {
     /// False once the main window is closed, not when it is only covered, minimised or on another Space.
     /// A closed SwiftUI window keeps its views alive and redrawn: RootView drops the pages until it reopens.
     var mainWindowOpen = true
+    /// True while the main window is really on screen: open, not minimised, not hidden (⌘H), on the current Space and
+    /// not fully covered. What only the eye needs pauses while it is false: the monitor's full pace, the samples of the
+    /// pages (processes, network), the small animations (`\.mainWindowOnScreen`). The pages themselves stay, with their state.
+    private(set) var mainWindowOnScreen = true
     var smartScanRunning = false
     var smartScanDate: Date?
 
@@ -209,6 +213,25 @@ final class AppModel {
         }
         profile.refresh(self)
         if !DemoData.isEnabled && liveMonitor {
+            updateAlertsTimer()
+            // The alerts are switched in the settings, the Menu d'état and Automatisations pages (`@AppStorage`).
+            defaultsObserver = NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil,
+                                                                      queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateAlertsTimer() }
+            }
+        }
+    }
+
+    @ObservationIgnored private var alertsTimer: Timer?
+    @ObservationIgnored private var defaultsObserver: NSObjectProtocol?
+
+    /// The disk, memory and heat check runs once a minute, only while the alerts are on.
+    private func updateAlertsTimer() {
+        let on = Alerts.isOn
+        if !on {
+            alertsTimer?.invalidate()
+            alertsTimer = nil
+        } else if alertsTimer == nil {
             let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, Alerts.isOn else { return }
@@ -219,7 +242,17 @@ final class AppModel {
             }
             t.tolerance = 10
             RunLoop.main.add(t, forMode: .common)
+            alertsTimer = t
         }
+    }
+
+    /// The main window came on screen or went away (`AppContext.noteMainWindowVisibility`).
+    func setMainWindowOnScreen(_ on: Bool) {
+        monitor.show(.window, on)
+        guard on != mainWindowOnScreen else { return }
+        mainWindowOnScreen = on
+        performance.setWindowOnScreen(on)
+        network.setWindowOnScreen(on)
     }
 
     func refreshPermissions() {

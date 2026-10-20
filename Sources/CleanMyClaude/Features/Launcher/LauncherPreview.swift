@@ -53,15 +53,33 @@ struct LauncherPreview: View {
         .task(id: path) {
             if shown != nil { try? await Task.sleep(nanoseconds: 110_000_000) }
             guard !Task.isCancelled else { return }
+            // Another selection: the size of the previous app, if any, stops adding up.
+            let ticket = Self.sizeTicket.next()
             shown = path
-            info = LauncherFileInfo.read(path)
-            guard info.size == "…" else { return }
-            // A package (an app): its content is added up in the background.
+            // Read off the main thread: a folder of thousands of files, or a disk that is slow to answer, never holds the keys.
             let target = path
-            let bytes = await Task.detached(priority: .utility) { FileSizer.size(of: target) }.value
-            if !Task.isCancelled, target == path { info.size = Fmt.bytes(bytes) }
+            guard let read = await DiskQueue.read({ LauncherFileInfo.read(target) }), !Task.isCancelled, target == path else { return }
+            info = read
+            guard info.size == "…" else { return }
+            // A package (an app): its content is added up in the background, one at a time, only for the latest selection
+            // (adding up a big app takes seconds: sweeping the list must not pile them up).
+            let bytes: Int64? = await withTaskCancellationHandler {
+                await withCheckedContinuation { c in
+                    Self.sizes.async {
+                        // Stops as soon as another file is selected, or the panel closes.
+                        let total = FileSizer.size(of: target) { !Self.sizeTicket.isCurrent(ticket) }
+                        c.resume(returning: Self.sizeTicket.isCurrent(ticket) ? total : nil)
+                    }
+                }
+            } onCancel: {
+                if Self.sizeTicket.isCurrent(ticket) { Self.sizeTicket.next() }
+            }
+            if let bytes, !Task.isCancelled, target == path { info.size = Fmt.bytes(bytes) }
         }
     }
+
+    nonisolated private static let sizes = DispatchQueue(label: "cleanmyclaude.launcher.sizes", qos: .utility)
+    nonisolated private static let sizeTicket = LauncherTicket()
 
     private func row(_ label: String, _ value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {

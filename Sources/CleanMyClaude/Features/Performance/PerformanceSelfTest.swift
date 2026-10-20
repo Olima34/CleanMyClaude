@@ -152,8 +152,25 @@ enum PerformanceChecks {
         if isDemote(v("/Applications/Musique.app", .performance)) { f.append("gouverneur : une app qui joue du son serait ralentie") }
         if isDemote(v("/Applications/Fenêtres.app", .performance, busy: 5)) { f.append("gouverneur : une app qui surveille le clavier serait ralentie") }
         if isDemote(v("/Applications/Exporteur.app", .performance)) { f.append("gouverneur : une app protégée par défaut serait ralentie") }
-        if v(home + "/Applications/Nuage.app", .performance) != .demote(.mode) { f.append("gouverneur : un client de synchronisation reste à pleine vitesse") }
+        // The other apps wait for their files from a sync client: slowed only when it runs wild, whatever the mode.
+        if isDemote(v(home + "/Applications/Nuage.app", .performance)) { f.append("gouverneur : Performance ralentit un client de synchronisation calme") }
+        if v(home + "/Applications/Nuage.app", .performance, busy: PerformancePlanner.busyDuration) != .demote(.busy) {
+            f.append("gouverneur : un client de synchronisation qui s'emballe reste à pleine vitesse")
+        }
         if isDemote(v(home + "/Applications/Nuage.app", .smart)) { f.append("gouverneur : Intelligent ralentit un client calme") }
+        // Extensions work for the others (File Provider, Quick Look…), and a VPN or a password manager for every app.
+        let withExtension = PerformancePlanner.groups(
+            procs + [proc(20, "/Applications/Navigateur.app/Contents/PlugIns/Fichiers.appex/Contents/MacOS/Fichiers")], apps: apps,
+            audio: [], taps: [], home: home)["/Applications/Navigateur.app"]
+        if withExtension?.movable.contains(where: { $0.pid == 20 }) != false || withExtension?.pids.count != 3 {
+            f.append("gouverneur : une extension d'app serait ralentie avec son app")
+        }
+        let vpn = PerformanceGroup(key: "/Applications/Tunnel.app", name: "Tunnel", bundleID: "com.wireguard.macos", kind: .app,
+                                   pids: [PerformancePID(pid: 30, start: 30)])
+        if isDemote(PerformancePlanner.verdict(vpn, mode: .performance, frontKey: nil, ownKey: "/Applications/Clean My Claude.app",
+                                               rules: rules, busyFor: 90)) {
+            f.append("gouverneur : un VPN serait ralenti")
+        }
         var custom = rules
         custom.alwaysSlow = ["/Applications/Navigateur.app"]
         if v("/Applications/Navigateur.app", .smart, rules: custom) != .demote(.rule) { f.append("gouverneur : la règle « toujours ralentir » ignorée") }

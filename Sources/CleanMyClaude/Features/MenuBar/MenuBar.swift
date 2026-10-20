@@ -162,8 +162,9 @@ struct MenuBarPanel: View {
         .padding(16)
         .frame(width: 340)
         .background(Theme.bg)
-        .onAppear { app.performance.startSampling() }
-        .onDisappear { app.performance.stopSampling() }
+        // Embedded, it is in the main window (Menu d'état page): its sampling follows the window.
+        .onAppear { app.performance.startSampling(inMainWindow: embedded) }
+        .onDisappear { app.performance.stopSampling(inMainWindow: embedded) }
     }
 
     private func mini(_ title: String, _ value: Double, _ text: String, _ tint: Color, caption: String? = nil) -> some View {

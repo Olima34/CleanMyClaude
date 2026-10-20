@@ -46,11 +46,25 @@ struct RootView: View {
         .ignoresSafeArea()
         .background(Theme.bg)
         .tint(Theme.accent)
+        .environment(\.mainWindowOnScreen, app.mainWindowOnScreen)
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             app.refreshPermissions()
             app.refuge.arrived()
         }
         .onAppear { AppContext.openWindow = openWindow }
+    }
+}
+
+/// True while the main window is really on screen (`AppModel.mainWindowOnScreen`): a small animation of its pages
+/// (a blink, a clock ticking every second) stops while it is false. Other windows keep the default, true.
+struct MainWindowOnScreenKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var mainWindowOnScreen: Bool {
+        get { self[MainWindowOnScreenKey.self] }
+        set { self[MainWindowOnScreenKey.self] = newValue }
     }
 }
 

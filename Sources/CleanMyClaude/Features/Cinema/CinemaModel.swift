@@ -49,6 +49,8 @@ final class CinemaModel: AppModule {
     @ObservationIgnored private var launcherKey: String?
     @ObservationIgnored private var pageTask: Task<Void, Never>?
     @ObservationIgnored private var imageLoads: Set<String> = []
+    /// The posters in the order they arrived, the oldest first.
+    @ObservationIgnored private var imageOrder: [String] = []
     @ObservationIgnored private var cachedKey: String?
 
     let language = "fr-FR"
@@ -67,9 +69,13 @@ final class CinemaModel: AppModule {
 
     // MARK: Key
 
-    private func key() -> String? {
+    /// Read off the main thread: after an update macOS may ask whether the app can read its item, and the main thread
+    /// would wait for that answer (a window easily hidden behind the launcher) with the whole app frozen.
+    private func key() async -> String? {
         if let cachedKey { return cachedKey }
-        cachedKey = Keychain.get(CinemaTMDB.keyAccount)
+        let account = CinemaTMDB.keyAccount
+        let read = await Task.detached(priority: .userInitiated) { Keychain.get(account) }.value
+        if cachedKey == nil { cachedKey = read }
         return cachedKey
     }
 
@@ -121,6 +127,8 @@ final class CinemaModel: AppModule {
         let k = CinemaQuery.key(title, kind: kind)
         if case .done(_, let date)? = searches[k], Date().timeIntervalSince(date) < 600 { return }
         if case .loading? = searches[k], !forLauncher { return }
+        // A failure stays on screen until "↩ réessaie": each redraw of the launcher would otherwise ask TMDB again, forever.
+        if case .failed? = searches[k], forLauncher { return }
         guard hasKey, !DemoData.isEnabled else { return }
         if forLauncher {
             if launcherKey == k { return }
@@ -131,7 +139,7 @@ final class CinemaModel: AppModule {
         }
         let task = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled, let self, let key = self.key() else { return }
+            guard !Task.isCancelled, let self, let key = await self.key(), !Task.isCancelled else { return }
             self.searches[k] = .loading
             let state: CinemaSearchState
             do {
@@ -141,6 +149,13 @@ final class CinemaModel: AppModule {
                 state = .failed(error.localizedDescription)
             }
             guard !Task.isCancelled else { self.searches[k] = nil; return }
+            // Every title typed in the launcher leaves its answer: past a few hundred, the oldest half goes.
+            if self.searches.count >= 300 {
+                let old = self.searches.compactMap { key, s -> (String, Date)? in
+                    if case .done(_, let date) = s { return (key, date) } else if case .failed = s { return (key, .distantPast) } else { return nil }
+                }.sorted { $0.1 < $1.1 }.prefix(150)
+                for (key, _) in old { self.searches[key] = nil }
+            }
             self.searches[k] = state
             if forLauncher {
                 if self.launcherKey == k { self.launcherKey = nil }
@@ -169,11 +184,14 @@ final class CinemaModel: AppModule {
         loadPicture(hit.posterPath, width: 185)
         guard !DemoData.isEnabled, hasKey, !loadingTitles.contains(hit.id) else { return }
         if titles[hit.id] != nil, titleErrors[hit.id] == nil { return }
-        guard let key = key() else { return }
         loadingTitles.insert(hit.id)
         titleErrors[hit.id] = nil
         Task { [weak self] in
             guard let self else { return }
+            guard let key = await self.key() else {
+                self.loadingTitles.remove(hit.id)
+                return
+            }
             do {
                 var title = try await CinemaTMDB.details(hit, key: key, language: self.language, region: self.region)
                 self.titles[hit.id] = title
@@ -205,7 +223,22 @@ final class CinemaModel: AppModule {
         Task { [weak self] in
             let image = await CinemaTMDB.image(path, width: width)
             guard let self else { return }
-            if let image { self.images[k] = image } else { self.imageLoads.remove(k) }
+            if let image {
+                // Posters pile up while browsing (≈ 200 KB each): past three hundred, the hundred loaded longest ago go
+                // (what is on screen was loaded last and stays). The small logos of the platforms are kept.
+                if width > 92 { self.imageOrder.append(k) }
+                if self.imageOrder.count > 300 {
+                    let old = self.imageOrder.prefix(100)
+                    self.imageOrder.removeFirst(100)
+                    for o in old {
+                        self.images[o] = nil
+                        self.imageLoads.remove(o)
+                    }
+                }
+                self.images[k] = image
+            } else {
+                self.imageLoads.remove(k)
+            }
         }
     }
 

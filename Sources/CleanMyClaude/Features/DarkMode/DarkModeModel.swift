@@ -363,8 +363,10 @@ final class DarkModeModel: AppModule {
     func toggleInvert() {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return HUD.show(DemoData.refusal, symbol: "info.circle.fill") }
         let on = !DarkModeInvert.isOn
-        if !DarkModeInvert.set(on) {
-            invertFailed = true
+        // macOS' answer comes back without holding the main thread.
+        DarkModeInvert.set(on) { [weak self] ok in
+            guard !ok else { return }
+            self?.invertFailed = true
             HUD.show("macOS n'a pas inversé l'écran : Réglages › Accessibilité › Écran", symbol: "exclamationmark.triangle.fill")
         }
     }
@@ -374,16 +376,19 @@ final class DarkModeModel: AppModule {
         guard !testingInvert else { return }
         guard !DemoData.isEnabled, !Snapshot.isActive else { return HUD.show(DemoData.refusal, symbol: "info.circle.fill") }
         guard !DarkModeInvert.isOn else { return HUD.show("L'écran est déjà inversé", symbol: "info.circle.fill") }
-        guard DarkModeInvert.set(true) else {
-            invertFailed = true
-            return
-        }
-        invertFailed = false
         testingInvert = true
-        Task {
-            try? await Task.sleep(nanoseconds: 3_000_000_000)
-            DarkModeInvert.set(false)
-            testingInvert = false
+        DarkModeInvert.set(true) { [weak self] ok in
+            guard let self else { return }
+            guard ok else {
+                self.invertFailed = true
+                self.testingInvert = false
+                return
+            }
+            self.invertFailed = false
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                DarkModeInvert.set(false) { _ in self?.testingInvert = false }
+            }
         }
     }
 

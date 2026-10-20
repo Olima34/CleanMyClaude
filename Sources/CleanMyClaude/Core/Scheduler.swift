@@ -28,6 +28,11 @@ final class Scheduler {
 
     func unregister(_ id: String) {
         jobs[id] = nil
+        // Nothing left to run: no more checks at all.
+        if jobs.isEmpty {
+            timer?.invalidate()
+            timer = nil
+        }
     }
 
     func lastRun(_ id: String) -> Date? { lastRuns.value[id] }
@@ -43,11 +48,11 @@ final class Scheduler {
 
     private func startTimer() {
         guard timer == nil else { return }
-        // One check a minute is plenty for jobs counted in hours or days.
-        let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+        // One check every five minutes is plenty for jobs counted in quarters of an hour, hours or days.
+        let t = Timer(timeInterval: 300, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
-        t.tolerance = 20
+        t.tolerance = 60
         RunLoop.main.add(t, forMode: .common)
         timer = t
         DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in

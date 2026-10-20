@@ -70,7 +70,9 @@ extension PerformanceModel: AppModule {
         }
         list.append(AppCommand(id: "perf_benchmark", title: "Lancer le benchmark", subtitle: "Processeur, GPU, mémoire, SSD et réactivité en ≈ 25 s",
                                keywords: ["benchmark", "score", "test", "vitesse", "performances", "fps", "geekbench"],
-                               icon: .symbol("speedometer", Theme.warn), assistantSafe: true) { ctx in
+                               icon: .symbol("speedometer", Theme.warn),
+                               risk: .confirm("Pendant ≈ 25 s, ton Mac travaille à fond (processeur, GPU, et 1 Go écrit sur le SSD) : les autres apps ralentissent le temps du test."),
+                               assistantSafe: true) { ctx in
             let p = ctx.app.performance
             ctx.app.page = .performance
             p.tab = .bench
@@ -178,9 +180,12 @@ extension PerformanceModel: AppModule {
             let bundleID = g.appPath.flatMap { path in NSWorkspace.shared.runningApplications.first { $0.bundleURL?.path == path }?.bundleIdentifier }
             let pids = g.pids.compactMap { pid in PerformanceProcScan.start(of: pid).map { PerformancePID(pid: pid, start: $0) } }
             let background = Set(pids.filter { (PerformanceProcScan.priority(of: $0.pid) ?? 31) <= 4 })
+            // Its extensions work for the others (File Provider, Quick Look…): never slowed, as in the sweeps.
+            let paths = Dictionary(PerformanceProcScan.current().map { ($0.id.pid, $0.path) }, uniquingKeysWith: { a, _ in a })
+            let serving = Set(pids.filter { PerformancePlanner.isServing(paths[$0.pid] ?? "") })
             boost.slowNow(PerformanceGroup(key: g.id, name: g.name, appPath: g.appPath, bundleID: bundleID,
                                            kind: g.appPath == nil ? .daemon : .app, pids: pids, cpu: g.cpu, memory: g.memory,
-                                           alreadyBackground: background))
+                                           alreadyBackground: background, serving: serving))
         case .quit(let id):
             guard let g = processes.first(where: { $0.id == id }),
                   CommandRunner.confirm("Quitter \(g.name) ?", "Les documents non enregistrés de cette app pourraient être perdus.", button: "Quitter")

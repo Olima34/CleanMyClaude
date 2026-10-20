@@ -30,15 +30,55 @@ struct KeyCombo: Codable, Hashable {
     }
 
     static func keyName(_ code: UInt32) -> String {
-        let special: [Int: String] = [
-            kVK_Space: "Espace", kVK_Return: "↩", kVK_Tab: "⇥", kVK_Escape: "⎋", kVK_Delete: "⌫",
-            kVK_LeftArrow: "←", kVK_RightArrow: "→", kVK_UpArrow: "↑", kVK_DownArrow: "↓",
-            kVK_F1: "F1", kVK_F2: "F2", kVK_F3: "F3", kVK_F4: "F4", kVK_F5: "F5", kVK_F6: "F6",
-            kVK_F7: "F7", kVK_F8: "F8", kVK_F9: "F9", kVK_F10: "F10", kVK_F11: "F11", kVK_F12: "F12",
-            kVK_Home: "↖", kVK_End: "↘", kVK_PageUp: "⇞", kVK_PageDown: "⇟", kVK_ForwardDelete: "⌦"
-        ]
         if let s = special[Int(code)] { return s }
-        // Ask the current keyboard layout which character this key types.
+        return layoutNames.name(code) { layoutName(code) }
+    }
+
+    private static let special: [Int: String] = [
+        kVK_Space: "Espace", kVK_Return: "↩", kVK_Tab: "⇥", kVK_Escape: "⎋", kVK_Delete: "⌫",
+        kVK_LeftArrow: "←", kVK_RightArrow: "→", kVK_UpArrow: "↑", kVK_DownArrow: "↓",
+        kVK_F1: "F1", kVK_F2: "F2", kVK_F3: "F3", kVK_F4: "F4", kVK_F5: "F5", kVK_F6: "F6",
+        kVK_F7: "F7", kVK_F8: "F8", kVK_F9: "F9", kVK_F10: "F10", kVK_F11: "F11", kVK_F12: "F12",
+        kVK_Home: "↖", kVK_End: "↘", kVK_PageUp: "⇞", kVK_PageDown: "⇟", kVK_ForwardDelete: "⌦"
+    ]
+
+    /// Asking the keyboard layout costs about a millisecond, and every row of the launcher shows its shortcut:
+    /// each key is asked once, until the user switches to another layout.
+    private final class LayoutNames: @unchecked Sendable {
+        private let lock = NSLock()
+        private var names: [UInt32: String] = [:]
+        private var observer: NSObjectProtocol?
+
+        func name(_ code: UInt32, _ read: () -> String) -> String {
+            lock.lock()
+            if observer == nil {
+                observer = DistributedNotificationCenter.default().addObserver(
+                    forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String), object: nil, queue: nil
+                ) { [weak self] _ in self?.clear() }
+            }
+            if let known = names[code] {
+                lock.unlock()
+                return known
+            }
+            lock.unlock()
+            let name = read()
+            lock.lock()
+            names[code] = name
+            lock.unlock()
+            return name
+        }
+
+        private func clear() {
+            lock.lock()
+            names.removeAll()
+            lock.unlock()
+        }
+    }
+
+    private static let layoutNames = LayoutNames()
+
+    /// Asks the current keyboard layout which character this key types.
+    private static func layoutName(_ code: UInt32) -> String {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let ptr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return "#\(code)" }
         let data = Unmanaged<CFData>.fromOpaque(ptr).takeUnretainedValue() as Data

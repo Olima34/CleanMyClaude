@@ -38,14 +38,21 @@ enum ProtectionSignatures {
     private final class Cache: @unchecked Sendable {
         let lock = NSLock()
         var loaded: Loaded?
+        var lastUse = Date.distantPast
+        var forgetScheduled = false
     }
     private static let cache = Cache()
+
+    /// Compiled signatures weigh a dozen megabytes: they are let go after ten minutes without a file to check.
+    static let keptFor: TimeInterval = 600
 
     /// Compiles the signatures (about a second), or hands back the ones already compiled for this version.
     static func load() -> Loaded? {
         guard let found = newest() else { return nil }
         cache.lock.lock()
         defer { cache.lock.unlock() }
+        cache.lastUse = Date()
+        scheduleForget()
         if let l = cache.loaded, l.version == found.version, l.bundlePath == found.path { return l }
         let res = found.path + "/Contents/Resources/"
         guard let yara = try? String(contentsOfFile: res + "XProtect.yara", encoding: .utf8) else { return nil }
@@ -62,6 +69,22 @@ enum ProtectionSignatures {
                        binary: ProtectionYaraRuleset(source: yara), scripts: scripts, blockedExtensions: blocked)
         cache.loaded = l
         return l
+    }
+
+    /// Called with the lock held.
+    private static func scheduleForget() {
+        guard !cache.forgetScheduled else { return }
+        cache.forgetScheduled = true
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + keptFor) {
+            cache.lock.lock()
+            defer { cache.lock.unlock() }
+            cache.forgetScheduled = false
+            if Date().timeIntervalSince(cache.lastUse) >= keptFor - 1 {
+                cache.loaded = nil
+            } else {
+                scheduleForget()
+            }
+        }
     }
 }
 

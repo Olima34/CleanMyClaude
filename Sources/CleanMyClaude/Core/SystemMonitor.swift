@@ -32,11 +32,28 @@ enum MemoryPressure: Int {
 @MainActor
 final class SystemMonitor {
     static let historyLength = 60
+    /// The pace when the menu bar text alone shows the values.
+    static let lightInterval: TimeInterval = 5
 
     /// What shows the live values. The timer runs only while one of them is on screen: with the window closed and the
     /// icon alone in the menu bar, the monitor costs nothing, and `refresh()` still gives fresh values on demand.
     enum Viewer: Hashable {
         case window, panel, menuBar
+    }
+
+    /// What the menu bar text reads. When it is the only viewer, only that is sampled, every `lightInterval`:
+    /// no curves, no battery, no load average.
+    struct Readings: OptionSet {
+        let rawValue: Int
+        static let cpu = Readings(rawValue: 1)
+        static let memory = Readings(rawValue: 2)
+        static let network = Readings(rawValue: 4)
+        static let disk = Readings(rawValue: 8)
+    }
+
+    /// Off: nothing on screen. Light: the menu bar text alone. Full: the main window or the menu bar panel.
+    enum Pace {
+        case off, light, full
     }
 
     // CPU
@@ -80,17 +97,44 @@ final class SystemMonitor {
     var thermal: ProcessInfo.ThermalState = .nominal
     var bootDate: Date?
     var uptime: TimeInterval { bootDate.map { Date().timeIntervalSince($0) } ?? ProcessInfo.processInfo.systemUptime }
-    var lastSample = Date()
+    /// Not observed: nothing on screen shows it, and it changes at every sample.
+    @ObservationIgnored var lastSample = Date()
 
     @ObservationIgnored private var timer: Timer?
     /// False for the one-shot monitors (diagnostic, snapshots, self-tests): they never sample on a timer.
     @ObservationIgnored private var live = false
     @ObservationIgnored private var viewers: Set<Viewer> = []
+    /// The pace the timer runs at.
+    @ObservationIgnored private(set) var pace: Pace = .off
+    /// What the menu bar text reads (set by the status item with its metric).
+    @ObservationIgnored var menuBarReadings: Readings = [.cpu, .memory]
+
+    /// The figures of the menu bar text: the observed values at full pace, and at light pace these alone, kept out of
+    /// observation (a page left in a hidden window is not redrawn for them).
+    struct MenuFigures: Equatable {
+        var cpu = 0.0
+        var memory = 0.0
+        var netIn = 0.0
+        var netOut = 0.0
+        var diskFree: Int64 = 0
+    }
+
+    @ObservationIgnored private(set) var menuFigures = MenuFigures()
+    /// The processor at light pace, not observed (the curves keep their own pace).
+    @ObservationIgnored private var lightCPU: [Double] = []
+
+    /// The latest processor readings, whatever the pace: the curves at full pace, the light readings otherwise.
+    var recentCPU: [Double] { pace == .full || lightCPU.isEmpty ? cpuHistory : lightCPU }
     /// Called after each sample (the menu bar text follows the values).
     @ObservationIgnored var onSample: (@MainActor () -> Void)?
-    @ObservationIgnored private var prevTicks: [UInt32]?
+    @ObservationIgnored private var prevTicks: (ticks: [UInt32], at: Date)?
     @ObservationIgnored private var prevNet: (bytesIn: UInt64, bytesOut: UInt64, at: Date)?
     @ObservationIgnored private var tick = 0
+    @ObservationIgnored private var lightTick = 0
+    /// The free space "for important usage" asks macOS to weigh what it could purge: read only for what shows it.
+    @ObservationIgnored private var importantRead = Date.distantPast
+    /// Health and cycles come from the battery controller's whole registry entry: read once an hour at most.
+    @ObservationIgnored private var batteryDetailsRead = Date.distantPast
     private let host = mach_host_self()
     @ObservationIgnored private var pageSize: UInt64 = {
         var size: vm_size_t = 0
@@ -100,6 +144,9 @@ final class SystemMonitor {
 
     var interval: TimeInterval = 2
     var isSampling: Bool { timer != nil }
+
+    /// The menu bar's own pace, never quicker than the settings' one.
+    private var lightPeriod: TimeInterval { max(Self.lightInterval, interval) }
 
     init(start: Bool = true) {
         bootDate = Self.readBootDate()
@@ -112,79 +159,151 @@ final class SystemMonitor {
         live = true
         let saved = UserDefaults.standard.double(forKey: Preferences.refreshKey)
         interval = saved > 0 ? saved : 2
-        if timer != nil {
-            schedule(firstIn: interval)
-        } else if !viewers.isEmpty {
-            resume()
-        }
+        // A new interval: the timer starts again at the new pace.
+        let current = pace
+        pace = .off
+        timer?.invalidate()
+        timer = nil
+        applyPace(from: current)
     }
 
-    /// `viewer` appeared or went away: the timer stops when nothing shows the values any more, and starts again
-    /// (with a sample right away if the values are old) as soon as something does.
+    /// `viewer` appeared or went away: the timer stops when nothing shows the values any more, slows down when the
+    /// menu bar text alone does, and comes back to its full pace (with a sample right away if the values are old) as
+    /// soon as the window or the panel does.
     func show(_ viewer: Viewer, _ visible: Bool) {
         if visible { viewers.insert(viewer) } else { viewers.remove(viewer) }
-        guard live else { return }
-        if viewers.isEmpty {
+        let current = pace
+        applyPace(from: current)
+    }
+
+    private var wantedPace: Pace {
+        guard live else { return .off }
+        if viewers.contains(.window) || viewers.contains(.panel) { return .full }
+        return viewers.contains(.menuBar) ? .light : .off
+    }
+
+    private func applyPace(from previous: Pace) {
+        let wanted = wantedPace
+        guard wanted != pace || (wanted != .off && timer == nil) else { return }
+        pace = wanted
+        switch wanted {
+        case .off:
             timer?.invalidate()
             timer = nil
-        } else if timer == nil {
+            lightCPU = []
+        case .light:
+            // Readings of an earlier light period would pass for recent ones.
+            lightCPU = []
+            if previous == .off {
+                // Nothing was read for a while: what the text shows now, and its first rate a second later.
+                sampleLight()
+                schedule(every: lightPeriod, firstIn: 1)
+            } else {
+                schedule(every: lightPeriod, firstIn: lightPeriod)
+            }
+        case .full:
             resume()
         }
     }
 
     /// Fresh values for a reader that does not watch the screen (alerts, the health history, the assistant):
-    /// one sample right away when the timer is paused, kept out of the curves so they keep their pace.
+    /// one sample right away when the timer is paused or light, kept out of the curves so they keep their pace.
     func refresh() {
         if DemoData.isEnabled { return }
-        if timer != nil { sampleDisk() } else { sample(record: false, everything: true) }
+        if pace == .full {
+            sampleDisk(important: false, publish: true)
+        } else {
+            sample(record: false, everything: true, important: false)
+        }
     }
 
     private func resume() {
         let age = Date().timeIntervalSince(lastSample)
-        guard age > interval * 1.5 else {
+        guard age > interval * 1.5 || !lastSampleWasFull else {
             // Still fresh (a window that flickers between Spaces): the timer just picks up the pace.
-            schedule(firstIn: max(0.1, interval - age))
+            schedule(every: interval, firstIn: max(0.1, interval - age))
             return
         }
-        // CPU and network are rates: over the pause they would be averages, not what happens now. They restart from
-        // here and the next sample comes soon; memory, disk and battery are read right away.
-        prevTicks = nil
-        prevNet = nil
-        sample(record: true, everything: true)
-        schedule(firstIn: min(0.5, interval))
+        // CPU and network are rates: over a long pause they would be averages, not what happens now. They restart from
+        // here (unless the menu bar text kept them going) and the next sample comes soon; memory, disk and battery are
+        // read right away.
+        sample(record: true, everything: true, important: true)
+        schedule(every: interval, firstIn: min(0.5, interval))
     }
 
-    private func schedule(firstIn delay: TimeInterval) {
+    /// False after a light sample: the window coming back reads everything at once.
+    @ObservationIgnored private var lastSampleWasFull = true
+
+    private func schedule(every period: TimeInterval, firstIn delay: TimeInterval) {
         timer?.invalidate()
-        let t = Timer(fire: Date().addingTimeInterval(delay), interval: interval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.sample() }
+        let light = pace == .light
+        let t = Timer(fire: Date().addingTimeInterval(delay), interval: period, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                if light { self?.sampleLight() } else { self?.sample() }
+            }
         }
-        t.tolerance = interval * 0.2
+        t.tolerance = light ? max(1, period * 0.25) : period * 0.2
         RunLoop.main.add(t, forMode: .common)
         timer = t
     }
 
     func sample() {
-        sample(record: true, everything: false)
+        sample(record: true, everything: false, important: false)
     }
 
-    /// `record` adds the values to the curves; `everything` also reads the disk and the battery, which change slowly.
-    private func sample(record: Bool, everything: Bool) {
+    /// `record` adds the values to the curves; `everything` also reads the disk and the battery, which change slowly;
+    /// `important` the free space for important usage, which only the screen needs at once.
+    private func sample(record: Bool, everything: Bool, important: Bool) {
         tick += 1
+        lastSampleWasFull = true
         defer { onSample?() }
         if DemoData.isEnabled {
             DemoData.sample(self, tick: tick)
+            menuFigures = MenuFigures(cpu: cpu, memory: memFraction, netIn: netIn, netOut: netOut, diskFree: diskFree)
             return
         }
-        sampleCPU(record: record)
-        sampleMemory(record: record)
-        sampleNetwork(record: record)
-        if everything || tick % 5 == 1 { sampleDisk() }
-        if everything || tick % 15 == 1 { battery = Self.readBattery() }
-        thermal = ProcessInfo.processInfo.thermalState
+        sampleCPU(record: record, publish: true)
+        sampleMemory(record: record, publish: true)
+        sampleNetwork(record: record, publish: true)
+        if everything || tick % 5 == 1 {
+            // Shown in the window and the panel: refreshed every 15 samples there, else reused a while.
+            sampleDisk(important: important || (pace == .full && tick % 15 == 1), publish: true)
+        }
+        if everything || tick % 15 == 1 { sampleBattery() }
+        assign(\.thermal, ProcessInfo.processInfo.thermalState)
         var loads = [Double](repeating: 0, count: 3)
-        if getloadavg(&loads, 3) > 0 { loadAverage = loads[0] }
+        if getloadavg(&loads, 3) > 0 { assign(\.loadAverage, loads[0]) }
         lastSample = Date()
+    }
+
+    /// The menu bar text alone: only what its metric reads (the temperature metric reads its own sensors), into
+    /// `menuFigures`. No observed value changes: the pages of a hidden window are not redrawn.
+    private func sampleLight() {
+        tick += 1
+        lightTick += 1
+        defer { onSample?() }
+        lastSampleWasFull = false
+        if DemoData.isEnabled {
+            // The demo's values are made up from the tick: they keep moving in the menu bar too.
+            DemoData.sample(self, tick: tick)
+            menuFigures = MenuFigures(cpu: cpu, memory: memFraction, netIn: netIn, netOut: netOut, diskFree: diskFree)
+            return
+        }
+        let r = menuBarReadings
+        // Always the processor and the heat, a syscall each: the chamois' mood reads them (`recentCPU`) even when the
+        // menu bar shows something else.
+        if sampleCPU(record: false, publish: false) { push(menuFigures.cpu, to: &lightCPU) }
+        assign(\.thermal, ProcessInfo.processInfo.thermalState)
+        if r.contains(.memory) { sampleMemory(record: false, publish: false) }
+        if r.contains(.network) { sampleNetwork(record: false, publish: false) }
+        // The free space moves slowly: every half minute.
+        if r.contains(.disk), lightTick % 6 == 1 { sampleDisk(important: true, publish: false) }
+        lastSample = Date()
+    }
+
+    /// Assigns only a new value: `@Observable` would otherwise redraw whatever reads it, even for the same value.
+    private func assign<T: Equatable>(_ path: ReferenceWritableKeyPath<SystemMonitor, T>, _ value: T) {
+        if self[keyPath: path] != value { self[keyPath: path] = value }
     }
 
     private func push(_ v: Double, to array: inout [Double]) {
@@ -192,9 +311,17 @@ final class SystemMonitor {
         if array.count > Self.historyLength { array.removeFirst(array.count - Self.historyLength) }
     }
 
+    /// A rate is measured against a recent reading only: an older one would give an average over the pause.
+    private func isRecent(_ date: Date) -> Bool {
+        Date().timeIntervalSince(date) < 3 * max(interval, lightPeriod)
+    }
+
     // MARK: CPU
 
-    private func sampleCPU(record: Bool) {
+    /// `publish` false (the menu bar text alone): the figure goes to `menuFigures` only.
+    /// False when no rate could be measured (the previous reading is too old): nothing was updated.
+    @discardableResult
+    private func sampleCPU(record: Bool, publish: Bool) -> Bool {
         var info = host_cpu_load_info()
         var count = mach_msg_type_number_t(MemoryLayout<host_cpu_load_info_data_t>.stride / MemoryLayout<integer_t>.stride)
         let kr = withUnsafeMutablePointer(to: &info) {
@@ -202,23 +329,32 @@ final class SystemMonitor {
                 host_statistics(host, HOST_CPU_LOAD_INFO, $0, &count)
             }
         }
-        guard kr == KERN_SUCCESS else { return }
+        guard kr == KERN_SUCCESS else { return false }
         let t = info.cpu_ticks
         let ticks = [t.0, t.1, t.2, t.3] // user, system, idle, nice
-        defer { prevTicks = ticks }
-        guard let prev = prevTicks else { return }
-        let d = zip(ticks, prev).map { Double($0 &- $1) }
+        let now = Date()
+        defer { prevTicks = (ticks, now) }
+        // A reader that does not watch the screen (`refresh`) gets the average since the last reading, however old.
+        guard let prev = prevTicks, isRecent(prev.at) || (publish && !record) else { return false }
+        let d = zip(ticks, prev.ticks).map { Double($0 &- $1) }
         let total = d.reduce(0, +)
-        guard total > 0 else { return }
-        cpuUser = (d[0] + d[3]) / total
-        cpuSystem = d[1] / total
-        cpu = min(1, cpuUser + cpuSystem)
+        guard total > 0 else { return false }
+        let user = (d[0] + d[3]) / total
+        let system = d[1] / total
+        menuFigures.cpu = min(1, user + system)
+        guard publish else { return true }
+        assign(\.cpuUser, user)
+        assign(\.cpuSystem, system)
+        assign(\.cpu, menuFigures.cpu)
         if record { push(cpu, to: &cpuHistory) }
+        return true
     }
 
     // MARK: Memory
 
-    private func sampleMemory(record: Bool) {
+    /// `publish` false (the menu bar text alone): the used fraction only, into `menuFigures`, without the swap and the
+    /// memory pressure.
+    private func sampleMemory(record: Bool, publish: Bool) {
         var stats = vm_statistics64()
         var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.stride / MemoryLayout<integer_t>.stride)
         let kr = withUnsafeMutablePointer(to: &stats) {
@@ -230,63 +366,92 @@ final class SystemMonitor {
             let p = pageSize
             let internalPages = UInt64(stats.internal_page_count)
             let purgeable = UInt64(stats.purgeable_count)
-            memApp = (internalPages > purgeable ? internalPages - purgeable : 0) * p
-            memWired = UInt64(stats.wire_count) * p
-            memCompressed = UInt64(stats.compressor_page_count) * p
-            memCached = (UInt64(stats.external_page_count) + purgeable) * p
-            memFree = UInt64(stats.free_count) * p
+            let app = (internalPages > purgeable ? internalPages - purgeable : 0) * p
+            let wired = UInt64(stats.wire_count) * p
+            let compressed = UInt64(stats.compressor_page_count) * p
+            menuFigures.memory = memTotal > 0 ? Double(app + wired + compressed) / Double(memTotal) : 0
+            guard publish else { return }
+            assign(\.memApp, app)
+            assign(\.memWired, wired)
+            assign(\.memCompressed, compressed)
+            assign(\.memCached, (UInt64(stats.external_page_count) + purgeable) * p)
+            assign(\.memFree, UInt64(stats.free_count) * p)
             if record { push(memFraction, to: &memHistory) }
         }
+        guard publish else { return }
 
         var swap = xsw_usage()
         var size = MemoryLayout<xsw_usage>.size
         if sysctlbyname("vm.swapusage", &swap, &size, nil, 0) == 0 {
-            swapUsed = swap.xsu_used
-            swapTotal = swap.xsu_total
+            assign(\.swapUsed, swap.xsu_used)
+            assign(\.swapTotal, swap.xsu_total)
         }
 
         var level: Int32 = 1
         var lsize = MemoryLayout<Int32>.size
         if sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &lsize, nil, 0) == 0 {
-            pressure = MemoryPressure(rawValue: Int(level)) ?? .normal
+            assign(\.pressure, MemoryPressure(rawValue: Int(level)) ?? .normal)
         }
     }
 
     // MARK: Disk
 
+    /// Reads the free space now, the purgeable part included (after a cleanup, for what shows it).
     func sampleDisk() {
-        if DemoData.isEnabled { return DemoData.sampleDisk(self) }
-        let url = URL(fileURLWithPath: FS.home)
-        if let v = try? url.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey,
-                                                     .volumeAvailableCapacityKey]) {
-            diskTotal = Int64(v.volumeTotalCapacity ?? 0)
-            diskFree = v.volumeAvailableCapacityForImportantUsage ?? Int64(v.volumeAvailableCapacity ?? 0)
-            diskFreeStrict = Int64(v.volumeAvailableCapacity ?? 0)
+        sampleDisk(important: true, publish: true)
+    }
+
+    /// `important`: the free space for important usage too, which makes macOS weigh what it could purge. Otherwise it
+    /// is kept from the last reading (ten minutes at most) and only the cheap figures are read.
+    private func sampleDisk(important: Bool, publish: Bool) {
+        if DemoData.isEnabled {
+            DemoData.sampleDisk(self)
+            menuFigures.diskFree = diskFree
+            return
         }
+        let readImportant = important || Date().timeIntervalSince(importantRead) > 600
+        var keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]
+        if readImportant { keys.insert(.volumeAvailableCapacityForImportantUsageKey) }
+        guard let v = try? URL(fileURLWithPath: FS.home).resourceValues(forKeys: keys) else { return }
+        let strict = Int64(v.volumeAvailableCapacity ?? 0)
+        if readImportant { importantRead = Date() }
+        // Without a new reading, the last one stands (never less than the really empty space).
+        menuFigures.diskFree = readImportant ? v.volumeAvailableCapacityForImportantUsage ?? strict : max(menuFigures.diskFree, strict)
+        guard publish else { return }
+        assign(\.diskTotal, Int64(v.volumeTotalCapacity ?? 0))
+        assign(\.diskFreeStrict, strict)
+        assign(\.diskFree, menuFigures.diskFree)
     }
 
     // MARK: Network
 
-    private func sampleNetwork(record: Bool) {
+    /// `publish` false (the menu bar text alone): the rates go to `menuFigures` only.
+    private func sampleNetwork(record: Bool, publish: Bool) {
         guard let (bytesIn, bytesOut) = Self.readInterfaceBytes() else { return }
         let now = Date()
-        if let prev = prevNet {
+        defer { prevNet = (bytesIn, bytesOut, now) }
+        if let prev = prevNet, isRecent(prev.at) {
             let dt = now.timeIntervalSince(prev.at)
             if dt > 0, bytesIn >= prev.bytesIn, bytesOut >= prev.bytesOut {
-                netIn = Double(bytesIn - prev.bytesIn) / dt
-                netOut = Double(bytesOut - prev.bytesOut) / dt
-                if record {
-                    push(netIn, to: &netInHistory)
-                    push(netOut, to: &netOutHistory)
+                menuFigures.netIn = Double(bytesIn - prev.bytesIn) / dt
+                menuFigures.netOut = Double(bytesOut - prev.bytesOut) / dt
+                if publish {
+                    assign(\.netIn, menuFigures.netIn)
+                    assign(\.netOut, menuFigures.netOut)
+                    if record {
+                        push(netIn, to: &netInHistory)
+                        push(netOut, to: &netOutHistory)
+                    }
                 }
             }
         }
-        netTotalIn = bytesIn
-        netTotalOut = bytesOut
-        prevNet = (bytesIn, bytesOut, now)
+        guard publish else { return }
+        assign(\.netTotalIn, bytesIn)
+        assign(\.netTotalOut, bytesOut)
     }
 
-    /// Sums the 64-bit byte counters of the physical interfaces (en*).
+    /// Sums the 64-bit byte counters of the physical interfaces (en*). The name comes with each interface's message
+    /// (its link-level address follows it), so no other call is needed per interface.
     nonisolated static func readInterfaceBytes() -> (UInt64, UInt64)? {
         var mib: [Int32] = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_IFLIST2, 0]
         var len = 0
@@ -295,18 +460,16 @@ final class SystemMonitor {
         guard sysctl(&mib, 6, &buf, &len, nil, 0) == 0 else { return nil }
         var totalIn: UInt64 = 0, totalOut: UInt64 = 0
         var offset = 0
-        var name = [CChar](repeating: 0, count: Int(IF_NAMESIZE) + 1)
+        let headerSize = MemoryLayout<if_msghdr2>.size
         buf.withUnsafeBytes { raw in
             while offset + MemoryLayout<if_msghdr>.size <= len {
                 let hdr = raw.loadUnaligned(fromByteOffset: offset, as: if_msghdr.self)
-                if Int32(hdr.ifm_type) == RTM_IFINFO2, offset + MemoryLayout<if_msghdr2>.size <= len {
+                if Int32(hdr.ifm_type) == RTM_IFINFO2, offset + headerSize <= len {
                     let m = raw.loadUnaligned(fromByteOffset: offset, as: if_msghdr2.self)
-                    if if_indextoname(UInt32(m.ifm_index), &name) != nil {
-                        let n = String(cString: name)
-                        if n.hasPrefix("en") {
-                            totalIn += m.ifm_data.ifi_ibytes
-                            totalOut += m.ifm_data.ifi_obytes
-                        }
+                    if isPhysical(raw, at: offset + headerSize, end: min(len, offset + Int(hdr.ifm_msglen)),
+                                  hasLink: m.ifm_addrs & RTA_IFP != 0, index: m.ifm_index) {
+                        totalIn += m.ifm_data.ifi_ibytes
+                        totalOut += m.ifm_data.ifi_obytes
                     }
                 }
                 let step = Int(hdr.ifm_msglen)
@@ -317,9 +480,39 @@ final class SystemMonitor {
         return (totalIn, totalOut)
     }
 
+    /// The interface's name starts with "en": read in the `sockaddr_dl` after its message, or asked by index when the
+    /// message carries none.
+    nonisolated private static func isPhysical(_ raw: UnsafeRawBufferPointer, at start: Int, end: Int, hasLink: Bool, index: UInt16) -> Bool {
+        // Byte by byte: the address may be shorter than a whole `sockaddr_dl` (no hardware address).
+        let family = MemoryLayout<sockaddr_dl>.offset(of: \.sdl_family) ?? 1
+        let nameLength = MemoryLayout<sockaddr_dl>.offset(of: \.sdl_nlen) ?? 5
+        let name = MemoryLayout<sockaddr_dl>.offset(of: \.sdl_data) ?? 8
+        if hasLink, start + name + 2 <= end, Int32(raw[start + family]) == AF_LINK {
+            return raw[start + nameLength] >= 2 && raw[start + name] == UInt8(ascii: "e") && raw[start + name + 1] == UInt8(ascii: "n")
+        }
+        var buffer = [CChar](repeating: 0, count: Int(IF_NAMESIZE) + 1)
+        guard if_indextoname(UInt32(index), &buffer) != nil else { return false }
+        return String(cString: buffer).hasPrefix("en")
+    }
+
     // MARK: Battery
 
-    nonisolated static func readBattery() -> BatteryInfo? {
+    /// Level and charge every reading; health, cycles and temperature (the controller's whole registry entry) once an
+    /// hour at most, kept from the last reading in between.
+    private func sampleBattery() {
+        let details = battery == nil || Date().timeIntervalSince(batteryDetailsRead) > 3_600
+        var info = Self.readBattery(details: details)
+        if details {
+            batteryDetailsRead = Date()
+        } else if let old = battery {
+            info?.cycleCount = old.cycleCount
+            info?.health = old.health
+            info?.temperature = old.temperature
+        }
+        assign(\.battery, info)
+    }
+
+    nonisolated static func readBattery(details: Bool = true) -> BatteryInfo? {
         guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let list = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
         for source in list {
@@ -333,6 +526,7 @@ final class SystemMonitor {
             var info = BatteryInfo(level: Double(current) / Double(maxCap), isCharging: charging, onAC: onAC,
                                    minutesLeft: (minutes ?? -1) > 0 ? minutes : nil)
             // Health and cycles from the battery controller.
+            guard details else { return info }
             let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
             if service != 0 {
                 defer { IOObjectRelease(service) }
@@ -379,6 +573,16 @@ final class SystemMonitor {
         if m.isSampling { failures.append("moniteur : continue une fois la fenêtre et le panneau fermés") }
         m.show(.menuBar, true)
         if !m.isSampling { failures.append("moniteur : ne reprend pas pour la barre des menus") }
+        // The menu bar text alone: a slow pace, back to full speed as soon as the window shows.
+        if m.pace != .light || m.lightPeriod < Self.lightInterval || (m.timer?.tolerance ?? 0) < 1 {
+            failures.append("moniteur : la barre des menus seule n'échantillonne pas au ralenti (5 s, tolérance d'au moins 1 s)")
+        }
+        m.show(.window, true)
+        if m.pace != .full || (m.timer?.timeInterval ?? 0) > m.interval {
+            failures.append("moniteur : la fenêtre ne remet pas le rythme complet")
+        }
+        m.show(.window, false)
+        if m.pace != .light { failures.append("moniteur : la fenêtre partie, la barre des menus ne repasse pas au ralenti") }
         return failures
     }
 

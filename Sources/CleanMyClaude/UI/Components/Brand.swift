@@ -210,6 +210,7 @@ struct BrandMark: View {
 struct PixelMascot: View {
     var pixel: CGFloat = 4
     @State private var blink = false
+    @Environment(\.mainWindowOnScreen) private var onScreen
 
     var body: some View {
         if Theme.current.spec.mascot { figure }
@@ -235,10 +236,17 @@ struct PixelMascot: View {
         .frame(width: pixel * CGFloat(look == nil ? MascotFigure.width + 4 : RefugeFigure.cols + 3),
                height: pixel * CGFloat(look == nil ? MascotFigure.height + 1 : RefugeFigure.rows))
         .allowsHitTesting(false)
-        .task {
-            // Blinks now and then: two tiny updates every few seconds, nothing per frame.
+        .task(id: onScreen) {
+            // Blinks now and then: two tiny updates every few seconds, nothing per frame, and nothing at all while the
+            // main window is off screen.
+            guard onScreen else {
+                if blink { blink = false }
+                return
+            }
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: 3_200_000_000)
+                // Gone off screen during the wait: no last blink.
+                guard !Task.isCancelled else { break }
                 blink = true
                 try? await Task.sleep(nanoseconds: 140_000_000)
                 blink = false

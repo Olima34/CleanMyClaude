@@ -51,10 +51,21 @@ final class TranslatorModel: AppModule {
     @ObservationIgnored private var panelRequest: TranslatorRequest?
     @ObservationIgnored private var launcherRequest: TranslatorRequest?
     @ObservationIgnored private var launcherCache: [String: String] = [:]
+    /// Why a text typed in the launcher has no translation (languages not on the Mac, a failure): never asked again.
     @ObservationIgnored private var launcherNotes: [String: String] = [:]
+    /// What Apple has on the Mac for each pair of languages ("fr|en"), asked once until the languages change.
+    @ObservationIgnored private var launcherPairs: [String: TranslatorPairStatus] = [:]
     @ObservationIgnored private var launcherWork: DispatchWorkItem?
     @ObservationIgnored private var launcherAsked: String?
     @ObservationIgnored private var autoWork: DispatchWorkItem?
+    @ObservationIgnored private var claudeRunning = false
+    @ObservationIgnored private var claudeAgain = false
+
+    /// What a Claude translation depends on.
+    private var claudeSignature: String {
+        [sourceText.trimmingCharacters(in: .whitespacesAndNewlines), effectiveTarget, effectiveSource ?? "", "\(tone)", "\(claudeModel)"]
+            .joined(separator: "\u{1}")
+    }
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private let store = JSONStore<[TranslatorEntry]>("translator-history", default: [])
 
@@ -445,9 +456,11 @@ final class TranslatorModel: AppModule {
             if let result {
                 if launcherCache.count > 300 { launcherCache.removeAll() } // typed words pile up: a fresh start now and then
                 launcherCache[key] = result
+            } else {
+                note(key, "Pas de traduction pour ce texte : choisis Claude")
             }
-            if isCurrent(request, channel) { launcherAsked = nil }
-            app?.launcher.refreshKeepingSelection()
+            if isCurrent(request, channel), launcherAsked == key { launcherAsked = nil }
+            refreshLauncher(for: request.text)
         case .page, .panel:
             guard isCurrent(request, channel) else { return }
             isTranslating = false
@@ -468,9 +481,11 @@ final class TranslatorModel: AppModule {
         let replaced = error is CancellationError && !request.download
         switch channel {
         case .launcher:
-            if !replaced { launcherNotes[request.target + "|" + request.text] = TranslatorAvailability.message(error) }
-            if isCurrent(request, channel) { launcherAsked = nil }
-            app?.launcher.refreshKeepingSelection()
+            let key = request.target + "|" + request.text
+            // A failure is noted for good: the list shows it instead of asking again, four times a second, forever.
+            if !replaced { note(key, TranslatorAvailability.message(error)) }
+            if isCurrent(request, channel), launcherAsked == key { launcherAsked = nil }
+            if !replaced { refreshLauncher(for: request.text) }
         case .page, .panel:
             guard isCurrent(request, channel) else { return }
             isTranslating = false
@@ -482,7 +497,8 @@ final class TranslatorModel: AppModule {
 
     /// A moment after the last keystroke, and only when the languages are already on the Mac (no download prompt there).
     private func askLauncher(_ text: String, source: String?, target: String, key: String) {
-        guard launcherAsked != key, !DemoData.isEnabled else { return }
+        // Asked once per text: a text with a note (languages missing, a failure) is never asked again by the redraws.
+        guard launcherAsked != key, launcherNotes[key] == nil, !DemoData.isEnabled else { return }
         launcherAsked = key
         launcherWork?.cancel()
         let work = DispatchWorkItem { [weak self] in
@@ -490,13 +506,26 @@ final class TranslatorModel: AppModule {
                 guard let self else { return }
                 Task {
                     // Never without a known, installed source: Apple would open its own window over the panel.
-                    let status = source == nil ? TranslatorPairStatus.unsupported : await TranslatorAvailability.status(from: source!, to: target)
+                    let status: TranslatorPairStatus
+                    if let source {
+                        let pair = source + "|" + target
+                        if let known = self.launcherPairs[pair] {
+                            status = known
+                        } else {
+                            status = await TranslatorAvailability.status(from: source, to: target)
+                            self.launcherPairs[pair] = status
+                        }
+                    } else {
+                        status = .unsupported
+                    }
+                    // Typed on meanwhile: the newer text asks for itself.
+                    guard self.launcherAsked == key else { return }
                     if status != .installed {
-                        self.launcherNotes[key] = status == .downloadable
+                        self.note(key, status == .downloadable
                             ? "Télécharge \(TranslatorLanguage.withArticle(target)) dans le Traducteur (↩)"
-                            : "Langue non reconnue ou non proposée par Apple : choisis Claude"
+                            : "Langue non reconnue ou non proposée par Apple : choisis Claude")
                         self.launcherAsked = nil
-                        self.app?.launcher.refreshKeepingSelection()
+                        self.refreshLauncher(for: text)
                         return
                     }
                     self.launcherRequest = TranslatorRequest(text: text, source: source, target: target)
@@ -506,6 +535,24 @@ final class TranslatorModel: AppModule {
         }
         launcherWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+    }
+
+    private func note(_ key: String, _ message: String) {
+        if launcherNotes.count > 300 { launcherNotes.removeAll() }
+        launcherNotes[key] = message
+    }
+
+    /// The launcher's list shows the answer, if it is still on screen.
+    private func refreshLauncher(for text: String) {
+        guard let launcher = app?.launcher, launcher.isOpen, launcher.query.contains(text) else { return }
+        launcher.refreshKeepingSelection()
+    }
+
+    /// The launcher closed: nothing more is asked for what was typed in it.
+    func launcherClosed() {
+        launcherWork?.cancel()
+        launcherWork = nil
+        launcherAsked = nil
     }
 
     // MARK: Claude
@@ -520,14 +567,30 @@ final class TranslatorModel: AppModule {
 
     func translateWithClaude() async {
         let text = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
+        // One request at a time: a held ⌘↩ or repeated clicks would each start a Claude process of several hundred
+        // megabytes, enough to make the whole Mac swap. One asked meanwhile is done right after, for the text then.
         guard !text.isEmpty, let app = app ?? AppContext.model else { return }
+        guard !claudeRunning else {
+            claudeAgain = true
+            return
+        }
         guard app.assistant.isReady else {
             error = "Connecte d'abord Claude dans la section Assistant Claude (abonnement ou clé API)."
             return
         }
+        claudeRunning = true
         isTranslating = true
         error = nil
-        defer { isTranslating = false }
+        let asked = claudeSignature
+        defer {
+            isTranslating = false
+            claudeRunning = false
+            if claudeAgain {
+                claudeAgain = false
+                // Only if something changed meanwhile (the text, a language, the tone, the model): the same was just done.
+                if claudeSignature != asked { Task { await translateWithClaude() } }
+            }
+        }
         let target = effectiveTarget
         let source = effectiveSource
         do {
@@ -563,6 +626,9 @@ final class TranslatorModel: AppModule {
             out[l.code] = await TranslatorAvailability.status(from: "fr", to: l.code)
         }
         languageStatus = out
+        // A language was just downloaded or removed: the launcher asks again.
+        launcherPairs = [:]
+        launcherNotes = [:]
     }
 
     // MARK: History
