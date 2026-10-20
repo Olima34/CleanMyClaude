@@ -1,63 +1,156 @@
 import SwiftUI
 
+/// The Refuge: its room and its basket on top, then its life in little scenes rather than boxes of figures: the trail of
+/// its daily round, the height marks of its growth, its scarves on a line, the market stall, the chalet whose windows
+/// light up, its notebook, its medals, a polaroid.
 struct RefugePage: View {
     @Environment(AppModel.self) private var app
     static var tint: Color { Theme.warn }
 
     var body: some View {
         let m = app.refuge
-        VStack(alignment: .leading, spacing: 18) {
-            PageHero(symbol: Page.refuge.symbol, title: "Le Refuge",
-                     subtitle: "La maison de \(m.name). Prends soin de ton Mac : il récolte des myrtilles, grandit et raconte tout dans son carnet.",
+        VStack(alignment: .leading, spacing: 22) {
+            PageHero(symbol: Page.refuge.symbol, title: m.isAdopted ? "Le Refuge de \(m.name)" : "Le Refuge",
+                     subtitle: m.isAdopted
+                        ? "Prends soin de ton Mac : il y cueille des myrtilles. Donne-les-lui, il grandit ; ou fais-lui plaisir à la boutique."
+                        : "Un petit chamois est né dans un buisson de myrtilles.",
                      tint: Self.tint, seed: 97) {
-                if m.isBorn { Tag(text: "Jour \(m.day)", symbol: "sun.max", tint: Self.tint) }
+                if m.isAdopted { Tag(text: "Jour \(m.day)", symbol: "sun.max", tint: Self.tint) }
             }
-            if !m.isBorn {
-                Card {
-                    EmptyHint(text: "Il naîtra à la fin de l'accueil. Encore un peu de patience !", symbol: "house")
+            if !m.isAdopted {
+                if m.state.awaitingAdoption && !m.showsOverlay {
+                    Card { RefugeCeremonyPanel(framed: false) }
+                } else {
+                    RefugeBushCard()
                 }
             } else {
-                if let ceremony = m.ceremony, !m.playful {
-                    Card { RefugeCeremonyContent(ceremony: ceremony, compact: true) }
+                if let ceremony = m.ceremony, ceremony != .birth, !m.playful {
+                    Card { RefugeCeremonyPanel(framed: false) }
                 }
+                ForEach(m.events(), id: \.self) { RefugeEventRibbon(event: $0) }
                 HStack(alignment: .top, spacing: 14) {
                     RefugeHomeCard()
                     VStack(spacing: 14) {
-                        RefugeCountersCard()
+                        RefugeBasketCard()
                         RefugeMoodCard()
                     }
                     .frame(width: 330)
                 }
                 .fixedSize(horizontal: false, vertical: true)
-                RefugeStagesPanel()
+                RefugeRoundTrail()
+                RefugeGrowthWall()
+                RefugeStall()
                 HStack(alignment: .top, spacing: 14) {
-                    RefugeHousePanel()
-                    RefugeJournalPanel()
-                        .frame(width: 400)
+                    RefugeChalet()
+                    RefugeNotebook()
                 }
                 .fixedSize(horizontal: false, vertical: true)
-                RefugeBadgesPanel()
-                TileRow {
-                    RefugeEarnPanel()
-                    VStack(spacing: 14) {
-                        Callout(symbol: "heart", title: "Il ne lui arrive jamais rien",
-                                text: "Il ne tombe pas malade et ne perd rien de ce qu'il a gagné. Pas de reproche si tu t'absentes : il fait la sieste et t'attend.",
-                                tint: Self.tint)
-                        Callout(symbol: "lock", title: "Tout reste sur ce Mac",
-                                text: "Ses myrtilles, son carnet et ses insignes sont rangés dans les données de l'app, nulle part ailleurs.",
-                                tint: Self.tint)
-                        RefugeSoberCard()
-                    }
+                RefugeMedals()
+                HStack(alignment: .top, spacing: 14) {
+                    RefugePolaroid()
+                    RefugeBerryGuide()
                 }
+                .fixedSize(horizontal: false, vertical: true)
+                RefugeFooter()
             }
         }
-        .onAppear { m.observe() }
+        .onAppear {
+            m.observe()
+            m.ensureRound()
+        }
     }
 }
 
 /// No action bar: everything happens on the page.
 struct RefugeBottomBar: View {
     var body: some View { EmptyView() }
+}
+
+/// A section title in the voice of the page: a serif title and a light line, no box.
+struct RefugeSectionTitle<Trailing: View>: View {
+    var title: String
+    var subtitle: String
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(alignment: .lastTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.serif(21)).foregroundStyle(Theme.text)
+                Text(subtitle).font(.ui(12)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            trailing
+        }
+    }
+}
+
+extension RefugeSectionTitle where Trailing == EmptyView {
+    init(title: String, subtitle: String) {
+        self.title = title
+        self.subtitle = subtitle
+        self.trailing = EmptyView()
+    }
+}
+
+// MARK: - Not adopted
+
+/// Said no at its birth: it waits in its bush, two eyes showing between the leaves.
+private struct RefugeBushCard: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let m = app.refuge
+        Card(padding: 24) {
+            HStack(spacing: 28) {
+                Canvas { ctx, _ in
+                    let p: CGFloat = 9
+                    RefugeFigure.drawBush(in: ctx, at: CGPoint(x: 0, y: p * 2), pixel: p, berries: false)
+                    // Its eyes and its ears, peeking out between the leaves.
+                    let m = Theme.mascot
+                    for (x, y, color) in [(5, 5, m.face), (6, 5, m.eye), (7, 5, m.face), (8, 5, m.face), (9, 5, m.eye), (10, 5, m.face),
+                                          (6, 6, m.face), (7, 6, m.face), (8, 6, m.nose), (9, 6, m.face), (4, 4, m.fur), (11, 4, m.fur)] {
+                        ctx.fill(Path(CGRect(x: CGFloat(x) * p, y: CGFloat(y) * p, width: p, height: p)), with: .color(color))
+                    }
+                }
+                .frame(width: 9 * CGFloat(RefugeFigure.bushCols), height: 9 * CGFloat(RefugeFigure.bushRows + 2))
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(m.state.declined ? "Il t'attend dans son buisson" : "Il naîtra bientôt").font(.serif(24)).foregroundStyle(Theme.text)
+                    Text(m.state.declined
+                         ? "Pas de souci : rien ne presse. Le jour où tu veux t'occuper de lui, il sortira de son buisson de myrtilles et tu pourras lui donner un prénom."
+                         : "Il sortira de son buisson de myrtilles à la fin de l'accueil.")
+                        .font(.ui(13)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    if m.state.declined {
+                        Button("Je veux m'occuper de lui") { m.reconsider() }
+                            .buttonStyle(SoftButtonStyle(prominent: true))
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+}
+
+// MARK: - The event of the day
+
+private struct RefugeEventRibbon: View {
+    var event: RefugeEvent
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if Theme.icons != .hidden {
+                Image(systemName: event.symbol).font(.ui(15, .semibold)).foregroundStyle(Theme.onAccent)
+                    .frame(width: 30, height: 30).background(Circle().fill(RefugePage.tint))
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(event.title).font(.serif(17)).foregroundStyle(Theme.text)
+                Text(event.line).font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16).padding(.vertical, 11)
+        .background(PillShape().fill(RefugePage.tint.opacity(0.13)))
+        .overlay(PillShape().strokeBorder(RefugePage.tint.opacity(0.35), style: StrokeStyle(lineWidth: max(1, Theme.line), dash: [5, 4])))
+    }
 }
 
 // MARK: - The room and its name
@@ -75,7 +168,6 @@ private struct RefugeHomeCard: View {
                     .aspectRatio(CGFloat(RefugeScene.cols) / CGFloat(RefugeScene.rows), contentMode: .fit)
                     .frame(maxWidth: .infinity)
                     .clipShape(UnevenRoundedRectangle(topLeadingRadius: Theme.r(14), topTrailingRadius: Theme.r(14), style: .continuous))
-                    .overlay(alignment: .topLeading) { bubble(m.line()) }
                 HStack(alignment: .center, spacing: 12) {
                     if editing && !Snapshot.isActive {
                         TextField("Son prénom", text: $draft)
@@ -93,7 +185,8 @@ private struct RefugeHomeCard: View {
                     } else {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(m.name).font(.serif(24)).foregroundStyle(Theme.text)
-                            Text("\(m.stage.title) · \(m.stage.change)").font(.ui(12)).foregroundStyle(Theme.text3)
+                            Text("\(m.stage.title) · \(m.look().path.map { "voie \($0.title)" } ?? m.stage.change)")
+                                .font(.ui(12)).foregroundStyle(Theme.text3)
                         }
                         Button {
                             draft = m.name
@@ -113,7 +206,7 @@ private struct RefugeHomeCard: View {
         .task(id: m.reaction) {
             // A reaction stays a few seconds, then it goes back to saying how it feels.
             guard m.reaction != nil else { return }
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: 2_800_000_000)
             if !Task.isCancelled { m.reaction = nil }
         }
     }
@@ -122,82 +215,85 @@ private struct RefugeHomeCard: View {
         app.refuge.rename(draft)
         editing = false
     }
-
-    private func bubble(_ text: String) -> some View {
-        Text(text)
-            .font(.ui(12.5, .medium))
-            .foregroundStyle(Theme.text)
-            .fixedSize(horizontal: false, vertical: true)
-            .frame(maxWidth: 300, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).fill(Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
-            .themedShadow(color: .black.opacity(0.12), radius: 6, y: 2)
-            .padding(14)
-            .allowsHitTesting(false)
-    }
 }
 
-// MARK: - The two counters
+// MARK: - Its basket
 
-private struct RefugeCountersCard: View {
+/// The basket of blueberries picked by taking care of the Mac: a click gives it one, the buttons give more.
+private struct RefugeBasketCard: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        let s = app.refuge.state
-        let p = RefugeRules.progress(s.harvested)
+        let m = app.refuge
+        let s = m.state
+        let p = RefugeRules.progress(s.eaten)
         Card {
-            HStack(alignment: .top, spacing: 16) {
-                counter(value: s.harvested, title: "Récoltées", detail: "Depuis sa naissance. Ne baisse jamais : c'est ce qui le fait grandir.")
-                counter(value: s.basket, title: "Le panier", detail: "Ce qu'il peut dépenser. La boutique ouvre bientôt.")
-            }
-            VStack(alignment: .leading, spacing: 7) {
-                if let next = p.next {
-                    HStack {
-                        Text("Prochain stade : \(next.title)").font(.ui(12, .semibold)).foregroundStyle(Theme.text)
-                        Spacer()
-                        Text("encore \(Fmt.int(p.left))").font(.ui(11.5)).foregroundStyle(Theme.text3)
-                    }
-                    UsageBar(fraction: p.fraction, tint: RefugePage.tint, height: 8)
-                    Text("Il y gagnera \(next.change).").font(.ui(11.5)).foregroundStyle(Theme.text3)
-                } else {
-                    Text("Il a atteint le dernier stade. Bravo à vous deux !").font(.ui(12, .semibold)).foregroundStyle(Theme.text)
+            HStack(alignment: .center, spacing: 14) {
+                Button { m.feed(1) } label: {
+                    RefugeBasketIcon(count: s.basket, pixel: 5)
+                }
+                .buttonStyle(.plain)
+                .disabled(s.basket == 0)
+                .help(s.basket == 0 ? "Le panier est vide : prends soin du Mac pour en cueillir" : "Lui donner une myrtille")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Le panier").font(.ui(12)).foregroundStyle(Theme.text2)
+                    Text(Fmt.int(s.basket)).font(.serif(32)).foregroundStyle(Theme.text).contentTransition(.numericText())
+                    Text(s.basket == 0 ? "Vide pour l'instant : prends soin du Mac pour en cueillir." : "myrtilles à lui donner ou à dépenser")
+                        .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 }
             }
-        }
-    }
-
-    private func counter(value: Int, title: String, detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 6) {
-                RefugeBerry(size: 12)
-                Text(title).font(.ui(12)).foregroundStyle(Theme.text2)
+            HStack(spacing: 8) {
+                Button("Lui en donner 10") { m.feed(10) }
+                    .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                    .disabled(s.basket == 0)
+                Button("Tout le panier") { m.feed(s.basket) }
+                    .buttonStyle(SoftButtonStyle(small: true))
+                    .disabled(s.basket == 0)
             }
-            Text(Fmt.int(value)).font(.serif(30)).foregroundStyle(Theme.text).contentTransition(.numericText())
-            Text(detail).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("\(Fmt.int(s.eaten)) mangées").font(.ui(12, .semibold)).foregroundStyle(Theme.text)
+                    Spacer()
+                    if let next = p.next { Text("\(next) dans \(Fmt.int(p.left))").font(.ui(11.5)).foregroundStyle(Theme.text3) }
+                }
+                UsageBar(fraction: p.fraction, tint: RefugePage.tint, height: 8)
+                Text(p.next == nil ? "Il a atteint le dernier stade. Bravo à vous deux !" : "Plus il mange, plus il grandit. Ce qu'il a mangé ne se perd jamais.")
+                    .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }
 
-/// A blueberry, in pixels: the currency of the Refuge.
-struct RefugeBerry: View {
-    var size: CGFloat = 12
+/// A wicker basket, its heap of blueberries growing with the count.
+struct RefugeBasketIcon: View {
+    var count: Int
+    var pixel: CGFloat = 5
 
     var body: some View {
-        Canvas { ctx, s in
-            let p = s.width / 5
-            let rows = [".gg..", "bbbb.", "bBbbb", "bbbbb", ".bbb."]
-            let colors: [Character: Color] = ["g": Theme.good, "b": Theme.mascot.night, "B": Theme.mascot.glassShine]
-            for (y, line) in rows.enumerated() {
-                for (x, ch) in line.enumerated() {
-                    if let c = colors[ch] { ctx.fill(Path(CGRect(x: CGFloat(x) * p, y: CGFloat(y) * p, width: p, height: p)), with: .color(c)) }
-                }
+        Canvas { ctx, _ in
+            let c = Theme.mascot
+            func fill(_ x: Int, _ y: Int, _ color: Color) {
+                ctx.fill(Path(CGRect(x: CGFloat(x) * pixel, y: CGFloat(y) * pixel, width: pixel, height: pixel)), with: .color(color))
             }
+            // The heap: up to 3 rows of berries over the rim.
+            let heap = count == 0 ? 0 : count < 10 ? 1 : count < 50 ? 2 : 3
+            let rows = [(2, 9), (3, 8), (4, 7)]
+            for r in 0..<heap {
+                let (from, to) = rows[r]
+                for x in from...to { fill(x, 4 - r, (x + r) % 3 == 0 ? c.berryShine : c.berry) }
+            }
+            // The handle and the wicker.
+            for (x, y) in [(2, 1), (3, 0), (4, 0), (5, 0), (6, 0), (7, 0), (8, 1), (1, 2), (9, 2), (1, 3), (9, 3)] where heap < 3 || y > 1 {
+                fill(x, y, c.strawShade)
+            }
+            for y in 5...8 {
+                let inset = y == 8 ? 2 : (y == 7 ? 1 : 0)
+                for x in (1 + inset)...(10 - inset) { fill(x, y, (x + y) % 2 == 0 ? c.straw : c.strawShade) }
+            }
+            for x in 0...11 { fill(x, 5, c.strawShade) }
         }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
+        .frame(width: pixel * 12, height: pixel * 9)
+        .accessibilityLabel("Panier : \(count) myrtilles")
     }
 }
 
@@ -231,6 +327,8 @@ private struct RefugeMoodCard: View {
         case .hot: return "thermometer.sun"
         case .boosted: return "bolt"
         case .worried: return "ant"
+        case .hungry: return "fork.knife"
+        case .sad: return "drop"
         }
     }
 
@@ -249,194 +347,46 @@ private struct RefugeMoodCard: View {
     }
 }
 
-// MARK: - The six stages
+// MARK: - The footer
 
-private struct RefugeStagesPanel: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let s = app.refuge.state
-        Panel(title: "Il grandit", subtitle: "Six stades où il change vraiment, selon les myrtilles récoltées depuis sa naissance.",
-              symbol: "chart.line.uptrend.xyaxis", tint: RefugePage.tint) {
-            HStack(alignment: .bottom, spacing: 10) {
-                ForEach(RefugeStage.allCases, id: \.rawValue) { stage in
-                    let reached = s.harvested >= stage.threshold
-                    let current = s.stage == stage
-                    VStack(spacing: 6) {
-                        RefugeAvatar(stage: stage, pixel: 5, animated: false)
-                            .opacity(reached ? 1 : 0.28)
-                            .saturation(reached ? 1 : 0)
-                        Text(stage.title).font(.ui(12, current ? .semibold : .regular)).foregroundStyle(current ? Theme.text : Theme.text2)
-                        Text(stage.threshold == 0 ? "le premier jour" : "\(Fmt.int(stage.threshold)) myrtilles")
-                            .font(.ui(10.5)).foregroundStyle(Theme.text3)
-                    }
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity)
-                    .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(current ? RefugePage.tint.opacity(0.12) : .clear))
-                    .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(current ? RefugePage.tint.opacity(0.4) : .clear, lineWidth: max(1, Theme.line)))
-                }
-            }
-        }
-    }
-}
-
-// MARK: - The house
-
-private struct RefugeHousePanel: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let lit = Set(RefugeRules.discovered(app.refuge.state).map(\.page))
-        Panel(title: "Le plan de la maison", subtitle: "Chaque outil est une pièce. Elle s'allume la première fois que tu y entres (+10 myrtilles).",
-              symbol: "map", tint: RefugePage.tint) {
-            Text("\(lit.count) pièces sur \(RefugeRules.rooms.count)").font(.ui(11.5, .medium)).foregroundStyle(Theme.text3)
-        } content: {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                ForEach(RefugeRules.rooms) { room in
-                    let on = lit.contains(room.page)
-                    Button { app.page = room.page } label: {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 6) {
-                                if Theme.icons != .hidden {
-                                    Image(systemName: on ? room.page.symbol : "questionmark")
-                                        .font(.ui(11, .semibold))
-                                        .foregroundStyle(on ? RefugePage.tint : Theme.text3)
-                                }
-                                Text(room.name).font(.ui(11.5, .semibold)).foregroundStyle(on ? Theme.text : Theme.text3).lineLimit(1)
-                            }
-                            Text(on ? room.page.title : "Pas encore visitée").font(.ui(10.5)).foregroundStyle(Theme.text3).lineLimit(1)
-                        }
-                        .padding(9)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(on ? RefugePage.tint.opacity(0.1) : Theme.track.opacity(0.5)))
-                        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(on ? RefugePage.tint.opacity(0.3) : Theme.border,
-                                                                                    lineWidth: max(1, Theme.line)))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .help(on ? "Aller à \(room.page.title)" : "Découvrir \(room.page.title) : \(room.page.pitch)")
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Its notebook
-
-private struct RefugeJournalPanel: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let s = app.refuge.state
-        Panel(title: "Le carnet de \(s.name)", subtitle: "Ce qu'il a vécu, écrit de sa main.", symbol: "book", tint: RefugePage.tint) {
-            if s.journal.isEmpty {
-                EmptyHint(text: "Son carnet est encore vide.", symbol: "book")
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(s.journal.suffix(9).reversed()) { e in
-                        HStack(alignment: .firstTextBaseline, spacing: 10) {
-                            Text("Jour \(RefugeRules.dayNumber(s, now: e.date))")
-                                .font(.ui(10.5, .semibold)).foregroundStyle(Theme.text3)
-                                .frame(width: 52, alignment: .leading)
-                            Text(e.count > 1 ? "\(e.text) (\(e.count) fois)" : e.text)
-                                .font(.ui(12)).foregroundStyle(Theme.text)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            if e.amount > 0 {
-                                Text("+\(e.amount)").font(.ui(11, .semibold)).foregroundStyle(RefugePage.tint)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Badges
-
-private struct RefugeBadgesPanel: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let s = app.refuge.state
-        let won = RefugeRules.badges.filter { s.badges[$0.id] != nil }.count
-        Panel(title: "Ses insignes", subtitle: "Les bons gestes, la régularité et la curiosité. Deux sont secrets.", symbol: "rosette", tint: RefugePage.tint) {
-            Text("\(won) sur \(RefugeRules.badges.count)").font(.ui(11.5, .medium)).foregroundStyle(Theme.text3)
-        } content: {
-            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 6), spacing: 10) {
-                ForEach(RefugeRules.badges) { b in
-                    let date = s.badges[b.id]
-                    let hidden = b.secret && date == nil
-                    VStack(spacing: 6) {
-                        ZStack {
-                            Circle().fill(date == nil ? Theme.track : metal(b.metal).opacity(0.22))
-                            Circle().strokeBorder(date == nil ? Theme.border : metal(b.metal), lineWidth: 2)
-                            Image(systemName: hidden ? "questionmark" : b.symbol)
-                                .font(.ui(15, .semibold))
-                                .foregroundStyle(date == nil ? Theme.text3 : metal(b.metal))
-                        }
-                        .frame(width: 44, height: 44)
-                        Text(hidden ? "Secret" : b.title).font(.ui(11, .semibold)).foregroundStyle(date == nil ? Theme.text3 : Theme.text)
-                            .multilineTextAlignment(.center).lineLimit(2)
-                        Text(hidden ? "À toi de le trouver" : (date.map { "le \(Fmt.day($0))" } ?? b.detail))
-                            .font(.ui(10)).foregroundStyle(Theme.text3).multilineTextAlignment(.center).lineLimit(2)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .help(hidden ? "Un insigne secret" : b.detail)
-                }
-            }
-        }
-    }
-
-    private func metal(_ m: RefugeMetal) -> Color {
-        switch m {
-        case .bronze: return Theme.mascot.bronze
-        case .silver: return Theme.mascot.silver
-        case .gold: return Theme.mascot.goldFurShade
-        }
-    }
-}
-
-// MARK: - How to earn
-
-private struct RefugeEarnPanel: View {
-    var body: some View {
-        Panel(title: "Gagner des myrtilles", subtitle: "En prenant soin du Mac. Jamais selon ce que tu supprimes : on ne pousse personne à effacer pour grandir.",
-              symbol: "leaf", tint: RefugePage.tint) {
-            VStack(spacing: 7) {
-                ForEach(RefugeSource.allCases.filter { $0 != .welcome }, id: \.rawValue) { src in
-                    HStack(spacing: 10) {
-                        if Theme.icons != .hidden {
-                            Image(systemName: src.symbol).font(.ui(11, .medium)).foregroundStyle(Theme.text3).frame(width: 16)
-                        }
-                        Text(src.what).font(.ui(12)).foregroundStyle(Theme.text)
-                        Spacer()
-                        Text(src.limit).font(.ui(11)).foregroundStyle(Theme.text3)
-                        Text("+\(src.amount)").font(.ui(12, .semibold)).foregroundStyle(RefugePage.tint).frame(width: 34, alignment: .trailing)
-                    }
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Sober mode
-
-private struct RefugeSoberCard: View {
+/// What reassures, and its few switches, quietly at the bottom.
+private struct RefugeFooter: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let m = app.refuge
-        Card {
-            Toggle(isOn: Binding(get: { m.state.sober }, set: { m.setSober($0) })) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Mode sobre").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                    Text("Ni moment de mue, ni message : l'app sans le jeu. Le Refuge quitte la barre latérale, \(m.name) continue de grandir en silence.")
-                        .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 14) {
+            Divider()
+            HStack(alignment: .top, spacing: 18) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Il ne lui arrive jamais rien").font(.serif(17)).foregroundStyle(Theme.text)
+                    Text("Il ne tombe pas malade et ne perd rien de ce qu'il a gagné : si tu t'absentes, il fait la sieste et t'attend. Ses myrtilles, son carnet et ses insignes restent sur ce Mac, nulle part ailleurs. Les myrtilles ne s'achètent jamais.")
+                        .font(.ui(12)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                    if AppEdition.isLab {
+                        Button("Revoir la naissance (Labo)") { m.replayBirth() }
+                            .buttonStyle(SoftButtonStyle(small: true))
+                            .padding(.top, 4)
+                            .help("Rejoue la naissance sans rien changer à \(m.name)")
+                    }
                 }
+                Spacer(minLength: 10)
+                VStack(alignment: .leading, spacing: 10) {
+                    toggle("Compagnon de bureau", "Il se promène au bord de l'écran", isOn: m.state.companion) { m.setCompanion($0) }
+                    toggle("Pelage des saisons", "Fauve l'été, brun sombre l'hiver", isOn: m.state.seasons) { m.setSeasons($0) }
+                    toggle("Mode sobre", "Ni mue ni message : l'app sans le jeu", isOn: m.state.sober) { m.setSober($0) }
+                }
+                .frame(width: 330)
             }
-            .switchToggles()
         }
+    }
+
+    private func toggle(_ title: String, _ detail: String, isOn: Bool, set: @escaping (Bool) -> Void) -> some View {
+        Toggle(isOn: Binding(get: { isOn }, set: set)) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                Text(detail).font(.ui(11)).foregroundStyle(Theme.text3)
+            }
+        }
+        .switchToggles()
     }
 }

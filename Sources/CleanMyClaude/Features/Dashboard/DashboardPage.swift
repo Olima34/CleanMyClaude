@@ -60,10 +60,10 @@ struct DashboardPage: View {
                 HealthRing()
                 if app.smartScanRunning {
                     BusyMascot(.inspecting, pixel: 5)
-                } else if app.refuge.isBorn && app.refuge.playful {
+                } else if app.refuge.isAdopted && app.refuge.playful {
                     // Its own chamois, at its stage and in its mood: a click opens its Refuge.
                     Button { app.page = .refuge } label: {
-                        RefugeAvatar(stage: app.refuge.stage, mood: app.refuge.mood(), pixel: 5)
+                        RefugeAvatar(look: app.refuge.look(), mood: app.refuge.mood(), pixel: 5)
                     }
                     .buttonStyle(.plain)
                     .help("\(app.refuge.name) · \(app.refuge.stage.title) : ouvrir son Refuge")
@@ -187,6 +187,10 @@ struct SmartScanPanel: View {
                                    value: app.startup.lastScan != nil ? "\(app.startup.activeCount)" : "—",
                                    detail: app.startup.lastScan != nil ? "agents tiers actifs · \(app.startup.flagged.count) à examiner" : "Pas encore analysé",
                                    page: .performance, tab: { app.performance.tab = .startup })
+                }
+                if app.smartScanRunning && app.refuge.isAdopted && app.refuge.playful {
+                    // While it works, the dust bunny chase.
+                    RefugeChase()
                 }
             }
         }
@@ -362,8 +366,9 @@ struct ToolsOverview: View {
             tile(page, tint: Theme.palette[2], value: "En direct",
                  detail: "Processeur, mémoire et actions express dans la barre des menus")
         case .refuge:
-            tile(page, tint: Theme.warn, value: app.refuge.stage.title,
-                 detail: app.refuge.isBorn ? "\(app.refuge.name) · \(Fmt.int(app.refuge.state.harvested)) myrtilles récoltées" : "Ton chamois naît à la fin de l'accueil")
+            tile(page, tint: Theme.warn, value: app.refuge.isAdopted ? app.refuge.stage.title : "À adopter",
+                 detail: app.refuge.isAdopted ? "\(app.refuge.name) · \(Fmt.int(app.refuge.state.basket)) myrtilles dans le panier"
+                    : "Un petit chamois t'attend dans son buisson de myrtilles")
         case .dashboard, .cleanup, .protection, .performance, .apps:
             EmptyView()
         }

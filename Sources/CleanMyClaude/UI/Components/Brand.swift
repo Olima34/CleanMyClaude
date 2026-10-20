@@ -210,11 +210,24 @@ struct PixelMascot: View {
     }
 
     private var figure: some View {
-        Canvas { ctx, _ in
-            MascotFigure.draw(in: ctx, at: CGPoint(x: pixel, y: pixel), pixel: pixel, pose: MascotFigure.Pose(blink: blink),
-                              extra: MascotFigure.cloth(), contour: true)
+        let look = MascotStyle.look
+        return Canvas { ctx, _ in
+            if let look {
+                // The user's own chamois, its cloth in its paw.
+                RefugeFigure.draw(in: ctx, pixel: pixel, look: look, pose: MascotFigure.Pose(blink: blink))
+                let right = (RefugeFigure.pixels(look).body.filter { $0.y >= 10 && $0.y <= 14 && $0.part != .prop }.map(\.x).max() ?? 12) + 1
+                let m = Theme.mascot
+                for (dx, dy, shade) in [(0, 1, false), (1, 0, false), (2, 0, true), (1, 1, true), (2, 1, true)] {
+                    ctx.fill(Path(CGRect(x: CGFloat(right + dx) * pixel, y: CGFloat(11 + dy) * pixel, width: pixel, height: pixel)),
+                             with: .color(dx == 0 ? m.fur : (shade ? m.clothShade : m.cloth)))
+                }
+            } else {
+                MascotFigure.draw(in: ctx, at: CGPoint(x: pixel, y: pixel), pixel: pixel, pose: MascotFigure.Pose(blink: blink),
+                                  extra: MascotFigure.cloth(), contour: true)
+            }
         }
-        .frame(width: pixel * CGFloat(MascotFigure.width + 4), height: pixel * CGFloat(MascotFigure.height + 1))
+        .frame(width: pixel * CGFloat(look == nil ? MascotFigure.width + 4 : RefugeFigure.cols + 3),
+               height: pixel * CGFloat(look == nil ? MascotFigure.height + 1 : RefugeFigure.rows))
         .allowsHitTesting(false)
         .task {
             // Blinks now and then: two tiny updates every few seconds, nothing per frame.

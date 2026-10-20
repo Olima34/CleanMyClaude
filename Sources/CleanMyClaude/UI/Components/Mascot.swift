@@ -124,7 +124,9 @@ enum MascotActivity: String, CaseIterable, Identifiable {
 /// reduced. Themes without the mascot (Graphite) get a plain spinner.
 struct BusyMascot: View {
     static let columns = 24
-    static let rows = 14
+    /// One row above the scenes (14 rows) for the tall horns of a grown chamois.
+    static let rows = 15
+    static let sceneRows = 14
 
     var activity: MascotActivity
     /// One pixel of the scene, in points: 1 in a button, 1.5 in a status line, 3 or 4 in the waiting card of a page.
@@ -202,6 +204,12 @@ private struct MascotSpinner: View {
     }
 }
 
+/// The user's own chamois, once adopted in the Refuge: the waiting scenes and the mascot at rest show it, at its stage and
+/// in its clothes. Nil: the app's mascot. Set by the Refuge whenever it changes.
+enum MascotStyle {
+    nonisolated(unsafe) static var look: RefugeLook?
+}
+
 /// Tells whether the window holding the mascot is on screen (not minimised, hidden or fully covered),
 /// so that the timeline stops when nobody can see it.
 struct MascotWindowProbe: NSViewRepresentable {
@@ -267,11 +275,13 @@ private struct MascotCanvas: View, Equatable {
         Canvas { ctx, _ in
             // The mascot's contour first (it only shows on light backgrounds), then the scene: whatever the scene
             // draws next to the mascot covers it, so the contour stays on the empty cells around its head and body.
+            var scene = ctx
+            scene.translateBy(x: 0, y: pixel)
             if ink == nil {
-                var outline = MascotPainter(ctx: ctx, pixel: pixel, ink: nil, palette: Theme.palette, contourOnly: true)
+                var outline = MascotPainter(ctx: scene, pixel: pixel, ink: nil, palette: Theme.palette, contourOnly: true)
                 MascotScenes.draw(activity, frame: frame, on: &outline)
             }
-            var p = MascotPainter(ctx: ctx, pixel: pixel, ink: ink, palette: Theme.palette)
+            var p = MascotPainter(ctx: scene, pixel: pixel, ink: ink, palette: Theme.palette)
             MascotScenes.draw(activity, frame: frame, on: &p)
         }
         .frame(width: pixel * CGFloat(BusyMascot.columns), height: pixel * CGFloat(BusyMascot.rows))
@@ -353,6 +363,20 @@ private struct MascotPainter {
 
     /// The mascot, 11 × 12 pixels from (x, y), its feet on row y + 11 (`MascotFigure`).
     func mascot(_ x: Int, _ y: Int, _ pose: MascotFigure.Pose = MascotFigure.Pose()) {
+        if let look = MascotStyle.look {
+            // The user's own chamois, its feet where the app's mascot has them.
+            let origin = CGPoint(x: CGFloat(x - 3) * pixel, y: CGFloat(y + MascotFigure.height - RefugeFigure.rows) * pixel)
+            if contourOnly {
+                let edge = Theme.mascot.contour
+                for c in RefugeFigure.contour(RefugeFigure.pixels(look, pose: pose).body) {
+                    ctx.fill(Path(CGRect(x: origin.x + CGFloat(c.x) * pixel, y: origin.y + CGFloat(c.y) * pixel, width: pixel, height: pixel)),
+                             with: .color(edge))
+                }
+            } else {
+                RefugeFigure.draw(in: ctx, at: origin, pixel: pixel, look: look, ink: ink, pose: pose, contour: false)
+            }
+            return
+        }
         if contourOnly {
             let edge = Theme.mascot.contour
             for c in MascotFigure.contour(pose) {
@@ -545,7 +569,7 @@ private enum MascotScenes {
             let cy = Double(oy) + slope * d
             let hw = 0.5 + d * 0.33
             let top = Int((cy - hw).rounded()), bottom = Int((cy + hw).rounded())
-            for y in max(0, top)...min(BusyMascot.rows - 1, max(top, bottom)) {
+            for y in max(0, top)...min(BusyMascot.sceneRows - 1, max(top, bottom)) {
                 p.dot(x, y, .warn, alpha: 0.6 * (1 - d / 15))
                 lit.insert(x * 100 + y)
             }

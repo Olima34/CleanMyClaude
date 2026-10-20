@@ -81,6 +81,12 @@ enum HUD {
     private static var shown = 0
 
     static func show(_ text: String, symbol: String = "checkmark.circle.fill") {
+        show(text, icon: Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+            .foregroundStyle(symbol.hasPrefix("xmark") ? Theme.bad : symbol.hasPrefix("exclamationmark") ? Theme.warn : Theme.good))
+    }
+
+    /// The same with a drawn icon (the Refuge's blueberry).
+    static func show<Icon: View>(_ text: String, icon: Icon) {
         guard !Snapshot.isActive else { return }
         let p = panel ?? {
             let p = FloatingPanel(size: NSSize(width: 320, height: 64))
@@ -92,8 +98,7 @@ enum HUD {
         }()
         p.setContent(
             HStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(symbol.hasPrefix("xmark") ? Theme.bad : symbol.hasPrefix("exclamationmark") ? Theme.warn : Theme.good)
+                icon
                 Text(text).font(.ui(13.5, .medium)).foregroundStyle(Theme.text).lineLimit(2)
             }
             .padding(.horizontal, 18)

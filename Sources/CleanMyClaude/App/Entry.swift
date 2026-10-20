@@ -376,9 +376,9 @@ enum Snapshot {
             shots.append(("adblock-player-panel", AnyView(AdBlockPlayerView(player: model.adblock.player).frame(height: 520))))
         }
         if everything || only == .refuge {
-            // The chamois' birth, or its mue with `--tab mue`, as it shows in the middle of the window.
-            let ceremony: RefugeCeremony = Entry.value(after: "--tab") == "mue" ? .mue(.beau) : .birth
-            shots.append(("refuge-ceremony-panel", AnyView(RefugeCeremonyPanel(ceremony: ceremony))))
+            // The chamois' birth (`--tab naissance`, `naissance-nom`, `refus`…), a mue (`mue`, `echarpe`) or its path (`voie`),
+            // as it shows in the middle of the window.
+            shots.append(("refuge-ceremony-panel", AnyView(RefugeCeremonyPanel())))
         }
         if everything || only == .clipboard {
             // The history's own window (`--tab fenetre:lumiere` with a search typed, `--tab images` filtered).

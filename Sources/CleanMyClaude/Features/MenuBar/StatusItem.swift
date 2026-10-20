@@ -31,6 +31,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private static let icon = BrandMark.templateImage()
     private let font = NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize - 1, weight: .regular)
     private var lastText = "-"
+    private var shownMood: RefugeMood?
     /// The download shown in the item: its whole percent (-1 before the first figure, -2 while it waits), nil when none.
     private var shownDownload: Int?
 
@@ -71,6 +72,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private func update() {
         // A download in progress takes the item's place until it ends.
         guard shownDownload == nil else { return }
+        // The chamois' head follows its mood (asleep at night, glasses during the Boost…), drawn only when it changes.
+        if let button = item.button, app.refuge.menuMood != shownMood {
+            shownMood = app.refuge.menuMood
+            button.image = shownMood.map { RefugeFigure.menuImage($0) } ?? Self.icon
+        }
         let text = metric.text(app.monitor)
         guard text != lastText, let button = item.button else { return }
         lastText = text

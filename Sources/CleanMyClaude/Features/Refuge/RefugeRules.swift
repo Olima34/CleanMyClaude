@@ -1,7 +1,8 @@
 import Foundation
 
-// The game of the Refuge, as pure functions: the blueberries, the stages, the badges, the rooms and the moods.
-// `--selftest` checks them; the model only calls them and saves the result.
+// The game of the Refuge, as pure functions: the blueberries and what they are for (feeding it, the shop), the stages
+// and scarves, the badges, the rooms, the moods, the daily round. `--selftest` checks them; the model only calls them
+// and saves the result.
 
 /// The six stages of the chamois. At each one it really changes: its size, its horns, what it wears.
 enum RefugeStage: Int, CaseIterable, Codable, Comparable {
@@ -20,7 +21,7 @@ enum RefugeStage: Int, CaseIterable, Codable, Comparable {
         }
     }
 
-    /// The blueberries harvested since its birth that it takes.
+    /// The blueberries it must have eaten.
     var threshold: Int {
         switch self {
         case .cabri: return 0
@@ -38,7 +39,7 @@ enum RefugeStage: Int, CaseIterable, Codable, Comparable {
         case .cabri: return "pas encore de cornes"
         case .eterlou: return "ses premières cornes"
         case .chamois: return "les cornes en crochet"
-        case .beau: return "sa clochette"
+        case .beau: return "sa clochette et sa voie"
         case .grand: return "sa première écharpe"
         case .gold: return "le pelage doré"
         }
@@ -47,25 +48,25 @@ enum RefugeStage: Int, CaseIterable, Codable, Comparable {
     /// What it says at its mue (or at its birth, for the first stage).
     var line: String {
         switch self {
-        case .cabri: return "Je suis né. Tout est nouveau ici. Tu me fais visiter ?"
+        case .cabri: return "Je suis né dans ce buisson de myrtilles. Je grandis en les mangeant !"
         case .eterlou: return "Deux petites cornes ont poussé. Je me sens déjà plus grand !"
         case .chamois: return "Mes cornes font le crochet, comme celles des grands. Me voilà un vrai chamois."
         case .beau: return "Une clochette à mon cou ! Tu m'entendras arriver de loin."
         case .grand: return "Ma première écharpe, en bronze. Elle changera de matière à chaque palier."
-        case .gold: return "Mon pelage est devenu doré. Je n'en reviens pas, merci de m'avoir fait grandir."
+        case .gold: return "Mon pelage est devenu doré. Je n'en reviens pas : choisis-moi l'écharpe que tu préfères."
         }
     }
 
     var next: RefugeStage? { RefugeStage(rawValue: rawValue + 1) }
 
-    static func at(_ harvested: Int) -> RefugeStage {
-        allCases.last { harvested >= $0.threshold } ?? .cabri
+    static func at(_ eaten: Int) -> RefugeStage {
+        allCases.last { eaten >= $0.threshold } ?? .cabri
     }
 }
 
 /// What earns blueberries. Never the amount deleted: nobody should erase files to make it grow.
 enum RefugeSource: String, CaseIterable, Codable {
-    case visit, scan, cleaning, fix, threat, update, tool, discovery, automation, week, welcome
+    case visit, scan, cleaning, fix, threat, update, tool, discovery, automation, week, round, chase, welcome
 
     var amount: Int {
         switch self {
@@ -74,8 +75,8 @@ enum RefugeSource: String, CaseIterable, Codable {
         case .fix, .automation: return 15
         case .threat, .week: return 20
         case .update: return 2
-        case .tool: return 1
-        case .discovery: return 10
+        case .tool, .chase: return 1
+        case .discovery, .round: return 10
         case .welcome: return 0
         }
     }
@@ -83,15 +84,16 @@ enum RefugeSource: String, CaseIterable, Codable {
     /// How many times a day it pays, nil without a daily limit.
     var perDay: Int? {
         switch self {
-        case .visit, .scan: return 1
+        case .visit, .scan, .round: return 1
         case .cleaning: return 2
+        case .chase: return 3
         case .update, .tool, .threat: return 10
         case .fix, .discovery, .automation, .week, .welcome: return nil
         }
     }
 
-    /// Paid once for each thing (a security point, a tool, an automation, a week): the call gives its key.
-    var needsKey: Bool { [.fix, .threat, .discovery, .automation, .week].contains(self) }
+    /// Paid once for each thing (a security point, a tool, an automation, a week, a day's round): the call gives its key.
+    var needsKey: Bool { [.fix, .threat, .discovery, .automation, .week, .round].contains(self) }
 
     /// The table of the page: what to do, and its limit.
     var what: String {
@@ -106,14 +108,17 @@ enum RefugeSource: String, CaseIterable, Codable {
         case .discovery: return "Découvrir une pièce de la maison"
         case .automation: return "Activer une automatisation"
         case .week: return "Semaine d'entretien : 4 jours sur 7"
-        case .welcome: return "Ce que tu avais fait avant sa naissance"
+        case .round: return "Finir la tournée du jour"
+        case .chase: return "Attraper un mouton pendant une analyse"
+        case .welcome: return "Le buisson de sa naissance"
         }
     }
 
     var limit: String {
         switch self {
-        case .visit, .scan: return "1 par jour"
+        case .visit, .scan, .round: return "1 par jour"
         case .cleaning: return "2 par jour"
+        case .chase: return "3 par jour"
         case .update, .tool: return "10 par jour"
         case .threat: return "chaque menace"
         case .fix: return "une fois par point"
@@ -136,6 +141,8 @@ enum RefugeSource: String, CaseIterable, Codable {
         case .discovery: return "door.left.hand.open"
         case .automation: return "leaf"
         case .week: return "calendar"
+        case .round: return "checklist"
+        case .chase: return "hand.tap"
         case .welcome: return "gift"
         }
     }
@@ -152,20 +159,32 @@ struct RefugeEntry: Codable, Equatable, Identifiable {
     var count = 1
 }
 
+/// Today's round: three little missions drawn from the real state of the Mac.
+struct RefugeRound: Codable, Equatable {
+    var day: String
+    var tasks: [String]
+    var paid = false
+}
+
 /// Everything the Refuge keeps (refuge.json). Every field may be missing from an older file.
 struct RefugeState: Codable, Equatable {
     var name = RefugeRules.defaultName
-    /// Its first day at the Refuge, nil until it is born.
+    /// The day it was adopted, nil before.
     var born: Date?
-    /// The birth was celebrated and the name chosen.
+    /// Adopted: the user took care of it at its birth.
     var welcomed = false
-    /// Every blueberry earned since its birth: never goes down, sets its stage.
+    /// The user said no at its birth, for now: it waits in its bush until they change their mind.
+    var declined = false
+    /// Every blueberry picked since its birth (a statistic: it never goes down).
     var harvested = 0
-    /// What is left to spend at the shop. Every blueberry earned falls into both.
+    /// The blueberries picked and not used yet: to feed it, or for the shop.
     var basket = 0
-    /// The stage the user last saw: a higher one waits for its mue.
-    var shownStage = 0
-    /// Rewards paid once (`fix:…`, `page:…`, `auto:…`, `threat:…`, `week:…`) and things seen once (`seen:…`).
+    /// Every blueberry it ate: never goes down, sets its stage and its scarf.
+    var eaten = 0
+    var lastFed: Date?
+    /// The level the user last saw (stage, then scarf): a higher one waits for its mue.
+    var shownLevel = 0
+    /// Rewards paid once (`fix:…`, `page:…`, `auto:…`, `threat:…`, `week:…`, `round:…`) and things seen once (`seen:…`).
     var claimed: Set<String> = []
     /// Today, and what paid today, per source.
     var day = ""
@@ -173,12 +192,27 @@ struct RefugeState: Codable, Equatable {
     /// The days the app was used lately (the last 28), and how many since its birth.
     var recentDays: [String] = []
     var daysTogether = 0
-    /// Everything paid since its birth, per source (the badges count them).
+    /// Everything paid since its birth, per source, plus `fed` (meals) (the badges count them).
     var totals: [String: Int] = [:]
     var badges: [String: Date] = [:]
     var journal: [RefugeEntry] = []
     /// The app without the game: no ceremony, no message, the Refuge out of the sidebar.
     var sober = false
+    /// Its coat follows the seasons (tawny in summer, dark brown in winter).
+    var seasons = true
+    /// A coat of the shop it wears, nil for its own.
+    var coat: String?
+    /// What was bought (coats and things), and what it wears or has put in its room.
+    var owned: Set<String> = []
+    var worn: Set<String> = []
+    /// The scarf chosen by the Chamois d'or (raw value of `RefugeScarf`), nil for the last one won.
+    var scarf: Int?
+    /// Its path (from the Beau Chamois on), and the season it was last chosen.
+    var path: String?
+    var pathSeason: String?
+    var round: RefugeRound?
+    /// It walks along the bottom of the screen.
+    var companion = false
 
     init() {}
 
@@ -187,9 +221,13 @@ struct RefugeState: Codable, Equatable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? RefugeRules.defaultName
         born = try c.decodeIfPresent(Date.self, forKey: .born)
         welcomed = try c.decodeIfPresent(Bool.self, forKey: .welcomed) ?? false
+        declined = try c.decodeIfPresent(Bool.self, forKey: .declined) ?? false
         harvested = max(0, try c.decodeIfPresent(Int.self, forKey: .harvested) ?? 0)
         basket = max(0, try c.decodeIfPresent(Int.self, forKey: .basket) ?? 0)
-        shownStage = try c.decodeIfPresent(Int.self, forKey: .shownStage) ?? 0
+        // Before feeding existed, what it picked made it grow.
+        eaten = max(0, try c.decodeIfPresent(Int.self, forKey: .eaten) ?? (welcomed ? harvested : 0))
+        lastFed = try c.decodeIfPresent(Date.self, forKey: .lastFed)
+        shownLevel = try c.decodeIfPresent(Int.self, forKey: .shownLevel) ?? RefugeRules.level(eaten)
         claimed = try c.decodeIfPresent(Set<String>.self, forKey: .claimed) ?? []
         day = try c.decodeIfPresent(String.self, forKey: .day) ?? ""
         paidToday = try c.decodeIfPresent([String: Int].self, forKey: .paidToday) ?? [:]
@@ -199,10 +237,22 @@ struct RefugeState: Codable, Equatable {
         badges = try c.decodeIfPresent([String: Date].self, forKey: .badges) ?? [:]
         journal = try c.decodeIfPresent([RefugeEntry].self, forKey: .journal) ?? []
         sober = try c.decodeIfPresent(Bool.self, forKey: .sober) ?? false
+        seasons = try c.decodeIfPresent(Bool.self, forKey: .seasons) ?? true
+        coat = try c.decodeIfPresent(String.self, forKey: .coat)
+        owned = try c.decodeIfPresent(Set<String>.self, forKey: .owned) ?? []
+        worn = try c.decodeIfPresent(Set<String>.self, forKey: .worn) ?? []
+        scarf = try c.decodeIfPresent(Int.self, forKey: .scarf)
+        path = try c.decodeIfPresent(String.self, forKey: .path)
+        pathSeason = try c.decodeIfPresent(String.self, forKey: .pathSeason)
+        round = try c.decodeIfPresent(RefugeRound.self, forKey: .round)
+        companion = try c.decodeIfPresent(Bool.self, forKey: .companion) ?? false
     }
 
-    var stage: RefugeStage { RefugeStage.at(harvested) }
+    var stage: RefugeStage { RefugeStage.at(eaten) }
+    var level: Int { RefugeRules.level(eaten) }
     func total(_ source: RefugeSource) -> Int { totals[source.rawValue] ?? 0 }
+    /// Waiting for an answer at its birth.
+    var awaitingAdoption: Bool { !welcomed && !declined }
 }
 
 /// The badges: good habits, regularity and curiosity, in bronze, silver and gold. Two are secret.
@@ -224,9 +274,9 @@ struct RefugeRoom: Identifiable {
     var id: String { page.rawValue }
 }
 
-/// How it feels: a glance at its face says how the Mac is doing.
+/// How it feels: a glance at its face says how the Mac is doing. `sad` is only for the moment the user says no.
 enum RefugeMood: String, CaseIterable {
-    case happy, sleepy, sneezy, hot, boosted, worried
+    case happy, sleepy, sneezy, hot, boosted, worried, hungry, sad
 
     var title: String {
         switch self {
@@ -236,11 +286,13 @@ enum RefugeMood: String, CaseIterable {
         case .hot: return "Il a chaud"
         case .boosted: return "Boosté"
         case .worried: return "Une mite rôde"
+        case .hungry: return "Un petit creux"
+        case .sad: return "Triste"
         }
     }
 }
 
-/// What the moods read from the Mac.
+/// What the moods read from the Mac (and from its basket).
 struct RefugeSignals: Equatable {
     var hour = 12
     /// Junk found by the last cleanup scan, in bytes.
@@ -248,14 +300,15 @@ struct RefugeSignals: Equatable {
     var hot = false
     var boost = false
     var threats = 0
+    var hungry = false
 }
 
 enum RefugeRules {
     static let defaultName = "Chamois"
     static let nameLimit = 24
     static let journalLimit = 80
-    /// The welcome gift of those who used the app before its birth stays below the adult stage.
-    static let welcomeLimit = RefugeStage.chamois.threshold - 1
+    /// The blueberries picked from its bush at its birth: a welcome gift, or what the user already earned with the app.
+    static let welcomeGift = 10
 
     // MARK: Days
 
@@ -278,6 +331,40 @@ enum RefugeRules {
         return max(1, d + 1)
     }
 
+    // MARK: Birth
+
+    /// Adopted: a fresh start, the tools already known lit, and the ten blueberries picked from its bush.
+    /// `returning`: the user already used the app before it was born.
+    static func adopt(_ s: inout RefugeState, name: String, known: [Page], returning: Bool, now: Date, calendar: Calendar = .current) {
+        guard !s.welcomed else { return }
+        var n = RefugeState()
+        n.sober = s.sober
+        n.seasons = s.seasons
+        n.companion = s.companion
+        n.name = cleanName(name)
+        n.welcomed = true
+        n.born = now
+        for p in known where rooms.contains(where: { $0.page == p }) { n.claimed.insert("page:" + p.rawValue) }
+        roll(&n, now: now, calendar: calendar)
+        n.harvested = welcomeGift
+        n.basket = welcomeGift
+        n.totals[RefugeSource.welcome.rawValue] = welcomeGift
+        note(&n, kind: "birth", text: RefugeStage.cabri.line, now: now, calendar: calendar)
+        note(&n, kind: "welcome", text: returning
+             ? "Tu en avais déjà gagné quelques-unes en utilisant l'app : on les a cueillies ensemble dans mon buisson."
+             : "Un cadeau de bienvenue : on les a cueillies ensemble dans mon buisson.",
+             amount: welcomeGift, now: now, calendar: calendar)
+        note(&n, kind: "name", text: "Je m'appelle \(n.name). Enchanté !", now: now, calendar: calendar)
+        s = n
+    }
+
+    /// The name the user typed, tidied: no line break, not too long, never empty.
+    static func cleanName(_ raw: String) -> String {
+        let one = raw.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        let short = String(one.prefix(nameLimit)).trimmingCharacters(in: .whitespaces)
+        return short.isEmpty ? defaultName : short
+    }
+
     // MARK: Earning
 
     /// A new day: today's limits start again, and the day counts as one more together.
@@ -293,11 +380,11 @@ enum RefugeRules {
         }
     }
 
-    /// Pays `source` if its limits allow it; the blueberries fall into both counters. Returns what was paid.
+    /// Pays `source` if its limits allow it; the blueberries fall into its basket. Returns what was paid.
     @discardableResult
     static func earn(_ s: inout RefugeState, _ source: RefugeSource, key: String? = nil, now: Date,
                      calendar: Calendar = .current) -> Int {
-        guard s.born != nil, source != .welcome else { return 0 }
+        guard s.welcomed, source != .welcome else { return 0 }
         roll(&s, now: now, calendar: calendar)
         if source.needsKey {
             guard let key, !key.isEmpty, !s.claimed.contains(key) else { return 0 }
@@ -317,40 +404,70 @@ enum RefugeRules {
         return days.filter(s.recentDays.contains).count >= 4 && !s.claimed.contains("week:" + weekKey(now, calendar: calendar))
     }
 
-    /// The gift of those who already took care of this Mac: cleanups, days of use and tools already known.
-    static func welcome(runs: Int, days: Int, pages: Int) -> Int {
-        min(welcomeLimit, max(0, runs) * 5 + max(0, days) * 2 + max(0, pages) * 10)
-    }
+    // MARK: Feeding
 
-    /// Born today, with the tools already known lit (they paid in the welcome gift).
-    static func birth(_ s: inout RefugeState, known: [Page], now: Date, calendar: Calendar = .current) {
-        guard s.born == nil else { return }
-        s.born = now
-        for p in known where rooms.contains(where: { $0.page == p }) { s.claimed.insert("page:" + p.rawValue) }
+    /// Gives it up to `amount` blueberries from the basket: it eats them and grows. Returns how many it ate.
+    @discardableResult
+    static func feed(_ s: inout RefugeState, _ amount: Int, now: Date, calendar: Calendar = .current) -> Int {
+        guard s.welcomed else { return 0 }
+        let n = min(max(0, amount), s.basket)
+        guard n > 0 else { return 0 }
         roll(&s, now: now, calendar: calendar)
-        note(&s, kind: "birth", text: RefugeStage.cabri.line, now: now)
+        s.basket -= n
+        s.eaten += n
+        s.lastFed = now
+        s.totals["fed", default: 0] += 1
+        note(&s, kind: "feed", text: "Miam ! Merci pour les myrtilles, je me sens grandir.", amount: n, merge: true, now: now, calendar: calendar)
+        return n
     }
 
-    /// The name the user typed, tidied: no line break, not too long, never empty.
-    static func cleanName(_ raw: String) -> String {
-        let one = raw.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
-        let short = String(one.prefix(nameLimit)).trimmingCharacters(in: .whitespaces)
-        return short.isEmpty ? defaultName : short
+    /// A little hunger: blueberries wait in the basket and it has not eaten for most of a day. Never more than that.
+    static func hungry(_ s: RefugeState, now: Date) -> Bool {
+        guard s.welcomed, s.basket >= 5 else { return false }
+        return s.lastFed.map { now.timeIntervalSince($0) > 20 * 3600 } ?? true
     }
 
-    /// The stage waiting for its mue, if it grew since the user last looked.
-    static func pendingMue(_ s: RefugeState) -> RefugeStage? {
-        guard s.welcomed else { return nil }
-        let now = s.stage
-        return now.rawValue > s.shownStage ? now : nil
+    // MARK: Levels and mues
+
+    /// Its level: the stage, then from the Grand Chamois on the scarf (13 levels, each with its mue).
+    static func level(_ eaten: Int) -> Int {
+        switch RefugeStage.at(eaten) {
+        case .gold: return 12
+        case .grand: return 4 + (RefugeScarf.at(eaten)?.rawValue ?? 0)
+        case let stage: return stage.rawValue
+        }
     }
 
-    /// Where it stands: the next stage, how far along, how many blueberries are left.
-    static func progress(_ harvested: Int) -> (next: RefugeStage?, fraction: Double, left: Int) {
-        let stage = RefugeStage.at(harvested)
-        guard let next = stage.next else { return (nil, 1, 0) }
-        let span = Double(next.threshold - stage.threshold)
-        return (next, min(1, max(0, Double(harvested - stage.threshold) / span)), next.threshold - harvested)
+    static func levelTitle(_ level: Int) -> String {
+        switch level {
+        case 0...3: return RefugeStage(rawValue: level)?.title ?? ""
+        case 4: return "Grand Chamois"
+        case 5...11: return "Écharpe \(RefugeScarf(rawValue: level - 4)?.title.lowercased() ?? "")"
+        default: return "Chamois d'or"
+        }
+    }
+
+    /// What waits for the user's eyes: the stage it reached, or its new scarf.
+    enum Mue: Equatable {
+        case stage(RefugeStage)
+        case scarf(RefugeScarf)
+    }
+
+    static func pendingMue(_ s: RefugeState) -> Mue? {
+        guard s.welcomed, s.level > s.shownLevel else { return nil }
+        let l = s.level
+        if (5...11).contains(l), let scarf = RefugeScarf(rawValue: l - 4) { return .scarf(scarf) }
+        return .stage(s.stage)
+    }
+
+    /// Where it stands: the next level, how far along, how many blueberries are left to eat.
+    static func progress(_ eaten: Int) -> (next: String?, fraction: Double, left: Int) {
+        let thresholds = RefugeStage.allCases.filter { $0 != .grand && $0 != .gold }.map(\.threshold)
+            + RefugeScarf.allCases.map(\.threshold) + [RefugeStage.gold.threshold]
+        let level = self.level(eaten)
+        guard level < 12 else { return (nil, 1, 0) }
+        let start = thresholds[level], end = thresholds[level + 1]
+        return (levelTitle(level + 1), min(1, max(0, Double(eaten - start) / Double(end - start))), end - eaten)
     }
 
     // MARK: Notebook
@@ -372,16 +489,22 @@ enum RefugeRules {
     // MARK: Badges
 
     static let badges: [RefugeBadge] = [
+        RefugeBadge(id: "repas", title: "Premier repas", detail: "Tes premières myrtilles données", symbol: "fork.knife", metal: .bronze),
         RefugeBadge(id: "chiffon", title: "Premier coup de chiffon", detail: "Ton premier nettoyage avec lui", symbol: "sparkles", metal: .bronze),
-        RefugeBadge(id: "moutons", title: "Chasseur de moutons", detail: "20 nettoyages", symbol: "wind", metal: .silver),
         RefugeBadge(id: "lynx", title: "Œil de lynx", detail: "Ta première analyse intelligente", symbol: "eye", metal: .bronze),
-        RefugeBadge(id: "mites", title: "Chasseur de mites", detail: "Une menace neutralisée", symbol: "ant", metal: .silver),
-        RefugeBadge(id: "forteresse", title: "Forteresse", detail: "Une note de sécurité d'au moins 90", symbol: "shield.lefthalf.filled", metal: .gold),
-        RefugeBadge(id: "ajour", title: "Toujours à jour", detail: "10 mises à jour d'apps", symbol: "arrow.down.circle", metal: .silver),
         RefugeBadge(id: "explorateur", title: "Explorateur", detail: "5 pièces de la maison découvertes", symbol: "map", metal: .bronze),
-        RefugeBadge(id: "proprietaire", title: "Tour du propriétaire", detail: "Toutes les pièces découvertes", symbol: "house", metal: .gold),
         RefugeBadge(id: "mainverte", title: "Main verte", detail: "Ta première automatisation", symbol: "leaf", metal: .bronze),
+        RefugeBadge(id: "coquet", title: "Coquet", detail: "Un premier achat à la boutique", symbol: "bag", metal: .bronze),
+        RefugeBadge(id: "photographe", title: "Photographe", detail: "Une photo souvenir", symbol: "camera", metal: .bronze),
+        RefugeBadge(id: "moutons", title: "Chasseur de moutons", detail: "20 nettoyages", symbol: "wind", metal: .silver),
+        RefugeBadge(id: "mites", title: "Chasseur de mites", detail: "Une menace neutralisée", symbol: "ant", metal: .silver),
+        RefugeBadge(id: "ajour", title: "Toujours à jour", detail: "10 mises à jour d'apps", symbol: "arrow.down.circle", metal: .silver),
+        RefugeBadge(id: "gourmand", title: "Gourmand", detail: "1 000 myrtilles mangées", symbol: "heart.circle", metal: .silver),
+        RefugeBadge(id: "forteresse", title: "Forteresse", detail: "Une note de sécurité d'au moins 90", symbol: "shield.lefthalf.filled", metal: .gold),
+        RefugeBadge(id: "proprietaire", title: "Tour du propriétaire", detail: "Toutes les pièces découvertes", symbol: "house", metal: .gold),
         RefugeBadge(id: "fidele", title: "Fidèle", detail: "30 jours ensemble", symbol: "heart", metal: .gold),
+        RefugeBadge(id: "tournee", title: "Tournée parfaite", detail: "7 tournées du jour finies", symbol: "checklist", metal: .gold),
+        RefugeBadge(id: "anniversaire", title: "Joyeux anniversaire", detail: "Un an ensemble", symbol: "birthday.cake", metal: .gold),
         RefugeBadge(id: "noctambule", title: "Noctambule", detail: "Une analyse entre minuit et 5 h", symbol: "moon.stars", metal: .silver, secret: true),
         RefugeBadge(id: "atchoum", title: "Atchoum !", detail: "Dix caresses très vite", symbol: "nose", metal: .bronze, secret: true),
     ]
@@ -390,16 +513,22 @@ enum RefugeRules {
     static func deserved(_ s: RefugeState) -> [String] {
         let rooms = discovered(s).count
         var out: [String] = []
+        if (s.totals["fed"] ?? 0) >= 1 { out.append("repas") }
         if s.total(.cleaning) >= 1 { out.append("chiffon") }
-        if s.total(.cleaning) >= 20 { out.append("moutons") }
         if s.total(.scan) >= 1 { out.append("lynx") }
-        if s.total(.threat) >= 1 { out.append("mites") }
-        if s.claimed.contains("seen:forteresse") { out.append("forteresse") }
-        if s.total(.update) >= 10 { out.append("ajour") }
         if rooms >= 5 { out.append("explorateur") }
-        if rooms >= self.rooms.count { out.append("proprietaire") }
         if s.total(.automation) >= 1 { out.append("mainverte") }
+        if !s.owned.isEmpty { out.append("coquet") }
+        if s.claimed.contains("seen:photo") { out.append("photographe") }
+        if s.total(.cleaning) >= 20 { out.append("moutons") }
+        if s.total(.threat) >= 1 { out.append("mites") }
+        if s.total(.update) >= 10 { out.append("ajour") }
+        if s.eaten >= 1000 { out.append("gourmand") }
+        if s.claimed.contains("seen:forteresse") { out.append("forteresse") }
+        if rooms >= self.rooms.count { out.append("proprietaire") }
         if s.daysTogether >= 30 { out.append("fidele") }
+        if s.total(.round) >= 7 { out.append("tournee") }
+        if s.claimed.contains("seen:anniversaire") { out.append("anniversaire") }
         if s.claimed.contains("seen:noctambule") { out.append("noctambule") }
         if s.claimed.contains("seen:atchoum") { out.append("atchoum") }
         return out
@@ -408,7 +537,7 @@ enum RefugeRules {
     /// Gives the badges newly deserved, writes them in the notebook, and returns them.
     @discardableResult
     static func award(_ s: inout RefugeState, now: Date) -> [RefugeBadge] {
-        guard s.born != nil else { return [] }
+        guard s.welcomed else { return [] }
         let fresh = deserved(s).filter { s.badges[$0] == nil }
         var out: [RefugeBadge] = []
         for id in fresh {
@@ -472,10 +601,11 @@ enum RefugeRules {
 
     static func isNight(_ hour: Int) -> Bool { hour >= 23 || hour < 6 }
 
-    /// One mood at a time, the most useful first: a threat, heat, the Boost, the dust, then the night.
+    /// One mood at a time, the most useful first: a threat, heat, hunger, the Boost, the dust, then the night.
     static func mood(_ s: RefugeSignals) -> RefugeMood {
         if s.threats > 0 { return .worried }
         if s.hot { return .hot }
+        if s.hungry { return .hungry }
         if s.boost { return .boosted }
         if dust(s.junk) >= 3 { return .sneezy }
         if isNight(s.hour) { return .sleepy }
@@ -493,6 +623,8 @@ enum RefugeRules {
         case .worried:
             return signals.threats > 1 ? "\(signals.threats) mites rôdent dans ton Mac. On les chasse ensemble ?"
                 : "Une mite rôde dans ton Mac. On la chasse ensemble ?"
+        case .hungry: return "J'ai un petit creux… Il reste des myrtilles dans le panier ?"
+        case .sad: return "Oh… Tu es sûr de toi ?"
         }
     }
 
@@ -507,33 +639,42 @@ enum RefugeRules {
             cal.date(byAdding: DateComponents(day: n, hour: hour - 10), to: start) ?? start
         }
 
-        // Stages.
+        // Stages and levels.
         let stages = RefugeStage.allCases
         if zip(stages, stages.dropFirst()).contains(where: { $0.threshold >= $1.threshold }) { f.append("Refuge : seuils des stades dans le désordre") }
         if RefugeStage.at(0) != .cabri || RefugeStage.at(59) != .cabri || RefugeStage.at(60) != .eterlou
             || RefugeStage.at(11_999) != .grand || RefugeStage.at(50_000) != .gold {
             f.append("Refuge : stade mal calculé aux seuils")
         }
-        if progress(30).next != .eterlou || abs(progress(30).fraction - 0.5) > 0.001 || progress(30).left != 30 { f.append("Refuge : progression fausse") }
-        if progress(12_000).next != nil { f.append("Refuge : un stade après le Chamois d'or") }
+        if level(0) != 0 || level(1200) != 3 || level(3500) != 4 || level(4500) != 5 || level(10_500) != 11 || level(12_000) != 12 {
+            f.append("Refuge : niveaux (stades puis écharpes) mal comptés")
+        }
+        if progress(30).next != "Éterlou" || abs(progress(30).fraction - 0.5) > 0.001 || progress(30).left != 30 { f.append("Refuge : progression fausse") }
+        if progress(4000).next != "Écharpe argent" || progress(4000).left != 500 { f.append("Refuge : progression vers l'écharpe fausse") }
+        if progress(12_000).next != nil { f.append("Refuge : un niveau après le Chamois d'or") }
 
-        // Nothing is paid before its birth.
+        // Nothing is paid before the adoption; adopting is a fresh start with ten blueberries.
         var s = RefugeState()
-        if earn(&s, .cleaning, now: start) != 0 { f.append("Refuge : des myrtilles avant la naissance") }
-        birth(&s, known: [.converter, .refuge], now: start, calendar: cal)
-        if s.born == nil || s.journal.count != 1 { f.append("Refuge : naissance mal enregistrée") }
+        if earn(&s, .cleaning, now: start) != 0 { f.append("Refuge : des myrtilles avant l'adoption") }
+        s.harvested = 24
+        s.basket = 24
+        s.declined = true
+        if s.awaitingAdoption { f.append("Refuge : un refus attend encore une réponse") }
+        s.declined = false
+        adopt(&s, name: "  Pom\npon ", known: [.converter, .refuge], returning: true, now: start, calendar: cal)
+        if !s.welcomed || s.born == nil || s.name != "Pom pon" { f.append("Refuge : adoption mal enregistrée") }
+        if s.basket != welcomeGift || s.harvested != welcomeGift || s.eaten != 0 { f.append("Refuge : le buisson ne donne pas 10 myrtilles (\(s.basket))") }
         if !s.claimed.contains("page:converter") || s.claimed.contains("page:refuge") { f.append("Refuge : pièces déjà connues mal allumées") }
-        if s.daysTogether != 1 { f.append("Refuge : le jour de naissance ne compte pas") }
+        if s.daysTogether != 1 || s.journal.count != 3 { f.append("Refuge : naissance mal notée") }
 
         // Daily limits.
         _ = earn(&s, .visit, now: start, calendar: cal)
         _ = earn(&s, .visit, now: day(0, hour: 18), calendar: cal)
-        if s.harvested != 2 || s.basket != 2 { f.append("Refuge : premier passage payé \(s.harvested) au lieu de 2") }
+        if s.basket != welcomeGift + 2 { f.append("Refuge : premier passage payé \(s.basket - welcomeGift) au lieu de 2") }
         for _ in 0..<3 { _ = earn(&s, .cleaning, now: start, calendar: cal) }
         if s.total(.cleaning) != 2 { f.append("Refuge : plus de 2 nettoyages payés par jour") }
         _ = earn(&s, .visit, now: day(1), calendar: cal)
         if s.total(.visit) != 2 || s.daysTogether != 2 { f.append("Refuge : le lendemain ne repart pas de zéro") }
-        // Once per thing.
         if earn(&s, .fix, now: start, calendar: cal) != 0 { f.append("Refuge : un point de sécurité payé sans clé") }
         _ = earn(&s, .fix, key: "fix:firewall", now: day(1), calendar: cal)
         if earn(&s, .fix, key: "fix:firewall", now: day(2), calendar: cal) != 0 { f.append("Refuge : un point de sécurité payé deux fois") }
@@ -541,14 +682,25 @@ enum RefugeRules {
         if earn(&s, .discovery, key: "page:toolbox", now: day(1), calendar: cal) != 10 { f.append("Refuge : découverte non payée") }
         for _ in 0..<12 { _ = earn(&s, .tool, now: day(1), calendar: cal) }
         if s.total(.tool) != 10 { f.append("Refuge : plus de 10 outils payés par jour") }
-        // The basket can go down (the shop), the harvest never does: the stage follows the harvest.
-        var spent = s
-        spent.basket = 0
-        if spent.stage != s.stage { f.append("Refuge : dépenser le panier change le stade") }
+        for _ in 0..<5 { _ = earn(&s, .chase, now: day(1), calendar: cal) }
+        if s.total(.chase) != 3 { f.append("Refuge : plus de 3 moutons attrapés payés par jour") }
+
+        // Earning fills the basket; only eating makes it grow.
+        if s.eaten != 0 || s.stage != .cabri { f.append("Refuge : il grandit sans manger") }
+        let before = s.basket
+        if feed(&s, 5, now: day(1), calendar: cal) != 5 || s.basket != before - 5 || s.eaten != 5 { f.append("Refuge : repas mal compté") }
+        if feed(&s, 10_000, now: day(1), calendar: cal) != before - 5 || s.basket != 0 { f.append("Refuge : il mange plus que le panier") }
+        if feed(&s, 3, now: day(1), calendar: cal) != 0 { f.append("Refuge : il mange un panier vide") }
+        if s.journal.filter({ $0.kind == "feed" }).count != 1 { f.append("Refuge : les repas du jour ne tiennent pas sur une ligne") }
+        var h = RefugeState()
+        adopt(&h, name: "", known: [], returning: false, now: start, calendar: cal)
+        if !hungry(h, now: start) { f.append("Refuge : jamais nourri, il devrait avoir un petit creux") }
+        _ = feed(&h, 2, now: start, calendar: cal)
+        if hungry(h, now: day(0, hour: 20)) || hungry(RefugeState(), now: start) { f.append("Refuge : faim mal calculée") }
 
         // The week: 4 days out of 7.
         var w = RefugeState()
-        birth(&w, known: [], now: day(0), calendar: cal)
+        adopt(&w, name: "", known: [], returning: false, now: day(0), calendar: cal)
         for n in 1...2 { roll(&w, now: day(n), calendar: cal) }
         if weekDue(w, now: day(2), calendar: cal) { f.append("Refuge : semaine payée après 3 jours") }
         roll(&w, now: day(4), calendar: cal)
@@ -556,23 +708,19 @@ enum RefugeRules {
         _ = earn(&w, .week, key: "week:" + weekKey(day(4), calendar: cal), now: day(4), calendar: cal)
         if weekDue(w, now: day(4), calendar: cal) { f.append("Refuge : semaine payée deux fois") }
 
-        // The welcome gift stays below the adult stage.
-        if RefugeStage.at(welcome(runs: 400, days: 900, pages: 24)) >= .chamois { f.append("Refuge : le cadeau de bienvenue saute jusqu'à l'adulte") }
-        if welcome(runs: 0, days: 0, pages: 0) != 0 || welcome(runs: 2, days: 3, pages: 1) != 26 { f.append("Refuge : cadeau de bienvenue mal compté") }
-
-        // The mue waits for the welcome, then for the user's eyes.
+        // The mue waits for the adoption, then for the user's eyes; the scarves have theirs.
         var m = RefugeState()
-        m.harvested = 400
-        if pendingMue(m) != nil { f.append("Refuge : mue avant la naissance") }
+        m.eaten = 400
+        if pendingMue(m) != nil { f.append("Refuge : mue avant l'adoption") }
         m.welcomed = true
-        if pendingMue(m) != .chamois { f.append("Refuge : mue attendue non signalée") }
-        m.shownStage = RefugeStage.chamois.rawValue
+        if pendingMue(m) != .stage(.chamois) { f.append("Refuge : mue attendue non signalée") }
+        m.shownLevel = m.level
         if pendingMue(m) != nil { f.append("Refuge : mue déjà vue reproposée") }
+        m.eaten = 5600
+        if pendingMue(m) != .scarf(.or) { f.append("Refuge : écharpe en or non signalée") }
 
         // Names.
-        if cleanName("  \n ") != defaultName || cleanName("Pom\npon") != "Pom pon" || cleanName(String(repeating: "a", count: 60)).count != nameLimit {
-            f.append("Refuge : prénom mal nettoyé")
-        }
+        if cleanName("  \n ") != defaultName || cleanName(String(repeating: "a", count: 60)).count != nameLimit { f.append("Refuge : prénom mal nettoyé") }
 
         // The notebook merges and stays short.
         var j = RefugeState()
@@ -585,42 +733,45 @@ enum RefugeRules {
 
         // Badges.
         var b = RefugeState()
-        birth(&b, known: Array(rooms.prefix(4).map(\.page)), now: start, calendar: cal)
+        adopt(&b, name: "", known: Array(rooms.prefix(4).map(\.page)), returning: false, now: start, calendar: cal)
         if !award(&b, now: start).isEmpty { f.append("Refuge : insigne sans raison") }
         b.totals["cleaning"] = 1
         b.claimed.insert("page:" + rooms[10].page.rawValue)
+        _ = feed(&b, 1, now: start, calendar: cal)
         let got = award(&b, now: start).map(\.id)
-        if Set(got) != ["chiffon", "explorateur"] { f.append("Refuge : insignes attendus chiffon et explorateur, obtenus \(got)") }
+        if Set(got) != ["chiffon", "explorateur", "repas"] { f.append("Refuge : insignes attendus chiffon, explorateur et repas, obtenus \(got)") }
         if !award(&b, now: start).isEmpty { f.append("Refuge : insigne donné deux fois") }
         for room in rooms { b.claimed.insert("page:" + room.page.rawValue) }
         if award(&b, now: start).map(\.id) != ["proprietaire"] { f.append("Refuge : tour du propriétaire non donné") }
-        if Set(badges.map(\.id)).count != badges.count || badges.count != 12 { f.append("Refuge : 12 insignes distincts attendus") }
+        if Set(badges.map(\.id)).count != badges.count || badges.count != 18 { f.append("Refuge : 18 insignes distincts attendus") }
 
         // Every page but the Refuge is a room, once.
         let roomPages = rooms.map(\.page)
         if Set(roomPages).count != roomPages.count { f.append("Refuge : une pièce en double") }
         for p in Page.allCases where p != .refuge && !roomPages.contains(p) { f.append("Refuge : \(p.title) n'a pas de pièce") }
-        if roomPages.contains(.refuge) { f.append("Refuge : le Refuge est une pièce de lui-même") }
 
         // Moods.
-        if mood(RefugeSignals(hour: 2, junk: 30_000_000_000, hot: true, boost: true, threats: 1)) != .worried { f.append("Refuge : la mite doit passer avant tout") }
-        if mood(RefugeSignals(hour: 2, junk: 30_000_000_000, hot: true, boost: true)) != .hot { f.append("Refuge : la chaleur avant le Boost") }
+        if mood(RefugeSignals(hour: 2, junk: 30_000_000_000, hot: true, boost: true, threats: 1, hungry: true)) != .worried { f.append("Refuge : la mite doit passer avant tout") }
+        if mood(RefugeSignals(hour: 2, junk: 30_000_000_000, hot: true, boost: true, hungry: true)) != .hot { f.append("Refuge : la chaleur avant la faim") }
+        if mood(RefugeSignals(hour: 2, junk: 30_000_000_000, boost: true, hungry: true)) != .hungry { f.append("Refuge : la faim avant le Boost") }
         if mood(RefugeSignals(hour: 2, junk: 30_000_000_000, boost: true)) != .boosted { f.append("Refuge : le Boost avant la poussière") }
         if mood(RefugeSignals(hour: 2, junk: 6_000_000_000)) != .sneezy { f.append("Refuge : la poussière avant la nuit") }
         if mood(RefugeSignals(hour: 23)) != .sleepy || mood(RefugeSignals(hour: 6)) != .happy { f.append("Refuge : nuit mal bornée") }
         if dust(0) != 0 || dust(1_000_000_000) != 1 || dust(500_000_000_000) != 5 { f.append("Refuge : moutons mal comptés") }
 
         // An older or partial file still opens.
-        if let old = try? JSONDecoder.store.decode(RefugeState.self, from: Data(#"{"name":"Pompon","harvested":120}"#.utf8)) {
-            if old.name != "Pompon" || old.harvested != 120 || old.basket != 0 || old.welcomed { f.append("Refuge : fichier partiel mal relu") }
+        if let old = try? JSONDecoder.store.decode(RefugeState.self, from: Data(#"{"name":"Pompon","harvested":120,"welcomed":true}"#.utf8)) {
+            if old.name != "Pompon" || old.eaten != 120 || old.basket != 0 || !old.seasons || old.shownLevel != level(120) { f.append("Refuge : fichier ancien mal relu") }
         } else {
             f.append("Refuge : un fichier partiel ne s'ouvre pas")
         }
         if let data = try? JSONEncoder.store.encode(s), let back = try? JSONDecoder.store.decode(RefugeState.self, from: data) {
-            if back.harvested != s.harvested || back.claimed != s.claimed || back.journal.count != s.journal.count { f.append("Refuge : l'état ne se relit pas à l'identique") }
+            if back.basket != s.basket || back.eaten != s.eaten || back.claimed != s.claimed || back.journal.count != s.journal.count {
+                f.append("Refuge : l'état ne se relit pas à l'identique")
+            }
         } else {
             f.append("Refuge : l'état ne s'enregistre pas")
         }
-        return f
+        return f + RefugeStyle.selfTest()
     }
 }

@@ -109,6 +109,21 @@ struct MascotColors {
     let goldHorn, goldRing, goldFur, goldFurShade, goldMask, goldCollar: Color
     let bronze, bronzeLight, silver, silverLight, ruby, rubyLight: Color
     let sky, night, mountain, snow, star, wood, woodShade, straw, strawShade, dust, dustShade, moth, mothWing: Color
+    /// The eight scarves, bronze to sacred wool, then the golden thread of the last one.
+    let scarves: [(main: Color, light: Color)]
+    let goldThread: Color
+    /// The coats: the winter one and those of the shop, by name.
+    let coats: [String: MascotCoat]
+    /// Its blueberry bush, the berries, and the colors of the shop's things (hats, glasses, the objects of its room).
+    let leaf, leafShade, berry, berryShine: Color
+    let props: [String: Color]
+
+    func prop(_ name: String) -> Color { props[name] ?? horn }
+}
+
+/// A coat of the chamois: its fur, the darker fur of its ears and the mask around its eyes.
+struct MascotCoat {
+    let fur, furShade, mask: Color
 }
 
 /// A theme turned into ready-to-draw values, once per change (views read them hundreds of times per frame).
@@ -182,7 +197,25 @@ final class ThemeResolved: @unchecked Sendable {
             wood: fixed(fur.mixed(with: black, 0.45)), woodShade: fixed(fur.mixed(with: black, 0.6)),
             straw: fixed(gold.mixed(with: .white, 0.35)), strawShade: fixed(gold.mixed(with: black, 0.1)),
             dust: fixed(ThemeColor(0xA9A9B2)), dustShade: fixed(ThemeColor(0x7D7D88)),
-            moth: fixed(ThemeColor(0x6B6157)), mothWing: fixed(ThemeColor(0xB9AE9F)))
+            moth: fixed(ThemeColor(0x6B6157)), mothWing: fixed(ThemeColor(0xB9AE9F)),
+            scarves: [(0xB8732E, 0xE3A465), (0x9DA8B5, 0xE6ECF2), (0xE3A91C, 0xFFE27A), (0xB9C7D6, 0xF4F8FC),
+                      (0x6FCFEA, 0xE6FBFF), (0x179A5C, 0x6EE0A0), (0xC81E4A, 0xFF7895), (0xF3E9D6, 0xFFFFFF)]
+                .map { (fixed(ThemeColor($0.0)), fixed(ThemeColor($0.1))) },
+            goldThread: fixed(ThemeColor(0xFFD24A)),
+            coats: [
+                "hiver": (0x6A4E3B, 0x4A3528, 0x2E211A), "chocolat": (0x7A4E32, 0x5A3622, 0x4A2E1E),
+                "neige": (0xEDE7DE, 0xCFC6BA, 0xBDB3A6), "roux": (0xD9733A, 0xA9522A, 0x8A4020),
+                "gris-perle": (0xA9A4B4, 0x858094, 0x6E697D), "nuit": (0x2E3560, 0x1E2444, 0x161A33),
+            ].mapValues { MascotCoat(fur: fixed(ThemeColor($0.0)), furShade: fixed(ThemeColor($0.1)), mask: fixed(ThemeColor($0.2))) },
+            leaf: fixed(ThemeColor(0x4E9A5B)), leafShade: fixed(ThemeColor(0x2F6B3C)),
+            berry: fixed(ThemeColor(0x4B5BB5)), berryShine: fixed(ThemeColor(0x9AA8FF)),
+            props: [
+                "bleu": 0x5B8DEF, "bleu-clair": 0x9DBDFF, "creme": 0xF6EFE6, "creme-ombre": 0xD9D0C2, "rose": 0xE8577A,
+                "rose-clair": 0xFF8FA6, "jaune": 0xFFD24A, "vert": 0x5FB86A, "vert-fonce": 0x2F6B3C, "orange": 0xF08A2E,
+                "orange-fonce": 0xC0601C, "terre": 0xB5653A, "violet": 0x5B4FB0, "violet-clair": 0x9A8CFF, "verre": 0xBFD3E6,
+                "monture": 0x9C6B47, "verre-bleu": 0x9FD3FF, "fonte": 0x3D3550, "fonte-claire": 0x5A5070, "flamme": 0xFF8A3D,
+                "argent": 0xC9D2DC, "rouge": 0xC8344A, "aile": 0xE9F4FF, "paille": 0xE9C46A, "paille-ombre": 0xC79A3A,
+            ].mapValues { fixed(ThemeColor($0)) })
         radiusScale = CGFloat(spec.radius)
         line = CGFloat(spec.borderWidth)
         textScale = CGFloat(spec.textScale)
