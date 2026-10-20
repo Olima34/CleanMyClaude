@@ -42,6 +42,11 @@ struct MenuBarPanel: View {
                 .background(PillShape().fill(Theme.card))
             }
 
+            // A video downloading: how far it is, and the way to stop it.
+            if let activity = app.youtube.activity {
+                YouTubeActivityCard(activity: activity, style: .menu)
+            }
+
             HStack(spacing: 0) {
                 mini("Processeur", m.cpu, Fmt.pct(m.cpu), Theme.load(m.cpu))
                 mini("Mémoire", m.memFraction, Fmt.pct(m.memFraction), m.pressure == .normal ? Theme.palette[4] : Theme.warn)

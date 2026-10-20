@@ -319,6 +319,8 @@ enum Snapshot {
         }
         if everything || only == .menubar {
             shots.append(("menubar-panel", AnyView(MenuBarPanel())))
+            // The menu bar item while a video downloads, over a light and a dark bar.
+            shots.append(("statusitem-panel", AnyView(StatusItemPreview())))
         }
         if everything || only == .dashboard {
             // The sidebar (it follows the profile, `--tab autres` unfolds « Autres outils ») and the profile panel.
@@ -382,7 +384,7 @@ enum Snapshot {
                                "adblock-player-panel": 960,
                                "appearance-panel": AppearanceSettings.width, "mascotte-panel": MascotGallery.width,
                                "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180,
-                               "sidebar-panel": 248, "profile-panel": ProfilePanel.width][name]
+                               "sidebar-panel": 248, "profile-panel": ProfilePanel.width, "statusitem-panel": 340][name]
                        ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)

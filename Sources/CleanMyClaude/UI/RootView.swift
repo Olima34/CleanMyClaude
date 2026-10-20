@@ -186,6 +186,12 @@ struct Sidebar: View {
             }
 
             Spacer(minLength: 0)
+            // A video downloading shows here from every page, even when Vidéos YouTube is folded in « Autres outils ».
+            if let activity = app.youtube.activity {
+                YouTubeActivityCard(activity: activity)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 10)
+            }
             if !app.fullDiskAccess {
                 Button { Finder.open(Permissions.fullDiskAccessURL) } label: {
                     HStack(alignment: .top, spacing: 8) {

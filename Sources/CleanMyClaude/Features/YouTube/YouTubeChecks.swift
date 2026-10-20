@@ -62,10 +62,14 @@ enum YouTubeChecks {
             failures.append("yt-dlp : la qualité 720p en H.264 n'est pas demandée")
         }
         if !contains(mp4, ["--download-sections", "*5-12"]) || !mp4.contains("--force-keyframes-at-cuts") { failures.append("yt-dlp : extrait absent") }
+        // The cut tells where it is; a whole video goes through yt-dlp's own downloader, which already does.
+        if !contains(mp4, ["--downloader-args", "ffmpeg_o:-progress pipe:1 -nostats"]) { failures.append("yt-dlp : la découpe ne dit pas où elle en est") }
         if !mp4.contains("--no-playlist") || !mp4.contains("--ignore-config") { failures.append("yt-dlp : une playlist ou une configuration pourrait s'en mêler") }
         if !contains(mp4, ["-P", "/tmp/w"]) { failures.append("yt-dlp : dossier de travail") }
         let best = YouTubeEngine.arguments(videoID: id, options: YouTubeOptions(format: .mp4, quality: .best), clip: nil, ffmpeg: "f", workFolder: "/tmp/w")
-        if !contains(best, ["-S", "res,vcodec:h264,acodec:m4a"]) || best.contains("--download-sections") { failures.append("yt-dlp : qualité maximale") }
+        if !contains(best, ["-S", "res,vcodec:h264,acodec:m4a"]) || best.contains("--download-sections") || best.contains("--downloader-args") {
+            failures.append("yt-dlp : qualité maximale")
+        }
         let mp3 = YouTubeEngine.arguments(videoID: id, options: YouTubeOptions(format: .mp3, quality: .p1080), clip: nil, ffmpeg: "f", workFolder: "/tmp/w")
         if !contains(mp3, ["--audio-format", "mp3"]) || mp3.contains("--merge-output-format") { failures.append("yt-dlp : MP3") }
         let m4a = YouTubeEngine.arguments(videoID: id, options: YouTubeOptions(format: .m4a, quality: .p1080), clip: nil, ffmpeg: "f", workFolder: "/tmp/w")
@@ -78,14 +82,20 @@ enum YouTubeChecks {
             ("CMCP 3072 NA 900000 1994875.66 4", .progress(done: 3072, total: 900_000, speed: 1_994_875.66, eta: 4)),
             ("CMCFILE /tmp/w/\(id).mp4", .file("/tmp/w/\(id).mp4")),
             ("ERROR: [youtube] \(id): Video unavailable", .error("ERROR: [youtube] \(id): Video unavailable")),
-            ("[download] Destination: x", nil)
+            ("[download] Destination: x", nil),
+            // ffmpeg cutting an extract, as it prints with -progress.
+            ("out_time_us=7709025", .cutTime(7.709025)),
+            ("out_time_us=N/A", nil),
+            ("speed=15.3x", .cutSpeed(15.3)),
+            ("speed=N/A", nil),
+            ("progress=continue", nil)
         ]
         for (line, expected) in lines where YouTubeEngine.parse(line) != expected {
             failures.append("sortie de yt-dlp « \(line) » mal lue")
         }
         // Two tracks: the bar goes through the picture, then the sound, then the assembly; never backwards.
         let demo = YouTubeDemo.info
-        let tracker = YouTubeTracker(format: .mp4, clipped: false, info: demo)
+        let tracker = YouTubeTracker(format: .mp4, clip: nil, info: demo)
         var seen: [Double] = []
         _ = tracker.apply(.selected(["137", "140"]))
         for (done, total) in [(0, 171_400_000), (85_700_000, 171_400_000), (171_400_000, 171_400_000), (1000, 12_200_000), (12_200_000, 12_200_000)] {
@@ -95,6 +105,37 @@ enum YouTubeChecks {
         if seen != seen.sorted() { failures.append("progression : elle recule (\(seen))") }
         if (seen.last ?? 0) < 0.95 { failures.append("progression : n'arrive pas au bout (\(seen.last ?? 0))") }
         if tracker.apply(.file("/tmp/x.mp4")).0.phase != "Rangement" || tracker.file != "/tmp/x.mp4" { failures.append("progression : fichier final") }
+        // An extract: ffmpeg's position over its 30 s, then the single line yt-dlp prints once the cut is over.
+        let cut = YouTubeTracker(format: .mp4, clip: YouTubeClip(start: 5, end: 35), info: demo)
+        _ = cut.apply(.selected(["137", "140"]))
+        _ = cut.apply(.cutSpeed(15))
+        let mid = cut.apply(.cutTime(15)).0
+        if mid.progress.map({ abs($0 - 0.485) > 0.01 }) ?? true { failures.append("extrait : à mi-chemin, \(mid.progress.map { "\($0)" } ?? "rien")") }
+        if mid.eta.map({ abs($0 - 1) > 0.01 }) ?? true { failures.append("extrait : temps restant \(mid.eta.map { "\($0)" } ?? "inconnu")") }
+        if (cut.apply(.cutTime(10)).0.progress ?? 0) < mid.progress ?? 1 { failures.append("extrait : la progression recule") }
+        let over = cut.apply(.progress(done: 702_445, total: 702_445, speed: 3e5, eta: nil)).0
+        if over.progress != 0.98 || over.phase != "Finalisation" { failures.append("extrait : fin de la découpe (\(over.phase))") }
+
+        // What the sidebar and the menu bar show: the running download, else the next to start.
+        var queue = YouTubeDemo.jobs()
+        if let a = YouTubeActivity.from(queue) {
+            if a.percent != "62 %" || !a.running || !a.detail.contains("encore 9 s") { failures.append("activité : « \(a.percent) », « \(a.detail) »") }
+        } else {
+            failures.append("activité : le téléchargement en cours n'est pas vu")
+        }
+        var next = queue[0]
+        next.state = .waiting
+        var later = YouTubeJob(videoID: next.videoID, title: "Plus tard", channel: "", options: next.options, clip: nil, folder: next.folder)
+        later.state = .waiting
+        // Newest first: the oldest waiting one starts next.
+        queue = [later, next] + queue.dropFirst()
+        if let a = YouTubeActivity.from(queue), a.title != next.title || a.running || a.queued != 1 || a.percent != "…" {
+            failures.append("activité : la file d'attente (« \(a.title) », \(a.queued) en attente)")
+        }
+        if YouTubeActivity.from(Array(YouTubeDemo.jobs().dropFirst())) != nil { failures.append("activité : une liste terminée paraît en cours") }
+        var almost = YouTubeActivity.from(YouTubeDemo.jobs())
+        almost?.progress = 0.996
+        if almost?.percent != "99 %" { failures.append("activité : 99,6 % affiché \(almost?.percent ?? "")") }
 
         // The streams yt-dlp will pick, and the size announced.
         if YouTubeEngine.videoStream(demo, quality: .p1080)?.formatID != "137" { failures.append("flux : 1080p devrait être le H.264") }

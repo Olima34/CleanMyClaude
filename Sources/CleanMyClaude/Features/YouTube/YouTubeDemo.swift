@@ -28,9 +28,9 @@ enum YouTubeDemo {
         var running = YouTubeJob(videoID: videoID, title: info.title, channel: "Atelier Lumen",
                                  options: YouTubeOptions(format: .mp4, quality: .p1080), clip: YouTubeClip(start: 65, end: 150), folder: downloads)
         running.state = .running
-        running.phase = "Image"
+        running.phase = "Découpe de l'extrait"
         running.progress = 0.62
-        running.speed = 8_400_000
+        // An extract: ffmpeg says how far the cut is and how long is left, not a speed in bytes.
         running.eta = 9
         running.started = Date().addingTimeInterval(-14)
         var done = YouTubeJob(videoID: "Qr7Vn2KdW0s", title: "Émail à la cendre : trois recettes simples", channel: "Atelier Lumen",

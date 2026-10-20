@@ -38,7 +38,14 @@ final class YouTubeModel: AppModule {
 
     var activeJobs: [YouTubeJob] { jobs.filter { $0.state.isActive } }
     var finishedJobs: [YouTubeJob] { jobs.filter { !$0.state.isActive } }
-    var sidebarBadge: String? { activeJobs.isEmpty ? nil : "\(activeJobs.count)" }
+    /// The download under way, for the sidebar and the menu bar.
+    var activity: YouTubeActivity? { YouTubeActivity.from(jobs) }
+
+    /// How far the download is ("62 %"), or how many wait.
+    var sidebarBadge: String? {
+        guard let a = activity else { return nil }
+        return a.running && a.progress != nil ? a.percent : "\(activeJobs.count)"
+    }
 
     // MARK: Module
 
@@ -243,7 +250,7 @@ final class YouTubeModel: AppModule {
                              options: options, clip: effectiveClip(link.id), folder: destination.url)
         jobs.insert(job, at: 0)
         if source == .launcher {
-            HUD.show("Téléchargement lancé · \(job.summary)", symbol: "arrow.down.circle.fill")
+            HUD.show("Téléchargement lancé · \(job.summary). Sa progression s'affiche dans la barre des menus.", symbol: "arrow.down.circle.fill")
         }
         pump()
     }
@@ -277,7 +284,7 @@ final class YouTubeModel: AppModule {
         let cancel = CancelFlag()
         cancels[jobID] = cancel
         let args = YouTubeEngine.arguments(videoID: job.videoID, options: job.options, clip: job.clip, ffmpeg: ffmpeg, workFolder: work.path)
-        let tracker = YouTubeTracker(format: job.options.format, clipped: job.clip != nil, info: infos[job.videoID])
+        let tracker = YouTubeTracker(format: job.options.format, clip: job.clip, info: infos[job.videoID])
         let throttle = YouTubeThrottle()
         ActionLog.write("YOUTUBE yt-dlp \(job.videoID) \(job.summary)")
         Task {
@@ -524,6 +531,9 @@ final class YouTubeTracker: @unchecked Sendable {
     private let lock = NSLock()
     private let format: YouTubeFormat
     private let clipped: Bool
+    /// The extract's length: ffmpeg's position over it is the progress of the cut.
+    private let clipLength: Double
+    private var cutSpeed: Double?
     private let info: YouTubeInfo?
     private var weights: [Double] = [1]
     private var track = -1
@@ -532,9 +542,10 @@ final class YouTubeTracker: @unchecked Sendable {
     private var _file: String?
     private var _error: String?
 
-    init(format: YouTubeFormat, clipped: Bool, info: YouTubeInfo?) {
+    init(format: YouTubeFormat, clip: YouTubeClip?, info: YouTubeInfo?) {
         self.format = format
-        self.clipped = clipped
+        clipped = clip != nil
+        clipLength = clip?.length ?? 0
         self.info = info
     }
 
@@ -557,7 +568,7 @@ final class YouTubeTracker: @unchecked Sendable {
                 weights = ids.count > 1 ? [0.88] + Array(repeating: 0.12 / Double(ids.count - 1), count: ids.count - 1) : [1]
             }
             state.phase = clipped ? "Découpe de l'extrait" : phaseName(0)
-            state.progress = clipped ? nil : 0
+            state.progress = 0
         case .progress(let done, let total, let speed, let eta):
             // A track starts again from zero (the estimate of a fragmented track changes as it goes: not a new track).
             if track < 0 || done < lastDone {
@@ -566,21 +577,34 @@ final class YouTubeTracker: @unchecked Sendable {
             lastDone = done
             let fraction = total.map { $0 > 0 ? min(1, Double(done) / Double($0)) : 0 }
             if clipped {
+                // The cut's position says how far it is (`cutTime`); this line only comes once it is over.
                 state.phase = "Découpe de l'extrait"
-                state.progress = nil
             } else if let fraction {
                 let before = weights.prefix(max(0, track)).reduce(0, +)
                 state.progress = min(0.97, (before + weights[max(0, track)] * fraction) * 0.97)
                 state.phase = phaseName(track)
             }
-            state.speed = speed
-            state.eta = eta
-            if fraction == 1, track >= weights.count - 1 {
+            if !clipped {
+                state.speed = speed
+                state.eta = eta
+            }
+            // An extract comes in one piece, image and sound together: its only line means the cut is over.
+            if fraction == 1, clipped || track >= weights.count - 1 {
                 state.phase = finishingName
-                state.progress = clipped ? nil : 0.98
+                state.progress = 0.98
                 state.speed = nil
                 state.eta = nil
             }
+        case .cutTime(let seconds):
+            guard clipped, clipLength > 0 else { break }
+            let done = min(clipLength, seconds)
+            state.phase = "Découpe de l'extrait"
+            // Never backwards (ffmpeg's last lines may repeat an earlier time).
+            state.progress = max(state.progress ?? 0, min(0.97, done / clipLength * 0.97))
+            state.speed = nil
+            state.eta = cutSpeed.map { (clipLength - done) / $0 }
+        case .cutSpeed(let x):
+            cutSpeed = x
         case .file(let path):
             _file = path
             state.phase = "Rangement"
@@ -600,7 +624,7 @@ final class YouTubeTracker: @unchecked Sendable {
         switch format {
         case .mp3: return "Conversion en MP3"
         case .m4a: return "Finalisation"
-        case .mp4: return weights.count > 1 ? "Assemblage de l'image et du son" : "Finalisation"
+        case .mp4: return weights.count > 1 && !clipped ? "Assemblage de l'image et du son" : "Finalisation"
         }
     }
 }

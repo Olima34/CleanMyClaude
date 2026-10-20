@@ -157,7 +157,10 @@ enum YouTubeEngine {
             args += ["-f", "ba[ext=m4a]/ba/b", "-x", "--audio-format", "m4a", "--embed-thumbnail"]
         }
         if let clip {
-            args += ["--download-sections", clip.section, "--force-keyframes-at-cuts"]
+            // An extract is cut by ffmpeg, which yt-dlp keeps quiet: asked for its position, it tells where it is
+            // twice a second (out_time_us=…, speed=…x), the only way to show how far the cut has gone.
+            args += ["--download-sections", clip.section, "--force-keyframes-at-cuts",
+                     "--downloader-args", "ffmpeg_o:-progress pipe:1 -nostats"]
         }
         return args + ["https://www.youtube.com/watch?v=\(videoID)"]
     }
@@ -166,6 +169,9 @@ enum YouTubeEngine {
         /// The format IDs yt-dlp chose ("137+140": a video track then a sound track).
         case selected([String])
         case progress(done: Int64, total: Int64?, speed: Double?, eta: Double?)
+        /// ffmpeg cutting an extract: how many seconds of it are written, and how many times faster than real time.
+        case cutTime(Double)
+        case cutSpeed(Double)
         case file(String)
         case error(String)
     }
@@ -182,6 +188,9 @@ enum YouTubeEngine {
             return .selected(l.dropFirst(selectionTag.count + 1).split(separator: "+").map(String.init))
         }
         if l.hasPrefix(fileTag + " ") { return .file(String(l.dropFirst(fileTag.count + 1))) }
+        // ffmpeg's -progress lines ("N/A" before the first frame).
+        if l.hasPrefix("out_time_us="), let us = Double(l.dropFirst("out_time_us=".count)), us >= 0 { return .cutTime(us / 1_000_000) }
+        if l.hasPrefix("speed="), l.hasSuffix("x"), let x = Double(l.dropFirst("speed=".count).dropLast()), x > 0 { return .cutSpeed(x) }
         if l.hasPrefix("ERROR:") { return .error(l) }
         return nil
     }

@@ -301,8 +301,9 @@ struct ToolsOverview: View {
             tile(page, tint: Theme.accent, value: app.fillSign.document != nil ? "En cours" : "Un PDF",
                  detail: "Remplis un formulaire, écris où tu veux, signe et paraphe")
         case .youtube:
-            tile(page, tint: Theme.bad, value: app.youtube.activeJobs.isEmpty ? "Un lien" : "\(app.youtube.activeJobs.count) en cours",
-                 detail: "La vidéo en MP4 ou le son en MP3, en entier ou un extrait")
+            let activity = app.youtube.activity
+            tile(page, tint: Theme.bad, value: activity.map { $0.running ? $0.percent : "En attente" } ?? "Un lien",
+                 detail: activity.map { "\($0.detail) · \($0.title)" } ?? "La vidéo en MP4 ou le son en MP3, en entier ou un extrait")
         case .translator:
             tile(page, tint: Theme.palette[1], value: app.translator.engine == .apple ? "Hors ligne" : "Claude",
                  detail: "Sur ton Mac ou avec Claude, aussi depuis le lanceur (« trad »)")
