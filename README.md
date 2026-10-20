@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/dashboard.png" alt="Le tableau de bord de Clean My Claude : santé du Mac, stockage, mémoire, analyse intelligente, conseils et tous les outils" width="860">
+  <img src="docs/screenshots/dashboard.png" alt="Le tableau de bord de Clean My Claude : santé du Mac, stockage, mémoire, analyse intelligente, conseils et les outils de ton profil" width="860">
 </p>
 
 ## Installer en une ligne

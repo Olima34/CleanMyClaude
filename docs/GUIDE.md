@@ -3,7 +3,7 @@
 Tout ce que fait l'app, comment elle protège tes données, et comment la compiler toi-même. Pour l'installer, deux lignes suffisent : voir le [README](../README.md).
 
 <p align="center">
-  <img src="screenshots/dashboard.png" alt="Tableau de bord : score de santé, stockage, mémoire, processeur, batterie, analyse intelligente, activité en direct, conseils et état de chaque outil" width="900">
+  <img src="screenshots/dashboard.png" alt="Tableau de bord : score de santé, stockage, mémoire, processeur, batterie, analyse intelligente, activité en direct, conseils et les outils du profil, les plus utilisés d'abord" width="900">
 </p>
 
 <table>
@@ -87,11 +87,21 @@ Tout ce que fait l'app, comment elle protège tes données, et comment la compil
 
 ## Ce que fait l'app
 
+### Une app à ta mesure
+
+Au premier lancement (puis sous le nom de l'app, dans la barre latérale), tu coches ce que tu fais avec ton Mac, même plusieurs : **L'essentiel**, **Études**, **Travail**, **Création**, **Loisirs** ou **Touche-à-tout**. L'entretien reste pour tous ; les outils de ton profil sont mis en avant, les autres se rangent dans **Autres outils**, en bas de la barre latérale. Rien ne disparaît : le lanceur trouve tout, et un clic droit garde ou range n'importe quel outil. Sans profil, tout reste affiché.
+
+L'app s'adapte aussi à ce dont tu te sers, sans rien envoyer nulle part : un outil ouvert trois jours sur un mois (ou lancé depuis le lanceur) rejoint la barre, un outil allumé (historique du presse-papiers, automatisations, raccourcis, limite de batterie) y reste, et un outil de ton profil oublié depuis 45 jours se range, jamais dans le mois qui suit ton choix. Le panneau **Ton profil** dit pour chaque outil pourquoi il est là.
+
+<p align="center">
+  <img src="screenshots/profile-panel.png" alt="Panneau Ton profil : six profils à cocher (Études coché), puis chaque outil avec la raison de sa place : Pour tous, Études, Tu t'en sers, Activé, Hors profil, Pas ouvert depuis 45 j" width="720">
+</p>
+
 ### Entretien
 
 | Section | Contenu |
 | --- | --- |
-| **Tableau de bord** | Score de santé sur 100, stockage, mémoire, processeur, batterie (santé, cycles), activité en direct, **analyse intelligente** qui passe tout en revue en une minute, conseils classés par utilité, et l'état de chaque outil |
+| **Tableau de bord** | Score de santé sur 100, stockage, mémoire, processeur, batterie (santé, cycles), activité en direct, **analyse intelligente** qui passe tout en revue en une minute, conseils classés par utilité, et **tes outils** avec leur état, les plus utilisés d'abord |
 | **Nettoyage du système** | Caches d'apps et de macOS, journaux, fichiers temporaires, Xcode (données dérivées, appareils, archives, simulateurs), caches npm / Yarn / pip / Homebrew / CocoaPods / Go / Cargo…, dépendances de **projets endormis** (`node_modules`, `.build`, `Pods`, `target`), caches de l'**app Claude** et journaux de **Claude Code**, caches des navigateurs et des apps Electron, Corbeille, pièces jointes Mail, installeurs oubliés, sauvegardes d'iPhone |
 | **Protection et confidentialité** | **Antimalware** avec les 572 signatures d'XProtect appliquées à tout ce qui est déjà sur le Mac (analyse rapide ou complète), traces de familles connues, apps modifiées après leur signature, et neutralisation (arrêt puis Corbeille) ; **bilan de 40 points** en sept familles (défenses de macOS, mises à jour, accès, partages, réseau intercepté, secrets laissés en clair, navigation) avec une note sur 100, deux niveaux d'exigence et des **corrections en un clic** ; tout ce qui **démarre seul** (agents, services, ouverture à la connexion, cron, extensions) avec les usurpateurs d'Apple et les téléchargeurs repérés ; **qui t'observe** (programmes qui lisent le clavier, extensions de navigateur, ports ouverts, autorisations) ; **protection en temps réel** (démarrage, Téléchargements, caméra, micro, DNS et proxy) ; effacement des **traces** (éléments récents, téléchargements, vignettes, Terminal, historique et cookies des navigateurs) |
 | **Optimisation** | **Boost** (les apps en arrière-plan passent sur les cœurs économes : modes Intelligent, Performance et Fraîcheur, réflexe thermique, mode Jeu de macOS), **capteurs** sans mot de passe (température du processeur et du GPU, consommation du Mac en watts, fréquences des cœurs, ventilateurs), diagnostic « ce qui ralentit ou chauffe ton Mac », **benchmark** (processeur, GPU en images par seconde, mémoire, SSD, réactivité, test du Boost, endurance thermique, historique), réglages de **fluidité** réversibles (animations, Dock, Finder, compteur FPS des jeux, fréquence des écrans), moniteur temps réel, éléments au démarrage, tâches de maintenance |
@@ -346,7 +356,7 @@ swift build
 .build/debug/CleanMyClaude --dump                 # ce que trouve chaque scanner, sans rien supprimer
 .build/debug/CleanMyClaude --dump --only cleanup  # cleanup | security | apps | processes, ou le nom d'un module
 .build/debug/CleanMyClaude --dump --storage ~/Developer --duplicates ~/Downloads
-.build/debug/CleanMyClaude --snapshot out/        # rend chaque page en PNG (--page, --tab, --light, --theme graphite, --scale 2)
+.build/debug/CleanMyClaude --snapshot out/        # rend chaque page en PNG (--page, --tab, --light, --theme graphite, --scale 2, --profile etudes,loisirs)
 .build/debug/CleanMyClaude --ask "Pourquoi mon Mac chauffe ?" --model haiku   # une question à l'assistant
 .build/debug/CleanMyClaude --translate "Merci pour ton aide" --to en --tone formal   # le traducteur, moteur Claude
 .build/debug/CleanMyClaude --dump --only launcher # construit l'index des fichiers et chronomètre quelques recherches
@@ -369,7 +379,7 @@ done
 for t in graphite phosphore sorbet minuit; do
   .build/debug/CleanMyClaude --snapshot /tmp/theme-$t --demo --page dashboard --theme $t && mv /tmp/theme-$t/dashboard.png docs/screenshots/theme-$t.png
 done
-rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-panel.png docs/screenshots/selfupdate-panel.png
+rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-*-panel.png docs/screenshots/sidebar-panel.png docs/screenshots/selfupdate-panel.png
 pngquant --quality 80-95 --force --ext .png docs/screenshots/*.png   # optionnel : divise le poids par quatre
 ```
 
