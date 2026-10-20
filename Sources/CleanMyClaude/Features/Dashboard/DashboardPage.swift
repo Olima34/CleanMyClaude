@@ -304,6 +304,9 @@ struct ToolsOverview: View {
             let activity = app.youtube.activity
             tile(page, tint: Theme.bad, value: activity.map { $0.running ? $0.percent : "En attente" } ?? "Un lien",
                  detail: activity.map { "\($0.detail) · \($0.title)" } ?? "La vidéo en MP4 ou le son en MP3, en entier ou un extrait")
+        case .cinema:
+            tile(page, tint: CinemaStyle.tint, value: app.cinema.hasKey ? "Où regarder" : "Un titre",
+                 detail: app.cinema.recents.first.map { "Dernier : \($0.title)" } ?? "Sa fiche, sa bande-annonce et les plateformes qui le proposent")
         case .translator:
             tile(page, tint: Theme.palette[1], value: app.translator.engine == .apple ? "Hors ligne" : "Claude",
                  detail: "Sur ton Mac ou avec Claude, aussi depuis le lanceur (« trad »)")

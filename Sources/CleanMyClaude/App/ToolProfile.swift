@@ -60,7 +60,7 @@ enum ToolProfileKind: String, Codable, CaseIterable, Identifiable {
         case .studies: return [.converter, .fillsign, .youtube, .translator, .clipboard, .adblock, .launcher]
         case .work: return [.converter, .fillsign, .translator, .clipboard, .launcher, .hotkeys, .windows, .network, .toolbox]
         case .creation: return [.storage, .apps, .converter, .youtube, .toolbox, .windows, .clipboard]
-        case .leisure: return [.youtube, .adblock, .darkmode, .network, .translator]
+        case .leisure: return [.youtube, .cinema, .adblock, .darkmode, .network, .translator]
         case .everything: return Set(Page.allCases)
         }
     }

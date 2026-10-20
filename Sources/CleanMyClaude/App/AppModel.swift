@@ -5,7 +5,7 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, cleanup, protection, performance, battery, updates, apps, storage
-    case converter, fillsign, youtube, translator, toolbox, clipboard, network, adblock, darkmode
+    case converter, fillsign, youtube, cinema, translator, toolbox, clipboard, network, adblock, darkmode
     case launcher, hotkeys, windows, automation
     case assistant, menubar
 
@@ -24,6 +24,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .converter: return "Convertisseur"
         case .fillsign: return "Remplir et signer"
         case .youtube: return "Vidéos YouTube"
+        case .cinema: return "Films et séries"
         case .translator: return "Traducteur"
         case .hotkeys: return "Raccourcis"
         case .toolbox: return "Boîte à outils"
@@ -52,6 +53,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .converter: return "arrow.left.arrow.right.square"
         case .fillsign: return "signature"
         case .youtube: return "play.rectangle"
+        case .cinema: return "popcorn"
         case .translator: return "character.bubble"
         case .hotkeys: return "keyboard"
         case .toolbox: return "wrench.and.screwdriver"
@@ -81,6 +83,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .converter: return "Images, vidéos, audio, PDF et documents : dépose, c'est converti."
         case .fillsign: return "Remplis un formulaire PDF, signe et paraphe en quelques clics."
         case .youtube: return "Colle un lien : la vidéo en MP4 ou le son en MP3."
+        case .cinema: return "Un film ou une série : sa fiche et où le regarder."
         case .translator: return "Traduis sur ton Mac, hors ligne, ou avec Claude."
         case .toolbox: return "Couleurs, mots de passe, Caféine et autres petits outils."
         case .clipboard: return "Retrouve tout ce que tu as copié : texte, liens et images."
@@ -100,7 +103,7 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage]),
-        ("Outils", [.converter, .fillsign, .youtube, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
+        ("Outils", [.converter, .fillsign, .youtube, .cinema, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
         ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
@@ -149,6 +152,7 @@ final class AppModel {
     let converter = ConverterModel()
     let fillSign = FillSignModel()
     let youtube = YouTubeModel()
+    let cinema = CinemaModel()
     let toolbox = ToolboxModel()
     let clipboard = ClipboardModel()
     let updates = UpdatesModel()

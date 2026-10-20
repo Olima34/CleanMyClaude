@@ -63,6 +63,7 @@ enum ModuleRegistry {
         list.append((.converter, app.converter))
         list.append((.fillsign, app.fillSign))
         list.append((.youtube, app.youtube))
+        list.append((.cinema, app.cinema))
         list.append((.translator, app.translator))
         list.append((.toolbox, app.toolbox))
         list.append((.clipboard, app.clipboard))
