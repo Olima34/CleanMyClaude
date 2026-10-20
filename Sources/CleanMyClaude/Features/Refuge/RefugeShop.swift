@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The market stall: a striped awning, a mirror where it tries on what the mouse hovers, and the goods with their price
-/// tags in blueberries. What is bought stays for good; the things of a season come back every year.
+/// The market stall: a striped awning, a mirror where it tries on what the mouse hovers (or, for its room, a window on
+/// its room decorated with it), and the goods with their price tags in blueberries. What is bought stays for good; the
+/// things of a season come back every year.
 struct RefugeStall: View {
     @Environment(AppModel.self) private var app
     /// What it tries on: an item's id, or `coat:<name>`.
@@ -11,9 +12,10 @@ struct RefugeStall: View {
     var body: some View {
         let m = app.refuge
         let s = m.state
+        let items = RefugeStyle.items
         VStack(alignment: .leading, spacing: 12) {
             RefugeSectionTitle(title: "L'étal du Refuge",
-                               subtitle: "Pelages, chapeaux et objets pour sa chambre, payés avec les myrtilles du panier. Survole pour lui faire essayer.") {
+                               subtitle: "De quoi l'habiller et décorer sa chambre, payé avec les myrtilles du panier. Survole un article pour l'essayer.") {
                 HStack(spacing: 6) {
                     RefugeBerry(size: 14)
                     Text("\(Fmt.int(s.basket)) dans le panier").font(.ui(12, .semibold)).foregroundStyle(Theme.text)
@@ -26,16 +28,25 @@ struct RefugeStall: View {
                     .frame(height: 30)
                 HStack(alignment: .top, spacing: 22) {
                     mirror(m)
-                        .frame(width: 190)
+                        .frame(width: 200)
                     VStack(alignment: .leading, spacing: 18) {
                         shelf("Pelages") {
                             ForEach([RefugeCoat.caramel, .chocolat, .roux, .grisPerle, .neige, .nuit], id: \.rawValue) { coat in coatGood(coat, m: m) }
                         }
                         shelf("À porter") {
-                            ForEach(RefugeStyle.items.filter { $0.slot != .room }) { item in good(item, m: m) }
+                            ForEach(items.filter { $0.slot == .head || $0.slot == .face }) { item in good(item, m: m) }
+                        }
+                        shelf("Murs et sols") {
+                            ForEach(items.filter { $0.slot == .wall || $0.slot == .floor }) { item in good(item, m: m) }
+                        }
+                        shelf("Fenêtres et lumières") {
+                            ForEach(items.filter { $0.slot == .window || $0.slot == .lamp }) { item in good(item, m: m) }
                         }
                         shelf("Pour sa chambre") {
-                            ForEach(RefugeStyle.items.filter { $0.slot == .room }) { item in good(item, m: m) }
+                            ForEach(items.filter { $0.slot == .room && $0.season == nil }) { item in good(item, m: m) }
+                        }
+                        shelf("Fêtes de l'année") {
+                            ForEach(items.filter { $0.slot == .room && $0.season != nil }) { item in good(item, m: m) }
                         }
                     }
                 }
@@ -56,9 +67,11 @@ struct RefugeStall: View {
 
     // MARK: The mirror
 
+    /// The chamois trying on a coat or a thing to wear; for its room, the room itself decorated with what is hovered.
     private func mirror(_ m: RefugeModel) -> some View {
         var look = m.look()
         var caption = "Survole un article pour le lui faire essayer."
+        var room: RefugeDecor?
         if let trying {
             if trying.hasPrefix("coat:"), let coat = RefugeCoat(rawValue: String(trying.dropFirst(5))) {
                 look.coat = coat
@@ -67,22 +80,29 @@ struct RefugeStall: View {
                 switch item.slot {
                 case .head: look.head = item.id
                 case .face: look.face = item.id
-                case .room: break
+                default: room = m.decor.trying(item.id)
                 }
                 caption = item.title
             }
         }
         return VStack(spacing: 10) {
-            ZStack {
-                Ellipse().fill(Theme.track)
-                Ellipse().strokeBorder(Theme.mascot.wood, lineWidth: 6)
-                if let trying, let item = RefugeStyle.item(trying), item.slot == .room {
-                    RefugeItemIcon(id: item.id, pixel: 7)
-                } else {
+            if let room {
+                Canvas { ctx, size in
+                    RefugeScene(look: look, mood: .happy, frame: 4, night: false, dust: 0, moths: 0, trophies: m.trophies, decor: room,
+                                season: RefugeSeason.of(m.clock)).draw(in: ctx, size: size)
+                }
+                .frame(width: 192, height: 72)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).strokeBorder(Theme.mascot.wood, lineWidth: 4))
+                .frame(height: 170)
+            } else {
+                ZStack {
+                    Ellipse().fill(Theme.track)
+                    Ellipse().strokeBorder(Theme.mascot.wood, lineWidth: 6)
                     RefugeAvatar(look: look, pixel: 6, animated: false)
                 }
+                .frame(width: 150, height: 170)
             }
-            .frame(width: 150, height: 170)
             Text(caption).font(.ui(11.5, trying == nil ? .regular : .semibold)).foregroundStyle(trying == nil ? Theme.text3 : Theme.text)
                 .multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
         }
@@ -117,7 +137,11 @@ struct RefugeStall: View {
         let owned = s.owned.contains(item.id)
         let worn = s.worn.contains(item.id)
         let available = RefugeStyle.available(item, on: m.clock, owned: s.owned)
-        let action = item.slot == .room ? (worn ? "Ranger" : "Installer") : (worn ? "Retirer" : "Porter")
+        let action: String = switch item.slot {
+        case .head, .face: worn ? "Retirer" : "Porter"
+        case .room: worn ? "Ranger" : "Installer"
+        default: worn ? "Retirer" : "Poser"
+        }
         return goodView(icon: AnyView(RefugeItemIcon(id: item.id, pixel: 4)), title: item.title, price: item.price, owned: owned, active: worn,
                         season: item.season, available: available, actionTitle: action, basket: s.basket) {
             if owned { m.toggleWorn(item.id) } else { buying = (item.id, item.title, item.price) }
@@ -270,6 +294,50 @@ struct RefugeItemIcon: View {
             return (["...v...", ".oOoOo.", "oOoooOo", "oOoooOo", ".oOoOo."], ["o": p("orange"), "O": p("orange-fonce"), "v": p("vert-fonce")])
         case "guirlande":
             return (["kkkkkkkkkkk", "r..j..b..v.", "r..j..b..v."], ["k": Theme.text3, "r": p("rose"), "j": p("jaune"), "b": p("bleu"), "v": p("vert")])
+        case "raye":
+            return (Array(repeating: "ccCCccCCcc", count: 7), ["c": p("creme"), "C": p("creme-ombre")])
+        case "fleuri":
+            return (["cccccccccc", "crcccccjcc", "cvcccccvcc", "ccccjccccc", "ccrcvcccrc", "ccvccccccv", "cccccccccc"],
+                    ["c": p("creme"), "r": p("rose"), "j": p("jaune"), "v": p("vert")])
+        case "rondins":
+            return (["wwwwwwwwww", "ssssssssss", "WWWWWWWWWW", "wwwwwwwwww", "ssssssssss", "WWWWWWWWWW", "wwwwwwwwww"],
+                    ["w": c.wood, "s": c.strawShade, "W": c.woodShade])
+        case "pierre", "dallage":
+            return (["MMMgMMMMgM", "MMMgMMMMgM", "gggggggggg", "MgMMMMgMMM", "MgMMMMgMMM", "gggggggggg", "MMMgMMMMgM"],
+                    ["M": c.mountain, "g": Theme.border])
+        case "moquette":
+            return (["vvvvvvvvvv", "vVvvvVvvvV", "vvvVvvvVvv", "vvvvvvvvvv", "vVvvVvvvVv", "vvvvvvvvvv"], ["v": p("violet"), "V": p("violet-clair")])
+        case "tomettes":
+            return (["tttottttot", "tttottttot", "oooooooooo", "tottttottt", "tottttottt", "oooooooooo"], ["t": p("terre"), "o": p("orange-fonce")])
+        case "hublot":
+            return ([".ffff.", "fsssff", "fsswsf", "fsmmmf", "fmmmmf", ".ffff."], ["f": c.woodShade, "s": c.sky, "w": c.snow, "m": c.mountain])
+        case "arche":
+            return ([".ffff.", "fssssf", "fsffsf", "ffffff", "fsffsf", "fmffmf", "ffffff"], ["f": c.woodShade, "s": c.sky, "m": c.mountain])
+        case "vitrail":
+            return (["kkkkkkk", "krkjkbk", "kkkkkkk", "kvkrkjk", "kkkkkkk"],
+                    ["k": p("fonte"), "r": p("rose"), "j": p("jaune"), "b": p("bleu"), "v": p("vert")])
+        case "lanterne":
+            return ([".k.", "kyk", "kyk", "kkk"], ["k": p("fonte"), "y": p("jaune")])
+        case "lampion":
+            return (["..k..", ".rrr.", "rcrcr", "rcrcr", ".rrr."], ["k": Theme.text3, "r": p("rose"), "c": p("rose-clair")])
+        case "lustre":
+            return (["...k...", "j..k..j", "c..c..c", "wwwwwww"], ["k": Theme.text3, "j": p("flamme"), "c": p("creme"), "w": c.woodShade])
+        case "cadre":
+            return (["fffff", "fFwFf", "fwewf", "fwwwf", "fffff"], ["f": p("monture"), "F": c.fur, "w": c.face, "e": c.eye])
+        case "bouquet":
+            return (["r.j.", ".v.r", ".vv.", ".bb.", ".bb."], ["r": p("rose"), "j": p("jaune"), "v": p("vert"), "b": p("bleu")])
+        case "toile":
+            return (["g.....g", ".g.g.g.", "..ggg..", "ggg.ggg", "..ggg..", ".g.g.g.", "g..k..g"], ["g": Theme.text3, "k": p("fonte")])
+        case "chauves-souris":
+            return (["b.....b", "bb.b.bb", ".bbbbb.", "..b.b.."], ["b": p("violet")])
+        case "fantome":
+            return ([".www.", "wwwww", "wewew", "wwwww", "wwwww", "w.w.w"], ["w": p("creme"), "e": c.eye])
+        case "sapin":
+            return (["....j....", "....v....", "...vVv...", "..vrvvv..", "...vvv...", "..vvvbv..", ".vvVvvvv.", "..vjvvv..", ".vvvvvrv.",
+                     "vvvVvvvvv", "....t....", "...ttt..."],
+                    ["j": p("jaune"), "v": p("vert-fonce"), "V": p("vert"), "r": p("rose"), "b": p("bleu"), "t": p("terre")])
+        case "chaussettes":
+            return (["w..w.", "r..r.", "rr.rr"], ["w": p("creme"), "r": p("rouge")])
         default:
             return (["?"], [:])
         }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Its house and its memories: the chalet whose windows light up, the notebook, the medals, where blueberries grow.
+// Its house and its memories: the chalet whose windows light up, the medals, where blueberries grow.
 
 // MARK: - The chalet
 
@@ -41,7 +41,7 @@ struct RefugeChalet: View {
         let m = app.refuge
         let lit = Set(RefugeRules.discovered(m.state).map(\.page))
         VStack(alignment: .leading, spacing: 10) {
-            RefugeSectionTitle(title: "Sa maison", subtitle: "Chaque outil est une pièce. Sa fenêtre s'allume la première fois que tu y entres (+10 myrtilles).") {
+            RefugeSectionTitle(title: "Sa maison", subtitle: "Chaque outil est une pièce. Sa fenêtre s'allume la première fois que tu y entres (+5 myrtilles).") {
                 Text("\(lit.count) sur \(RefugeRules.rooms.count)").font(.ui(12, .semibold)).foregroundStyle(Theme.text3)
             }
             ZStack(alignment: .topLeading) {
@@ -158,63 +158,6 @@ struct RefugeChalet: View {
         for (x, y) in [(480.0, 366.0), (500, 358), (514, 368), (526, 360)] {
             ctx.fill(Path(ellipseIn: CGRect(x: x, y: y, width: 5, height: 5)), with: .color(c.berry))
         }
-    }
-}
-
-// MARK: - The notebook
-
-/// Its notebook, on ruled paper with a margin: the latest pages first, in its own hand.
-struct RefugeNotebook: View {
-    @Environment(AppModel.self) private var app
-    private static let line: CGFloat = 27
-
-    var body: some View {
-        let s = app.refuge.state
-        VStack(alignment: .leading, spacing: 10) {
-            RefugeSectionTitle(title: "Son carnet", subtitle: "Ce qu'il a vécu, écrit de sa main.")
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: Theme.r(6), style: .continuous).fill(Theme.card)
-                Canvas { ctx, size in
-                    var y = Self.line + 18
-                    while y < size.height - 8 {
-                        ctx.fill(Path(CGRect(x: 14, y: y, width: size.width - 28, height: 1)), with: .color(Theme.mascot.sky.opacity(0.35)))
-                        y += Self.line
-                    }
-                    ctx.fill(Path(CGRect(x: 74, y: 0, width: 1.5, height: size.height)), with: .color(Theme.mascot.prop("rose").opacity(0.5)))
-                }
-                VStack(alignment: .leading, spacing: 0) {
-                    if s.journal.isEmpty {
-                        Text("Son carnet est encore vide.").font(.serif(15).italic()).foregroundStyle(Theme.text3)
-                    }
-                    ForEach(s.journal.suffix(11).reversed()) { e in
-                        HStack(alignment: .firstTextBaseline, spacing: 12) {
-                            Text("jour \(RefugeRules.dayNumber(s, now: e.date))")
-                                .font(.serif(12).italic()).foregroundStyle(RefugePage.tint)
-                                .frame(width: 52, alignment: .trailing)
-                            Text(e.count > 1 && e.kind != "feed" ? "\(e.text) (\(e.count) fois)" : e.text)
-                                .font(.serif(14.5).italic()).foregroundStyle(Theme.text)
-                                .lineSpacing(Self.line - 18)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            if e.amount > 0 {
-                                HStack(spacing: 3) {
-                                    RefugeBerry(size: 10)
-                                    Text(e.kind == "feed" ? "\(e.amount) mangées" : "+\(e.amount)").font(.ui(10.5, .semibold)).foregroundStyle(Theme.text2)
-                                }
-                            }
-                        }
-                        .frame(minHeight: Self.line, alignment: .bottom)
-                        .padding(.bottom, Self.line - 18)
-                    }
-                }
-                .padding(.top, 10)
-                .padding(.horizontal, 10)
-                .padding(.bottom, 14)
-            }
-            .overlay(RoundedRectangle(cornerRadius: Theme.r(6), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
-            .themedShadow(color: .black.opacity(0.12), radius: 8, y: 3)
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 

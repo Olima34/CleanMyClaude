@@ -22,13 +22,14 @@ enum RefugeScarf: Int, CaseIterable, Codable, Comparable {
         }
     }
 
-    var threshold: Int { 3500 + rawValue * 1000 }
+    var threshold: Int { 4500 + rawValue * 1200 }
     /// The precious ones sparkle.
     var sparkle: Bool { self >= .platine }
 
     /// The last scarf won, nil before the Grand Chamois.
     static func at(_ eaten: Int) -> RefugeScarf? { allCases.last { eaten >= $0.threshold } }
-    static func won(_ eaten: Int) -> [RefugeScarf] { allCases.filter { eaten >= $0.threshold } }
+    /// The scarves won at a level (all of them for the Chamois d'or).
+    static func won(level: Int) -> [RefugeScarf] { allCases.filter { level >= 12 || $0.rawValue <= level - 4 } }
 }
 
 /// Its coats: its own (caramel), the winter one, and those of the shop.
@@ -61,9 +62,10 @@ enum RefugeCoat: String, CaseIterable, Codable {
     var shopID: String { "coat:" + rawValue }
 }
 
-/// Where a thing of the shop goes.
+/// Where a thing of the shop goes: on its head or face, or in its room (one wall, one floor, one window, one lamp,
+/// and any number of things).
 enum RefugeSlot: String {
-    case head, face, room
+    case head, face, wall, floor, window, lamp, room
 }
 
 /// The seasons, and the shop's stall that follows them.
@@ -219,6 +221,26 @@ enum RefugeStyle {
         RefugeItem(id: "citrouille", title: "Citrouille", price: 150, slot: .room, season: .automne, detail: "La nuit des fantômes"),
         RefugeItem(id: "luge", title: "Luge", price: 300, slot: .room, season: .hiver, detail: "Pour les pentes enneigées"),
         RefugeItem(id: "guirlande", title: "Guirlande", price: 200, slot: .room, season: .hiver, detail: "Pour finir l'année"),
+        RefugeItem(id: "raye", title: "Papier peint rayé", price: 200, slot: .wall, detail: "Des rayures douces"),
+        RefugeItem(id: "fleuri", title: "Papier peint fleuri", price: 250, slot: .wall, detail: "Des fleurs partout"),
+        RefugeItem(id: "rondins", title: "Mur en rondins", price: 300, slot: .wall, detail: "Comme un vrai chalet"),
+        RefugeItem(id: "pierre", title: "Mur de pierre", price: 350, slot: .wall, detail: "Solide et frais"),
+        RefugeItem(id: "moquette", title: "Moquette moelleuse", price: 200, slot: .floor, detail: "Douce sous les sabots"),
+        RefugeItem(id: "tomettes", title: "Tomettes", price: 250, slot: .floor, detail: "En terre cuite"),
+        RefugeItem(id: "dallage", title: "Dallage de pierre", price: 300, slot: .floor, detail: "Pour les grands froids"),
+        RefugeItem(id: "hublot", title: "Fenêtre ronde", price: 200, slot: .window, detail: "Comme un hublot"),
+        RefugeItem(id: "arche", title: "Fenêtre en arche", price: 250, slot: .window, detail: "Le haut arrondi"),
+        RefugeItem(id: "vitrail", title: "Vitrail", price: 400, slot: .window, detail: "Des carreaux de couleur"),
+        RefugeItem(id: "lanterne", title: "Lanterne", price: 150, slot: .lamp, detail: "Une flamme dans sa cage"),
+        RefugeItem(id: "lampion", title: "Lampion", price: 180, slot: .lamp, detail: "En papier rose"),
+        RefugeItem(id: "lustre", title: "Lustre à bougies", price: 300, slot: .lamp, detail: "Trois petites flammes"),
+        RefugeItem(id: "cadre", title: "Portrait encadré", price: 120, slot: .room, detail: "Son portrait au mur"),
+        RefugeItem(id: "bouquet", title: "Bouquet de printemps", price: 120, slot: .room, season: .printemps, detail: "Le grand ménage de printemps"),
+        RefugeItem(id: "toile", title: "Toile d'araignée", price: 80, slot: .room, season: .automne, detail: "Dans un coin, pour Halloween"),
+        RefugeItem(id: "chauves-souris", title: "Chauves-souris", price: 120, slot: .room, season: .automne, detail: "Elles volent sous le plafond"),
+        RefugeItem(id: "fantome", title: "Petit fantôme", price: 180, slot: .room, season: .automne, detail: "Il flotte, gentiment"),
+        RefugeItem(id: "sapin", title: "Sapin de Noël", price: 400, slot: .room, season: .hiver, detail: "Ses boules et son étoile"),
+        RefugeItem(id: "chaussettes", title: "Chaussettes de Noël", price: 100, slot: .room, season: .hiver, detail: "Pendues à l'étagère"),
     ]
 
     static func item(_ id: String) -> RefugeItem? { items.first { $0.id == id } }
@@ -357,10 +379,12 @@ enum RefugeStyle {
         func date(_ y: Int, _ m: Int, _ d: Int) -> Date { cal.date(from: DateComponents(year: y, month: m, day: d, hour: 12)) ?? Date() }
 
         // Scarves: one per thousand from 3 500.
-        if RefugeScarf.at(3499) != nil || RefugeScarf.at(3500) != .bronze || RefugeScarf.at(10_499) != .rubis || RefugeScarf.at(99_999) != .laine {
+        if RefugeScarf.at(4499) != nil || RefugeScarf.at(4500) != .bronze || RefugeScarf.at(12_899) != .rubis || RefugeScarf.at(99_999) != .laine {
             f.append("Refuge : paliers d'écharpe mal calculés")
         }
-        if RefugeScarf.won(5600) != [.bronze, .argent, .or] { f.append("Refuge : écharpes gagnées mal listées") }
+        if RefugeScarf.won(level: 6) != [.bronze, .argent, .or] || RefugeScarf.won(level: 12).count != 8 || !RefugeScarf.won(level: 3).isEmpty {
+            f.append("Refuge : écharpes gagnées mal listées")
+        }
 
         // Seasons and meetings.
         if RefugeSeason.of(date(2026, 3, 19), calendar: cal) != .hiver || RefugeSeason.of(date(2026, 3, 20), calendar: cal) != .printemps
@@ -401,6 +425,10 @@ enum RefugeStyle {
         toggleWorn(&s, id: "poele")
         toggleWorn(&s, id: "coucou")
         if s.worn != ["paille", "poele", "coucou"] { f.append("Refuge : deux chapeaux à la fois (\(s.worn.sorted()))") }
+        s.owned.formUnion(["raye", "pierre"])
+        toggleWorn(&s, id: "raye")
+        toggleWorn(&s, id: "pierre")
+        if s.worn.contains("raye") || !s.worn.contains("pierre") { f.append("Refuge : deux murs à la fois") }
         toggleWorn(&s, id: "lunettes")
         if s.worn.contains("lunettes") { f.append("Refuge : un objet pas acheté se porte") }
         let luge = item("luge")!

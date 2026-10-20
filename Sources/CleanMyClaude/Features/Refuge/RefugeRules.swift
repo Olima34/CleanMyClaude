@@ -25,11 +25,11 @@ enum RefugeStage: Int, CaseIterable, Codable, Comparable {
     var threshold: Int {
         switch self {
         case .cabri: return 0
-        case .eterlou: return 60
-        case .chamois: return 300
-        case .beau: return 1200
-        case .grand: return 3500
-        case .gold: return 12000
+        case .eterlou: return 100
+        case .chamois: return 400
+        case .beau: return 1500
+        case .grand: return 4500
+        case .gold: return 15000
         }
     }
 
@@ -71,12 +71,10 @@ enum RefugeSource: String, CaseIterable, Codable {
     var amount: Int {
         switch self {
         case .visit: return 2
-        case .scan, .cleaning: return 5
-        case .fix, .automation: return 15
-        case .threat, .week: return 20
-        case .update: return 2
-        case .tool, .chase: return 1
-        case .discovery, .round: return 10
+        case .scan, .cleaning, .discovery: return 5
+        case .fix, .threat, .automation, .round: return 10
+        case .week: return 15
+        case .update, .tool, .chase: return 1
         case .welcome: return 0
         }
     }
@@ -86,9 +84,10 @@ enum RefugeSource: String, CaseIterable, Codable {
         switch self {
         case .visit, .scan, .round: return 1
         case .cleaning: return 2
-        case .chase: return 3
-        case .update, .tool, .threat: return 10
-        case .fix, .discovery, .automation, .week, .welcome: return nil
+        case .chase, .discovery: return 3
+        case .tool: return 5
+        case .update, .threat: return 10
+        case .fix, .automation, .week, .welcome: return nil
         }
     }
 
@@ -119,10 +118,11 @@ enum RefugeSource: String, CaseIterable, Codable {
         case .visit, .scan, .round: return "1 par jour"
         case .cleaning: return "2 par jour"
         case .chase: return "3 par jour"
-        case .update, .tool: return "10 par jour"
+        case .update: return "10 par jour"
+        case .tool: return "5 par jour"
         case .threat: return "chaque menace"
         case .fix: return "une fois par point"
-        case .discovery: return "une fois par pièce"
+        case .discovery: return "3 pièces par jour"
         case .automation: return "une fois chacune"
         case .week: return "1 par semaine"
         case .welcome: return "à sa naissance"
@@ -184,6 +184,8 @@ struct RefugeState: Codable, Equatable {
     var lastFed: Date?
     /// The level the user last saw (stage, then scarf): a higher one waits for its mue.
     var shownLevel = 0
+    /// The highest level it reached: it never goes back, even if the thresholds change.
+    var peakLevel = 0
     /// Rewards paid once (`fix:…`, `page:…`, `auto:…`, `threat:…`, `week:…`, `round:…`) and things seen once (`seen:…`).
     var claimed: Set<String> = []
     /// Today, and what paid today, per source.
@@ -228,6 +230,7 @@ struct RefugeState: Codable, Equatable {
         eaten = max(0, try c.decodeIfPresent(Int.self, forKey: .eaten) ?? (welcomed ? harvested : 0))
         lastFed = try c.decodeIfPresent(Date.self, forKey: .lastFed)
         shownLevel = try c.decodeIfPresent(Int.self, forKey: .shownLevel) ?? RefugeRules.level(eaten)
+        peakLevel = try c.decodeIfPresent(Int.self, forKey: .peakLevel) ?? max(shownLevel, RefugeRules.level(eaten))
         claimed = try c.decodeIfPresent(Set<String>.self, forKey: .claimed) ?? []
         day = try c.decodeIfPresent(String.self, forKey: .day) ?? ""
         paidToday = try c.decodeIfPresent([String: Int].self, forKey: .paidToday) ?? [:]
@@ -248,8 +251,9 @@ struct RefugeState: Codable, Equatable {
         companion = try c.decodeIfPresent(Bool.self, forKey: .companion) ?? false
     }
 
-    var stage: RefugeStage { RefugeStage.at(eaten) }
-    var level: Int { RefugeRules.level(eaten) }
+    /// Its level and stage: what it ate, or the highest it reached.
+    var level: Int { max(RefugeRules.level(eaten), peakLevel) }
+    var stage: RefugeStage { RefugeRules.stage(forLevel: level) }
     func total(_ source: RefugeSource) -> Int { totals[source.rawValue] ?? 0 }
     /// Waiting for an answer at its birth.
     var awaitingAdoption: Bool { !welcomed && !declined }
@@ -387,10 +391,11 @@ enum RefugeRules {
         guard s.welcomed, source != .welcome else { return 0 }
         roll(&s, now: now, calendar: calendar)
         if source.needsKey {
+            // Claimed even past the day's limit: a room visited lights up, it just pays nothing more today.
             guard let key, !key.isEmpty, !s.claimed.contains(key) else { return 0 }
+            s.claimed.insert(key)
         }
         if let cap = source.perDay, s.paidToday[source.rawValue, default: 0] >= cap { return 0 }
-        if source.needsKey, let key { s.claimed.insert(key) }
         s.paidToday[source.rawValue, default: 0] += 1
         s.totals[source.rawValue, default: 0] += 1
         s.harvested += source.amount
@@ -406,15 +411,36 @@ enum RefugeRules {
 
     // MARK: Feeding
 
-    /// Gives it up to `amount` blueberries from the basket: it eats them and grows. Returns how many it ate.
+    /// How many blueberries it can eat in a day: a baby's appetite, which grows with it. However many the user picks,
+    /// it takes days to grow.
+    static func appetite(_ stage: RefugeStage) -> Int {
+        switch stage {
+        case .cabri: return 20
+        case .eterlou: return 25
+        case .chamois: return 30
+        case .beau: return 35
+        case .grand, .gold: return 40
+        }
+    }
+
+    /// What it can still eat today.
+    static func appetiteLeft(_ s: RefugeState, now: Date, calendar: Calendar = .current) -> Int {
+        let ateToday = s.day == dayKey(now, calendar: calendar) ? (s.paidToday["eaten"] ?? 0) : 0
+        return max(0, appetite(s.stage) - ateToday)
+    }
+
+    /// Gives it up to `amount` blueberries from the basket, within its appetite: it eats them and grows.
+    /// Returns how many it ate.
     @discardableResult
     static func feed(_ s: inout RefugeState, _ amount: Int, now: Date, calendar: Calendar = .current) -> Int {
         guard s.welcomed else { return 0 }
-        let n = min(max(0, amount), s.basket)
-        guard n > 0 else { return 0 }
         roll(&s, now: now, calendar: calendar)
+        let n = min(max(0, amount), s.basket, appetiteLeft(s, now: now, calendar: calendar))
+        guard n > 0 else { return 0 }
         s.basket -= n
         s.eaten += n
+        s.paidToday["eaten", default: 0] += n
+        s.peakLevel = max(s.peakLevel, level(s.eaten))
         s.lastFed = now
         s.totals["fed", default: 0] += 1
         note(&s, kind: "feed", text: "Miam ! Merci pour les myrtilles, je me sens grandir.", amount: n, merge: true, now: now, calendar: calendar)
@@ -423,7 +449,7 @@ enum RefugeRules {
 
     /// A little hunger: blueberries wait in the basket and it has not eaten for most of a day. Never more than that.
     static func hungry(_ s: RefugeState, now: Date) -> Bool {
-        guard s.welcomed, s.basket >= 5 else { return false }
+        guard s.welcomed, s.basket >= 5, appetiteLeft(s, now: now) > 0 else { return false }
         return s.lastFed.map { now.timeIntervalSince($0) > 20 * 3600 } ?? true
     }
 
@@ -436,6 +462,19 @@ enum RefugeRules {
         case .grand: return 4 + (RefugeScarf.at(eaten)?.rawValue ?? 0)
         case let stage: return stage.rawValue
         }
+    }
+
+    static func stage(forLevel level: Int) -> RefugeStage {
+        switch level {
+        case ..<4: return RefugeStage(rawValue: max(0, level)) ?? .cabri
+        case 4...11: return .grand
+        default: return .gold
+        }
+    }
+
+    /// The scarf of a level, from the Grand Chamois on.
+    static func scarf(forLevel level: Int) -> RefugeScarf? {
+        level >= 12 ? .laine : RefugeScarf(rawValue: level - 4)
     }
 
     static func levelTitle(_ level: Int) -> String {
@@ -460,14 +499,16 @@ enum RefugeRules {
         return .stage(s.stage)
     }
 
+    /// The blueberries to have eaten for each level.
+    static let levelThresholds: [Int] = RefugeStage.allCases.filter { $0 != .grand && $0 != .gold }.map(\.threshold)
+        + RefugeScarf.allCases.map(\.threshold) + [RefugeStage.gold.threshold]
+
     /// Where it stands: the next level, how far along, how many blueberries are left to eat.
-    static func progress(_ eaten: Int) -> (next: String?, fraction: Double, left: Int) {
-        let thresholds = RefugeStage.allCases.filter { $0 != .grand && $0 != .gold }.map(\.threshold)
-            + RefugeScarf.allCases.map(\.threshold) + [RefugeStage.gold.threshold]
-        let level = self.level(eaten)
+    static func progress(_ s: RefugeState) -> (next: String?, fraction: Double, left: Int) {
+        let level = s.level
         guard level < 12 else { return (nil, 1, 0) }
-        let start = thresholds[level], end = thresholds[level + 1]
-        return (levelTitle(level + 1), min(1, max(0, Double(eaten - start) / Double(end - start))), end - eaten)
+        let start = levelThresholds[level], end = levelThresholds[level + 1]
+        return (levelTitle(level + 1), min(1, max(0, Double(s.eaten - start) / Double(end - start))), max(0, end - s.eaten))
     }
 
     // MARK: Notebook
@@ -642,16 +683,28 @@ enum RefugeRules {
         // Stages and levels.
         let stages = RefugeStage.allCases
         if zip(stages, stages.dropFirst()).contains(where: { $0.threshold >= $1.threshold }) { f.append("Refuge : seuils des stades dans le désordre") }
-        if RefugeStage.at(0) != .cabri || RefugeStage.at(59) != .cabri || RefugeStage.at(60) != .eterlou
-            || RefugeStage.at(11_999) != .grand || RefugeStage.at(50_000) != .gold {
+        if RefugeStage.at(0) != .cabri || RefugeStage.at(99) != .cabri || RefugeStage.at(100) != .eterlou
+            || RefugeStage.at(14_999) != .grand || RefugeStage.at(50_000) != .gold {
             f.append("Refuge : stade mal calculé aux seuils")
         }
-        if level(0) != 0 || level(1200) != 3 || level(3500) != 4 || level(4500) != 5 || level(10_500) != 11 || level(12_000) != 12 {
+        if level(0) != 0 || level(1500) != 3 || level(4500) != 4 || level(5700) != 5 || level(12_900) != 11 || level(15_000) != 12 {
             f.append("Refuge : niveaux (stades puis écharpes) mal comptés")
         }
-        if progress(30).next != "Éterlou" || abs(progress(30).fraction - 0.5) > 0.001 || progress(30).left != 30 { f.append("Refuge : progression fausse") }
-        if progress(4000).next != "Écharpe argent" || progress(4000).left != 500 { f.append("Refuge : progression vers l'écharpe fausse") }
-        if progress(12_000).next != nil { f.append("Refuge : un niveau après le Chamois d'or") }
+        if levelThresholds.count != 13 || zip(levelThresholds, levelThresholds.dropFirst()).contains(where: { $0 >= $1 }) {
+            f.append("Refuge : seuils des niveaux dans le désordre")
+        }
+        var pr = RefugeState()
+        pr.eaten = 50
+        if progress(pr).next != "Éterlou" || abs(progress(pr).fraction - 0.5) > 0.001 || progress(pr).left != 50 { f.append("Refuge : progression fausse") }
+        pr.eaten = 5000
+        if progress(pr).next != "Écharpe argent" || progress(pr).left != 700 { f.append("Refuge : progression vers l'écharpe fausse") }
+        pr.eaten = 15_000
+        if progress(pr).next != nil { f.append("Refuge : un niveau après le Chamois d'or") }
+        // A level reached stays, even if the thresholds rise.
+        var kept = RefugeState()
+        kept.eaten = 307
+        kept.peakLevel = 2
+        if kept.stage != .chamois || progress(kept).next != "Beau Chamois" || progress(kept).fraction != 0 { f.append("Refuge : un stade atteint s'est perdu") }
 
         // Nothing is paid before the adoption; adopting is a fresh start with ten blueberries.
         var s = RefugeState()
@@ -679,19 +732,32 @@ enum RefugeRules {
         _ = earn(&s, .fix, key: "fix:firewall", now: day(1), calendar: cal)
         if earn(&s, .fix, key: "fix:firewall", now: day(2), calendar: cal) != 0 { f.append("Refuge : un point de sécurité payé deux fois") }
         if earn(&s, .discovery, key: "page:converter", now: day(1), calendar: cal) != 0 { f.append("Refuge : une pièce déjà connue repayée") }
-        if earn(&s, .discovery, key: "page:toolbox", now: day(1), calendar: cal) != 10 { f.append("Refuge : découverte non payée") }
+        if earn(&s, .discovery, key: "page:toolbox", now: day(1), calendar: cal) != 5 { f.append("Refuge : découverte non payée") }
+        for p in ["page:cinema", "page:network", "page:windows"] { _ = earn(&s, .discovery, key: p, now: day(1), calendar: cal) }
+        if s.total(.discovery) != 3 || !s.claimed.contains("page:windows") { f.append("Refuge : plus de 3 découvertes payées par jour, ou une pièce pas allumée") }
         for _ in 0..<12 { _ = earn(&s, .tool, now: day(1), calendar: cal) }
-        if s.total(.tool) != 10 { f.append("Refuge : plus de 10 outils payés par jour") }
+        if s.total(.tool) != 5 { f.append("Refuge : plus de 5 outils payés par jour") }
         for _ in 0..<5 { _ = earn(&s, .chase, now: day(1), calendar: cal) }
         if s.total(.chase) != 3 { f.append("Refuge : plus de 3 moutons attrapés payés par jour") }
 
-        // Earning fills the basket; only eating makes it grow.
+        // Earning fills the basket; only eating makes it grow, within its appetite of the day.
         if s.eaten != 0 || s.stage != .cabri { f.append("Refuge : il grandit sans manger") }
-        let before = s.basket
-        if feed(&s, 5, now: day(1), calendar: cal) != 5 || s.basket != before - 5 || s.eaten != 5 { f.append("Refuge : repas mal compté") }
-        if feed(&s, 10_000, now: day(1), calendar: cal) != before - 5 || s.basket != 0 { f.append("Refuge : il mange plus que le panier") }
-        if feed(&s, 3, now: day(1), calendar: cal) != 0 { f.append("Refuge : il mange un panier vide") }
-        if s.journal.filter({ $0.kind == "feed" }).count != 1 { f.append("Refuge : les repas du jour ne tiennent pas sur une ligne") }
+        s.basket = 100
+        if feed(&s, 5, now: day(1), calendar: cal) != 5 || s.basket != 95 || s.eaten != 5 { f.append("Refuge : repas mal compté") }
+        if feed(&s, 10_000, now: day(1), calendar: cal) != appetite(.cabri) - 5 || s.basket != 100 - appetite(.cabri) { f.append("Refuge : il mange plus que son appétit") }
+        if feed(&s, 3, now: day(1, hour: 20), calendar: cal) != 0 || appetiteLeft(s, now: day(1, hour: 20), calendar: cal) != 0 { f.append("Refuge : il mange encore, l'appétit fini") }
+        if appetiteLeft(s, now: day(2), calendar: cal) != appetite(.cabri) { f.append("Refuge : l'appétit ne revient pas le lendemain") }
+        s.basket = 2
+        if feed(&s, 10, now: day(2), calendar: cal) != 2 || s.basket != 0 { f.append("Refuge : il mange plus que le panier") }
+        if feed(&s, 3, now: day(2), calendar: cal) != 0 { f.append("Refuge : il mange un panier vide") }
+        if s.journal.filter({ $0.kind == "feed" }).count != 2 { f.append("Refuge : les repas d'un jour ne tiennent pas sur une ligne") }
+        // However much is picked, growing takes days: at least 5 to the Éterlou, about 17 to the Chamois.
+        var fast = RefugeState()
+        adopt(&fast, name: "", known: [], returning: false, now: start, calendar: cal)
+        fast.basket = 100_000
+        var days = 0
+        while fast.stage < .chamois, days < 400 { days += 1; _ = feed(&fast, 1_000, now: day(days), calendar: cal) }
+        if days < 15 { f.append("Refuge : le Chamois en \(days) jours, trop vite") }
         var h = RefugeState()
         adopt(&h, name: "", known: [], returning: false, now: start, calendar: cal)
         if !hungry(h, now: start) { f.append("Refuge : jamais nourri, il devrait avoir un petit creux") }
@@ -716,7 +782,7 @@ enum RefugeRules {
         if pendingMue(m) != .stage(.chamois) { f.append("Refuge : mue attendue non signalée") }
         m.shownLevel = m.level
         if pendingMue(m) != nil { f.append("Refuge : mue déjà vue reproposée") }
-        m.eaten = 5600
+        m.eaten = 7000
         if pendingMue(m) != .scarf(.or) { f.append("Refuge : écharpe en or non signalée") }
 
         // Names.
@@ -761,7 +827,9 @@ enum RefugeRules {
 
         // An older or partial file still opens.
         if let old = try? JSONDecoder.store.decode(RefugeState.self, from: Data(#"{"name":"Pompon","harvested":120,"welcomed":true}"#.utf8)) {
-            if old.name != "Pompon" || old.eaten != 120 || old.basket != 0 || !old.seasons || old.shownLevel != level(120) { f.append("Refuge : fichier ancien mal relu") }
+            if old.name != "Pompon" || old.eaten != 120 || old.basket != 0 || !old.seasons || old.shownLevel != level(120) || old.peakLevel != level(120) {
+                f.append("Refuge : fichier ancien mal relu")
+            }
         } else {
             f.append("Refuge : un fichier partiel ne s'ouvre pas")
         }

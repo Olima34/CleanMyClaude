@@ -26,8 +26,8 @@ struct RefugeLook: Equatable {
     static func of(_ s: RefugeState, on date: Date = Date()) -> RefugeLook {
         let stage = s.stage
         let scarf: RefugeScarf? = switch stage {
-        case .grand: RefugeScarf.at(s.eaten) ?? .bronze
-        case .gold: s.scarf.flatMap(RefugeScarf.init(rawValue:)).flatMap { RefugeScarf.won(s.eaten).contains($0) ? $0 : nil } ?? .laine
+        case .grand: RefugeRules.scarf(forLevel: s.level) ?? .bronze
+        case .gold: s.scarf.flatMap(RefugeScarf.init(rawValue:)) ?? .laine
         default: nil
         }
         let worn = RefugeStyle.items.filter { s.worn.contains($0.id) && s.owned.contains($0.id) }
@@ -443,6 +443,41 @@ enum RefugeFigure {
         return (cols / 2, rows / 2)
     }
 
+    /// Its head alone, with what it wears on it (the brand mark, the launcher): down to its chin, without the scarf
+    /// or the accessories beside its body.
+    static func headPixels(_ look: RefugeLook) -> [Pixel] {
+        var head = look
+        head.head = look.head ?? (look.path == .artiste ? "beret" : look.path == .guide ? "aviateur" : nil)
+        head.path = nil
+        head.scarf = nil
+        let chin = mouth(look.stage).y
+        return pixels(head).body.filter { $0.y <= chin }
+    }
+
+    /// Draws its head centred in a square of `side` points. With `ink`, one color and the eyes and nose cut out.
+    static func drawHead(in ctx: GraphicsContext, side: CGFloat, look: RefugeLook, ink: Color? = nil, contour withContour: Bool = true) {
+        let head = headPixels(look)
+        guard let minX = head.map(\.x).min(), let maxX = head.map(\.x).max(),
+              let minY = head.map(\.y).min(), let maxY = head.map(\.y).max() else { return }
+        let cols = maxX - minX + 3, rows = maxY - minY + 2
+        let p = MascotFigure.pixel(fitting: side, cols: cols, rows: rows)
+        let origin = CGPoint(x: ((side - CGFloat(cols) * p) / 2).rounded() + p - CGFloat(minX) * p,
+                             y: ((side - CGFloat(rows) * p) / 2).rounded() + p / 2 - CGFloat(minY) * p)
+        func cell(_ x: Int, _ y: Int) -> Path { Path(CGRect(x: origin.x + CGFloat(x) * p, y: origin.y + CGFloat(y) * p, width: p, height: p)) }
+        if let ink {
+            var cut = ctx
+            cut.blendMode = .destinationOut
+            for px in head {
+                if px.part == .eye || px.part == .nose { cut.fill(cell(px.x, px.y), with: .color(.black)) } else { ctx.fill(cell(px.x, px.y), with: .color(ink)) }
+            }
+            return
+        }
+        if withContour {
+            for c in contour(head) where c.y <= maxY { ctx.fill(cell(c.x, c.y), with: .color(Theme.mascot.contour)) }
+        }
+        for px in head { ctx.fill(cell(px.x, px.y), with: .color(color(px, look: look).opacity(px.alpha))) }
+    }
+
     /// Whether a cell of its box is on it (or right beside it): a click there is a caress.
     static func touches(_ look: RefugeLook, x: Int, y: Int) -> Bool {
         pixels(look).body.contains { abs($0.x - x) <= 1 && abs($0.y - y) <= 1 }
@@ -603,11 +638,13 @@ struct RefugeAvatar: View {
     }
 }
 
-/// A speech bubble whose tail goes from its bottom left corner to `tip` (relative to that corner): its mouth.
+/// A speech bubble whose tail goes from its bottom left corner (or its bottom right one, `tailRight`) to `tip`,
+/// relative to that corner: its mouth.
 struct RefugeBubble: View {
     var text: String
     var maxWidth: CGFloat = 250
     var tip = CGPoint(x: -6, y: 12)
+    var tailRight = false
 
     var body: some View {
         // The text wraps within `maxWidth` and the bubble hugs it; the frame around is only room, never drawn.
@@ -617,24 +654,28 @@ struct RefugeBubble: View {
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(RefugeBubbleShape(tip: tip).fill(Theme.card))
-            .overlay(RefugeBubbleShape(tip: tip).stroke(Theme.borderStrong, lineWidth: max(1, Theme.line)))
+            .background(RefugeBubbleShape(tip: tip, right: tailRight).fill(Theme.card))
+            .overlay(RefugeBubbleShape(tip: tip, right: tailRight).stroke(Theme.borderStrong, lineWidth: max(1, Theme.line)))
             .themedShadow(color: .black.opacity(0.15), radius: 5, y: 2)
-            .frame(width: maxWidth + 24, alignment: .bottomLeading)
+            .frame(width: maxWidth + 24, alignment: tailRight ? .bottomTrailing : .bottomLeading)
     }
 }
 
 /// A rounded box with a tail from its bottom edge to `tip`.
 struct RefugeBubbleShape: Shape {
     var tip = CGPoint(x: -6, y: 12)
+    /// The tail leaves from the bottom right corner.
+    var right = false
 
     func path(in rect: CGRect) -> Path {
         let r = min(Theme.r(12), rect.height / 2)
         let box = Path(roundedRect: rect, cornerRadius: r, style: .continuous)
+        let corner = right ? rect.maxX : rect.minX
+        let side: CGFloat = right ? -1 : 1
         var tail = Path()
-        tail.move(to: CGPoint(x: rect.minX + 12, y: rect.maxY - 1))
-        tail.addLine(to: CGPoint(x: rect.minX + tip.x, y: rect.maxY + tip.y))
-        tail.addLine(to: CGPoint(x: rect.minX + 26, y: rect.maxY - 1))
+        tail.move(to: CGPoint(x: corner + side * 12, y: rect.maxY - 1))
+        tail.addLine(to: CGPoint(x: corner + tip.x, y: rect.maxY + tip.y))
+        tail.addLine(to: CGPoint(x: corner + side * 26, y: rect.maxY - 1))
         tail.closeSubpath()
         return box.union(tail)
     }

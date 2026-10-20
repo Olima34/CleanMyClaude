@@ -17,7 +17,7 @@ struct RefugeRoundTrail: View {
         VStack(alignment: .leading, spacing: 10) {
             RefugeSectionTitle(title: "Sa tournée du jour",
                                subtitle: "Trois petites missions tirées de ton Mac. Toutes faites : +10 myrtilles et une petite danse.") {
-                if finished { Tag(text: "Finie !", symbol: "checkmark", tint: Theme.good, filled: true) }
+                if finished { Tag(text: "Finie : +10 dans ton panier", symbol: "checkmark", tint: Theme.good, filled: true) }
                 else if !tasks.isEmpty { Text("\(done) sur \(tasks.count)").font(.ui(12, .semibold)).foregroundStyle(Theme.text3) }
             }
             if tasks.isEmpty {
@@ -27,7 +27,7 @@ struct RefugeRoundTrail: View {
                 GeometryReader { geo in
                     let w = geo.size.width
                     ZStack(alignment: .topLeading) {
-                        Canvas { ctx, size in drawTrail(ctx, size: size, done: done) }
+                        Canvas { ctx, size in drawTrail(ctx, size: size, done: done, finished: finished) }
                         // The flags.
                         ForEach(Array(tasks.enumerated()), id: \.offset) { i, t in
                             let x = w * Self.fractions[i]
@@ -42,7 +42,7 @@ struct RefugeRoundTrail: View {
                         // The basket at the end.
                         VStack(spacing: 2) {
                             RefugeBasketIcon(count: finished ? 60 : 12, pixel: 3)
-                            Text("+10").font(.ui(12, .bold)).foregroundStyle(RefugePage.tint)
+                            Text(finished ? "+10 reçues" : "+10").font(.ui(12, .bold)).foregroundStyle(finished ? Theme.good : RefugePage.tint)
                         }
                         .position(x: w - 40, y: Self.trailY(1) - 6)
                         // The chamois, on its way to the next flag (or dancing by the basket).
@@ -60,12 +60,12 @@ struct RefugeRoundTrail: View {
     /// The trail's height at a point along it (0…1), in points.
     private static func trailY(_ f: CGFloat) -> CGFloat { 52 + 9 * sin(f * .pi * 3) }
 
-    private func drawTrail(_ ctx: GraphicsContext, size: CGSize, done: Int) {
+    private func drawTrail(_ ctx: GraphicsContext, size: CGSize, done: Int, finished: Bool) {
         var x: CGFloat = 8
         let end = size.width - 60
         while x < end {
             let f = x / size.width
-            let reached = f <= (done == 0 ? 0 : Self.fractions[done - 1])
+            let reached = finished || f <= (done == 0 ? 0 : Self.fractions[done - 1])
             ctx.fill(Path(roundedRect: CGRect(x: x, y: Self.trailY(f) + 2, width: 7, height: 4), cornerRadius: 2),
                      with: .color(reached ? RefugePage.tint.opacity(0.8) : Theme.borderStrong))
             x += 13
@@ -136,7 +136,7 @@ struct RefugeGrowthWall: View {
     }
 
     private func column(_ stage: RefugeStage, s: RefugeState, m: RefugeModel) -> some View {
-        let reached = s.eaten >= stage.threshold
+        let reached = s.stage >= stage
         let current = s.stage == stage
         let next = s.stage.next == stage
         var look = m.look()
@@ -174,7 +174,7 @@ struct RefugeGrowthWall: View {
             VStack(spacing: 2) {
                 Text(stage.title).font(.ui(12, current ? .bold : .medium)).foregroundStyle(c.face.opacity(reached ? 1 : 0.6))
                 if next {
-                    Text("encore \(Fmt.int(stage.threshold - s.eaten))").font(.ui(10.5, .semibold)).foregroundStyle(c.star)
+                    Text("encore \(Fmt.int(max(0, stage.threshold - s.eaten)))").font(.ui(10.5, .semibold)).foregroundStyle(c.star)
                 } else {
                     Text(stage.threshold == 0 ? "le premier jour" : "\(Fmt.int(stage.threshold)) mangées").font(.ui(10.5)).foregroundStyle(c.face.opacity(0.6))
                 }
@@ -206,12 +206,12 @@ private struct RefugeScarfLine: View {
     var body: some View {
         let m = app.refuge
         let s = m.state
-        let won = RefugeScarf.won(s.eaten)
+        let won = s.stage >= .grand ? RefugeScarf.won(level: s.level) : []
         let worn = m.look().scarf
         Card {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Ses écharpes").font(.serif(17)).foregroundStyle(Theme.text)
-                Text(s.stage == .gold ? "Chamois d'or : choisis celle qu'il porte." : "Une nouvelle matière tous les 1 000 myrtilles, dès le Grand Chamois.")
+                Text(s.stage == .gold ? "Chamois d'or : choisis celle qu'il porte." : "Une nouvelle matière tous les 1 200 myrtilles mangées, dès le Grand Chamois.")
                     .font(.ui(11.5)).foregroundStyle(Theme.text3)
             }
             GeometryReader { geo in

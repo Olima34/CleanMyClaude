@@ -40,17 +40,15 @@ struct RefugePage: View {
                 RefugeRoundTrail()
                 RefugeGrowthWall()
                 RefugeStall()
-                HStack(alignment: .top, spacing: 14) {
+                HStack(alignment: .top, spacing: 22) {
                     RefugeChalet()
-                    RefugeNotebook()
+                    VStack(alignment: .leading, spacing: 26) {
+                        RefugePolaroid()
+                        RefugeBerryGuide()
+                    }
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 RefugeMedals()
-                HStack(alignment: .top, spacing: 14) {
-                    RefugePolaroid()
-                    RefugeBerryGuide()
-                }
-                .fixedSize(horizontal: false, vertical: true)
                 RefugeFooter()
             }
         }
@@ -226,7 +224,8 @@ private struct RefugeBasketCard: View {
     var body: some View {
         let m = app.refuge
         let s = m.state
-        let p = RefugeRules.progress(s.eaten)
+        let p = RefugeRules.progress(s)
+        let left = RefugeRules.appetiteLeft(s, now: Date())
         Card {
             HStack(alignment: .center, spacing: 14) {
                 Button { m.feed(1) } label: {
@@ -234,7 +233,7 @@ private struct RefugeBasketCard: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(s.basket == 0)
-                .help(s.basket == 0 ? "Le panier est vide : prends soin du Mac pour en cueillir" : "Lui donner une myrtille")
+                .help(s.basket == 0 ? "Le panier est vide : prends soin du Mac pour en cueillir" : (left == 0 ? "Il a bien mangé pour aujourd'hui" : "Lui donner une myrtille"))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Le panier").font(.ui(12)).foregroundStyle(Theme.text2)
                     Text(Fmt.int(s.basket)).font(.serif(32)).foregroundStyle(Theme.text).contentTransition(.numericText())
@@ -243,13 +242,15 @@ private struct RefugeBasketCard: View {
                 }
             }
             HStack(spacing: 8) {
-                Button("Lui en donner 10") { m.feed(10) }
+                Button("Lui en donner \(max(1, min(10, left, s.basket)))") { m.feed(10) }
                     .buttonStyle(SoftButtonStyle(prominent: true, small: true))
-                    .disabled(s.basket == 0)
-                Button("Tout le panier") { m.feed(s.basket) }
+                    .disabled(s.basket == 0 || left == 0)
+                Button("Tout ce qu'il peut") { m.feed(s.basket) }
                     .buttonStyle(SoftButtonStyle(small: true))
-                    .disabled(s.basket == 0)
+                    .disabled(s.basket == 0 || left == 0)
             }
+            Text(left == 0 ? "Il a bien mangé pour aujourd'hui : il aura de nouveau faim demain." : "Il peut encore en manger \(left) aujourd'hui.")
+                .font(.ui(11)).foregroundStyle(left == 0 ? Theme.good : Theme.text3)
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text("\(Fmt.int(s.eaten)) mangées").font(.ui(12, .semibold)).foregroundStyle(Theme.text)
@@ -360,7 +361,7 @@ private struct RefugeFooter: View {
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Il ne lui arrive jamais rien").font(.serif(17)).foregroundStyle(Theme.text)
-                    Text("Il ne tombe pas malade et ne perd rien de ce qu'il a gagné : si tu t'absentes, il fait la sieste et t'attend. Ses myrtilles, son carnet et ses insignes restent sur ce Mac, nulle part ailleurs. Les myrtilles ne s'achètent jamais.")
+                    Text("Il ne tombe pas malade et ne perd rien de ce qu'il a gagné : si tu t'absentes, il fait la sieste et t'attend. Ses myrtilles, ses affaires et ses médailles restent sur ce Mac, nulle part ailleurs. Les myrtilles ne s'achètent jamais.")
                         .font(.ui(12)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                     if AppEdition.isLab {
                         Button("Revoir la naissance (Labo)") { m.replayBirth() }
@@ -371,7 +372,8 @@ private struct RefugeFooter: View {
                 }
                 Spacer(minLength: 10)
                 VStack(alignment: .leading, spacing: 10) {
-                    toggle("Compagnon de bureau", "Il se promène au bord de l'écran", isOn: m.state.companion) { m.setCompanion($0) }
+                    toggle("Compagnon de bureau", "Il se promène sur ton écran ; trois tapes sur lui pour qu'il parte, la barre des menus pour le rappeler",
+                           isOn: m.state.companion) { m.setCompanion($0) }
                     toggle("Pelage des saisons", "Fauve l'été, brun sombre l'hiver", isOn: m.state.seasons) { m.setSeasons($0) }
                     toggle("Mode sobre", "Ni mue ni message : l'app sans le jeu", isOn: m.state.sober) { m.setSober($0) }
                 }

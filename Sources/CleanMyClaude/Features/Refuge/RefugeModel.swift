@@ -48,7 +48,7 @@ final class RefugeModel: AppModule {
         if s.welcomed, state.welcomed {
             if s.stage > state.stage {
                 RefugeRules.note(&s, kind: "mue", text: "J'ai mué : me voilà \(s.stage.title) ! \(s.stage.line)", now: now)
-            } else if s.level > state.level, let scarf = RefugeScarf.at(s.eaten) {
+            } else if s.level > state.level, let scarf = RefugeRules.scarf(forLevel: s.level) {
                 RefugeRules.note(&s, kind: "mue", text: "Nouvelle écharpe : \(scarf.title.lowercased()) ! Elle me va bien, non ?", now: now)
             }
         }
@@ -101,9 +101,12 @@ final class RefugeModel: AppModule {
 
     func look(now: Date = Date()) -> RefugeLook { RefugeLook.of(state, on: previewDate ?? now) }
     func events(now: Date = Date()) -> [RefugeEvent] { RefugeStyle.events(on: previewDate ?? now, born: state.born) }
-    /// The things of the shop put in its room.
-    var roomObjects: Set<String> {
-        Set(RefugeStyle.items.filter { $0.slot == .room && state.worn.contains($0.id) && state.owned.contains($0.id) }.map(\.id))
+    /// How its room is decorated with what was bought at the shop.
+    var decor: RefugeDecor {
+        let used = RefugeStyle.items.filter { state.worn.contains($0.id) && state.owned.contains($0.id) }
+        func one(_ slot: RefugeSlot) -> String? { used.first { $0.slot == slot }?.id }
+        return RefugeDecor(wall: one(.wall), floor: one(.floor), window: one(.window), lamp: one(.lamp),
+                           objects: Set(used.filter { $0.slot == .room }.map(\.id)))
     }
 
     /// What the moods read from the Mac now.
@@ -266,7 +269,12 @@ final class RefugeModel: AppModule {
         let now = Date()
         var s = state
         let fed = RefugeRules.feed(&s, amount, now: now)
-        guard fed > 0 else { return 0 }
+        guard fed > 0 else {
+            if state.basket > 0, RefugeRules.appetiteLeft(state, now: now) == 0 {
+                reaction = "J'ai bien mangé pour aujourd'hui ! Garde les autres pour demain."
+            }
+            return 0
+        }
         feedingUntil = now.addingTimeInterval(min(4, 1.2 + Double(fed) * 0.1))
         reaction = fed >= 20 ? "Miam ! Quel festin, merci !" : "Miam ! Merci, je me sens grandir."
         update(s, now: now)
@@ -310,7 +318,7 @@ final class RefugeModel: AppModule {
 
     /// The Chamois d'or picks its scarf among those it won.
     func chooseScarf(_ scarf: RefugeScarf) {
-        guard RefugeScarf.won(state.eaten).contains(scarf) else { return }
+        guard RefugeScarf.won(level: state.level).contains(scarf) else { return }
         var s = state
         s.scarf = scarf.rawValue
         update(s)
@@ -484,6 +492,13 @@ final class RefugeModel: AppModule {
 
     // MARK: Desktop companion
 
+    /// It left the screen (three quick caresses): the menu bar panel can call it back.
+    func companionLeft() {
+        var s = state
+        s.companion = false
+        update(s)
+    }
+
     func setCompanion(_ on: Bool) {
         var s = state
         s.companion = on
@@ -492,6 +507,15 @@ final class RefugeModel: AppModule {
     }
 
     // MARK: AppModule
+
+    /// In the menu bar panel: bring it back on the desktop, or put it away.
+    var quickToggles: [QuickToggle] {
+        guard state.welcomed, playful, !DemoData.isEnabled else { return [] }
+        return [QuickToggle(id: "refuge-compagnon", title: "\(state.name) sur le bureau", symbol: "figure.walk", isOn: state.companion) { [weak self] in
+            guard let self else { return }
+            self.setCompanion(!self.state.companion)
+        }]
+    }
 
     var sidebarBadge: String? {
         guard playful else { return nil }
@@ -541,8 +565,8 @@ final class RefugeModel: AppModule {
         let visited: [Page] = [.dashboard, .cleanup, .protection, .performance, .updates, .apps, .storage, .converter, .youtube,
                                .translator, .clipboard, .launcher, .windows, .automation]
         s.claimed = Set(visited.map { "page:" + $0.rawValue } + ["fix:firewall", "fix:filevault", "fix:gatekeeper", "auto:trash", "seen:voie"])
-        s.owned = ["confiture", "plante", "tableau", "bonnet", RefugeCoat.chocolat.shopID]
-        s.worn = ["confiture", "plante", "tableau"]
+        s.owned = ["confiture", "plante", "tableau", "bonnet", "lanterne", RefugeCoat.chocolat.shopID]
+        s.worn = ["confiture", "plante", "tableau", "lanterne"]
         s.path = RefugePath.fee.rawValue
         s.pathSeason = RefugeSeason.key(ago(9))
         s.round = RefugeRound(day: RefugeRules.dayKey(now), tasks: ["feed", "scan", "discover:cinema"])
@@ -591,6 +615,15 @@ final class RefugeModel: AppModule {
             var s = RefugeState()
             s.declined = true
             state = s
+        case "deco", "halloween":
+            // A decorated room: for Christmas, or for Halloween.
+            var s = state
+            let christmas = ["fleuri", "tomettes", "arche", "lustre", "sapin", "chaussettes", "guirlande", "tapis", "cadre", "poele"]
+            let halloween = ["pierre", "dallage", "vitrail", "lanterne", "citrouille", "toile", "chauves-souris", "fantome", "tapis"]
+            let set = tab == "deco" ? christmas : halloween
+            s.owned.formUnion(set)
+            s.worn = Set(set)
+            state = s
         case "faim":
             var s = state
             s.lastFed = Calendar.current.date(byAdding: .day, value: -2, to: Date())
@@ -608,6 +641,7 @@ final class RefugeModel: AppModule {
             } else if tab.hasPrefix("stade-"), let stage = RefugeStage.allCases.first(where: { "stade-" + String(describing: $0) == tab }) {
                 var s = state
                 s.eaten = stage.threshold + 40
+                s.peakLevel = RefugeRules.level(s.eaten)
                 s.shownLevel = s.level
                 if stage == .gold { s.scarf = RefugeScarf.rubis.rawValue }
                 state = s
@@ -646,7 +680,8 @@ final class RefugeModel: AppModule {
                 guard let self else { return .done }
                 let fed = self.feed(10)
                 open(ctx)
-                return fed > 0 ? .message("Miam ! \(n) a mangé \(fed) myrtilles") : .message("Le panier est vide : prends soin du Mac pour en cueillir")
+                if fed > 0 { return .message("Miam ! \(n) a mangé \(fed) myrtilles") }
+                return .message(self.state.basket == 0 ? "Le panier est vide : prends soin du Mac pour en cueillir" : "\(n) a bien mangé pour aujourd'hui")
             },
             AppCommand(id: "refuge_hug", title: "Un câlin à \(n)", subtitle: "Une caresse au chamois du Refuge",
                        keywords: ["câlin", "calin", "caresse", "chamois", n], icon: .symbol("heart", tint), group: .actions,
@@ -674,7 +709,7 @@ final class RefugeModel: AppModule {
         }
         var lines = ["Prénom : \(s.name) · né le \(s.born.map(Fmt.day) ?? "?") · jour \(day) · \(s.daysTogether) jours ensemble",
                      "Stade : \(s.stage.title) (niveau \(s.level)) · \(Fmt.int(s.eaten)) mangées · panier \(Fmt.int(s.basket)) · \(Fmt.int(s.harvested)) récoltées"]
-        let p = RefugeRules.progress(s.eaten)
+        let p = RefugeRules.progress(s)
         if let next = p.next { lines.append("Prochain niveau : \(next) dans \(Fmt.int(p.left)) myrtilles à manger") }
         let look = look()
         lines.append("Allure : pelage \(look.coat.title), écharpe \(look.scarf?.title ?? "aucune"), tête \(look.head ?? "rien"), voie \(look.path?.title ?? "aucune")")

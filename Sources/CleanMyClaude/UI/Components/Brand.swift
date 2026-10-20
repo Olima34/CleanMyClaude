@@ -170,7 +170,13 @@ struct BrandMark: View {
     var ornament = true
 
     var body: some View {
-        if !ornament || Theme.current.spec.mascot {
+        if ornament, Theme.current.spec.mascot, let look = MascotStyle.look {
+            // The user's own chamois, with what it wears.
+            Canvas { ctx, _ in RefugeFigure.drawHead(in: ctx, side: size, look: look, ink: ink) }
+                .frame(width: size, height: size)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        } else if !ornament || Theme.current.spec.mascot {
             let cols = MascotFigure.width + 2, rows = MascotFigure.headHeight + 1
             let pixel = MascotFigure.pixel(fitting: size, cols: cols, rows: rows)
             Canvas { ctx, _ in
