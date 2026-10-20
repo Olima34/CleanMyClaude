@@ -245,8 +245,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Dock click, Raycast, Spotlight or Finder on an app that is already running: bring the window back.
     /// SwiftUI does not recreate a closed `Window` scene by itself, so the menu bar label (always alive) opens it.
+    /// An open window comes to the front too: without a Dock icon (« Jamais »), macOS does not bring the app forward
+    /// by itself and the window would stay behind the others.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { NotificationCenter.default.post(name: .openMainWindow, object: nil) }
+        NotificationCenter.default.post(name: .openMainWindow, object: nil)
         return true
     }
 }
