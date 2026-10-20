@@ -85,7 +85,7 @@ final class RefugeCompanion {
     static let pixel: CGFloat = 3
     static let size = NSSize(width: 96, height: 86)
     /// Half the width of its feet: how close to the end of an edge it may walk.
-    static let reach: CGFloat = 16
+    static let reach: CGFloat = 28
     /// The chamois' square in the panel: centred, at the bottom.
     private static var figure: CGRect {
         let side = CGFloat(RefugeFigure.cols) * pixel
