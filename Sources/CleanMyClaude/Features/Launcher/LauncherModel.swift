@@ -421,15 +421,16 @@ final class LauncherModel: AppModule {
         let apps = DemoData.isEnabled ? DemoData.apps().map { LauncherApp(name: $0.name, path: $0.path, keywords: []) } : LauncherAppIndex.scan()
         var lines: [String] = []
         if !DemoData.isEnabled {
-            let index = LauncherFileIndex()
-            let built = index.buildNow()
+            let built = fileIndex.buildNow()
             lines.append("index des fichiers : \(Fmt.int(built.count)) éléments en \(String(format: "%.2f", built.seconds)) s")
             for q in ["facture", "rapport annuel", "png", "a"] {
                 let t = Date()
-                let hits = LauncherFileIndex.search(q, in: index.snapshot, limit: 5)
+                let hits = LauncherFileIndex.search(q, in: fileIndex.snapshot, limit: 5)
                 lines.append("« \(q) » : \(String(format: "%.1f", Date().timeIntervalSince(t) * 1000)) ms → \(hits.prefix(3).map { FS.pretty($0.path) }.joined(separator: " · "))")
             }
+            indexState = .ready(count: built.count)
         }
+        if let app = AppContext.model { lines += typingBench(app) }
         return lines + ["\(apps.count) apps indexées : \(apps.prefix(8).map(\.name).joined(separator: ", "))…",
                 "2,5*(3+1) = \(LauncherCalculator.evaluate("2,5*(3+1)").map(LauncherCalculator.format) ?? "?")",
                 "10 km en miles : \(LauncherUnits.convert("10 km en miles")?.to ?? "?")",
@@ -439,6 +440,34 @@ final class LauncherModel: AppModule {
                 "⌘K sur une app : " + LauncherActions.all(for: .app(path: "/Applications/Exemple.app", name: "Exemple"),
                                                          LauncherActionContext(bundleID: "fr.exemple", running: true, uninstallable: true))
                     .map { "\($0.title) \($0.shortcut?.keys.joined() ?? "")" }.joined(separator: " · ")]
+    }
+
+    /// What each keystroke costs the main thread, words typed letter by letter in both windows (`--dump --only launcher`).
+    private func typingBench(_ app: AppModel) -> [String] {
+        self.app = app
+        catalog = ModuleRegistry.commands(app) + LauncherAppIndex.commands(DemoData.isEnabled ? apps : LauncherAppIndex.scan())
+        var lines = ["catalogue : \(catalog.count) commandes"]
+        for (window, words) in [(LauncherScope.all, ["chrome", "réglages wifi", "facture edf", "2*3+4", ":coeur", "dans devis"]),
+                                (.files, ["facture", "de", "rapport annuel", "~/Documents/"])] {
+            scope = window
+            var worst = 0.0, total = 0.0, keys = 0
+            for word in words {
+                query = ""
+                for end in word.indices {
+                    let t = DispatchTime.now().uptimeNanoseconds
+                    query = String(word[...end])
+                    let ms = Double(DispatchTime.now().uptimeNanoseconds - t) / 1e6
+                    worst = max(worst, ms)
+                    total += ms
+                    keys += 1
+                }
+            }
+            lines.append("frappe (\(window == .all ? "lanceur" : "fichiers")) : \(String(format: "%.1f", total / Double(max(1, keys)))) ms en moyenne, \(String(format: "%.1f", worst)) ms au pire, \(keys) touches")
+        }
+        stopFileSearch()
+        query = ""
+        scope = .all
+        return lines
     }
 
     /// Fills the results as if the user had typed `text` (for `--snapshot`).

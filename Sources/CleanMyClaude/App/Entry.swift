@@ -259,6 +259,7 @@ enum Diagnostics {
 
         // Modules: `--only <page>` (launcher, converter, toolbox…).
         let app = AppModel(liveMonitor: false)
+        AppContext.model = app
         for (page, module) in ModuleRegistry.modules(app) where only == page.rawValue {
             print("\n== \(page.title)")
             for line in module.dump() { print("  \(line)") }

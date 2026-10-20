@@ -700,7 +700,7 @@ final class RefugeModel: AppModule {
         ]
     }
 
-    func selfTest() -> [String] { RefugeRules.selfTest() + RefugeFigure.selfTest() }
+    func selfTest() -> [String] { RefugeRules.selfTest() + RefugeFigure.selfTest() + RefugeCompanion.selfTest() }
 
     func dump() -> [String] {
         let s = state
