@@ -77,6 +77,17 @@ enum CinemaChecks {
         expect(CinemaOffers.destination(unknown, in: linked).via == .tmdb, "plateforme inconnue : page TMDB")
         let youtube = CinemaOffer(kind: .ads, providerID: 192, name: "YouTube")
         expect(CinemaOffers.destination(youtube, in: linked).adFreePlayer, "YouTube : lecteur sans pub")
+        let freeFrance = CinemaOffer(kind: .free, providerID: 236, name: "France TV")
+        let paidFrance = CinemaOffer(kind: .subscription, providerID: 2535, name: "France TV Amazon Channel")
+        let freeTF1 = CinemaOffer(kind: .ads, providerID: 1754, name: "TF1+")
+        expect(CinemaOffers.destination(freeFrance, in: linked).adFreePlayer && !CinemaOffers.destination(paidFrance, in: linked).adFreePlayer
+               && !CinemaOffers.destination(freeTF1, in: linked).adFreePlayer
+               && !CinemaOffers.destination(linked.offers[0], in: linked).adFreePlayer, "offres gratuites dans le lecteur sans pub")
+        for p in CinemaPlatform.all where p.freeInPlayer || p.adFreePlayer {
+            if let host = p.searchURL("x").flatMap(URL.init(string:))?.host, !AdBlockPlayerSite.all.contains(where: { $0.owns(host) }) {
+                f.append("lecteur : \(p.name) n'est pas un site du lecteur")
+            }
+        }
         expect(CinemaPlatform.named("disney")?.directURL("abc", kind: .tv) == "https://www.disneyplus.com/series/wp/abc"
                && CinemaPlatform.named("apple")?.directURL("umc.cmc.1", kind: .movie) == "https://tv.apple.com/fr/movie/umc.cmc.1"
                && CinemaPlatform.named("prime")?.wikidataMovie == nil, "liens Disney+, Apple TV et Prime Video")

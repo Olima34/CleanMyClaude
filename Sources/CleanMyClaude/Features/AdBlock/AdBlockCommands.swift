@@ -215,17 +215,36 @@ enum AdBlockChecks {
             ("https://youtu.be/kJQP7kiw5Fk?t=30", "https://www.youtube.com/watch?v=kJQP7kiw5Fk&t=30"),
             ("youtube.com/watch?v=abc", "https://www.youtube.com/watch?v=abc"), ("m.youtube.com/shorts/xyz", "https://www.youtube.com/shorts/xyz"),
             ("https://www.twitch.tv/zackrawrr", "https://www.twitch.tv/zackrawrr"), ("twitch.tv/videos/123", "https://www.twitch.tv/videos/123"),
-            ("https://exemple.fr/video", nil), ("https://youtu.be/", nil), ("javascript:alert(1)", nil), ("bonjour", nil)
+            ("https://exemple.fr/video", nil), ("https://youtu.be/", nil), ("javascript:alert(1)", nil), ("bonjour", nil),
+            ("http://www.france.tv/films/123-un-film.html", "https://www.france.tv/films/123-un-film.html"),
+            ("pluto.tv/fr/search/details/?query=dune", "https://pluto.tv/fr/search/details/?query=dune"),
+            ("www.m6.fr/recherche?q=x", "https://www.m6.fr/recherche?q=x"), ("https://faux-france.tv.exemple.fr/", nil)
         ]
         for (raw, want) in links where AdBlockPlayer.playable(raw)?.absoluteString != want {
             f.append("lecteur : « \(raw) » → \(AdBlockPlayer.playable(raw)?.absoluteString ?? "rien") au lieu de \(want ?? "rien")")
         }
         expect(AdBlockPlayer.belongs(URL(string: "https://rr3---sn-x.googlevideo.com/videoplayback")!)
                && AdBlockPlayer.belongs(URL(string: "https://video-weaver.fra05.hls.ttvnw.net/v1/playlist/x.m3u8")!)
-               && !AdBlockPlayer.belongs(URL(string: "https://exemple.fr/")!), "lecteur : sites gardés dans la fenêtre")
+               && AdBlockPlayer.belongs(URL(string: "https://compte.tf1.fr/connexion")!)
+               && AdBlockPlayer.belongs(URL(string: "https://login-gigya.m6.fr/")!)
+               && !AdBlockPlayer.belongs(URL(string: "https://exemple.fr/")!) && !AdBlockPlayer.belongs(URL(string: "https://notfrance.tv/")!),
+               "lecteur : sites gardés dans la fenêtre")
+        expect(AdBlockPlayerSite.site(of: URL(string: "https://www.france.tv/x.html")!)?.key == "francetv"
+               && AdBlockPlayerSite.site(of: URL(string: "https://accounts.google.com/")!) == nil
+               && AdBlockPlayerSite.site(of: URL(string: "https://www.youtube.com/watch?v=a")!)?.key == "youtube", "lecteur : site d'une page")
         let rules = (try? JSONSerialization.jsonObject(with: Data(AdBlockPlayerScripts.rules.utf8))) as? [[String: Any]] ?? []
-        expect(rules.count == AdBlockPlayerScripts.blockedPatterns.count && rules.allSatisfy { $0["trigger"] != nil && $0["action"] != nil },
-               "lecteur : règles de blocage illisibles")
+        let filters = rules.compactMap { ($0["trigger"] as? [String: Any])?["url-filter"] as? String }
+        expect(filters.count == rules.count && rules.allSatisfy { $0["action"] != nil } && Set(filters).count == filters.count
+               && filters.count >= AdBlockPlayerScripts.blockedPatterns.count + 4, "lecteur : règles de blocage illisibles")
+        let fw = filters.first { $0.contains("fwmrm") }.flatMap { try? NSRegularExpression(pattern: $0) }
+        func hits(_ s: String) -> Bool { fw?.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil }
+        expect(hits("https://mssl.fwmrm.net/ad/g/1") && !hits("https://exemple.fr/fwmrm.net")
+               && filters.contains { $0.contains("tf1admanager") } && !filters.contains { $0.contains("|") }, "lecteur : règles des plateformes")
+        var journal = AdBlockPlayerJournal()
+        journal.add(["hosts": ["mssl.fwmrm.net", "WWW.France.tv", "a/b"], "drm": ["com.apple.fps ok"], "played": true, "notes": ["adblock"]], site: "francetv")
+        journal.add(["hosts": ["mssl.fwmrm.net"]], site: "francetv")
+        expect(journal.sites["francetv"]?.hosts == ["mssl.fwmrm.net": 2, "www.france.tv": 1] && journal.sites["francetv"]?.played == true
+               && journal.sites["francetv"]?.drm == ["com.apple.fps ok"], "lecteur : journal du Labo")
         expect(!AdBlockPlayerScripts.blockedPatterns.contains { $0.contains("|") }, "lecteur : WebKit refuse « | » dans une règle")
         expect(AdBlockPlayerScripts.youtube.contains("adPlacements") && AdBlockPlayerScripts.youtube.contains("location.hostname")
                && AdBlockPlayerScripts.twitch.contains("usher") && AdBlockPlayerScripts.twitch.contains("location.hostname"), "lecteur : scripts")

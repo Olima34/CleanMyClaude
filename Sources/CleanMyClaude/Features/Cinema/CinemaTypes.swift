@@ -127,6 +127,8 @@ struct CinemaPlatform: Equatable, Hashable, Identifiable {
     var directTemplate: String?
     /// Opened in the app's ad-free player (YouTube) instead of the browser.
     var adFreePlayer = false
+    /// Its free offers (with or without ads) open in the ad-free player, which knows the site (`AdBlockPlayerSite`).
+    var freeInPlayer = false
     /// Proposed in « Tes plateformes ».
     var common = true
 
@@ -147,18 +149,19 @@ struct CinemaPlatform: Equatable, Hashable, Identifiable {
         CinemaPlatform(key: "max", name: "HBO Max", prefixes: ["hbo max", "max"], search: "https://play.hbomax.com/search?q=%@"),
         CinemaPlatform(key: "paramount", name: "Paramount+", prefixes: ["paramount"], search: nil),
         CinemaPlatform(key: "francetv", name: "France.tv", prefixes: ["france tv", "france.tv", "francetv"],
-                       search: "https://www.france.tv/recherche/?q=%@"),
+                       search: "https://www.france.tv/recherche/?q=%@", freeInPlayer: true),
         // ARTE's paid store before arte.tv, whose search only finds what is free to watch.
         CinemaPlatform(key: "artevod", name: "ARTE VOD", prefixes: ["arte vod"], search: nil, common: false),
-        CinemaPlatform(key: "arte", name: "Arte", prefixes: ["arte"], search: "https://www.arte.tv/fr/search/?q=%@"),
-        CinemaPlatform(key: "tf1", name: "TF1+", prefixes: ["tf1", "tf1+"], search: nil),
-        CinemaPlatform(key: "m6", name: "M6+", prefixes: ["m6", "m6+", "6play"], search: "https://www.m6.fr/recherche?q=%@"),
+        CinemaPlatform(key: "arte", name: "Arte", prefixes: ["arte"], search: "https://www.arte.tv/fr/search/?q=%@", freeInPlayer: true),
+        CinemaPlatform(key: "tf1", name: "TF1+", prefixes: ["tf1", "tf1+"], search: nil, freeInPlayer: true),
+        CinemaPlatform(key: "m6", name: "M6+", prefixes: ["m6", "m6+", "6play"], search: "https://www.m6.fr/recherche?q=%@", freeInPlayer: true),
         CinemaPlatform(key: "youtube", name: "YouTube", prefixes: ["youtube"], search: "https://www.youtube.com/results?search_query=%@",
                        adFreePlayer: true),
         CinemaPlatform(key: "googleplay", name: "Google Play", prefixes: ["google play"],
                        search: "https://play.google.com/store/search?q=%@&c=movies", common: false),
         CinemaPlatform(key: "rakuten", name: "Rakuten TV", prefixes: ["rakuten"], search: "https://www.rakuten.tv/fr/search?q=%@", common: false),
-        CinemaPlatform(key: "pluto", name: "Pluto TV", prefixes: ["pluto"], search: "https://pluto.tv/fr/search/details/?query=%@", common: false),
+        CinemaPlatform(key: "pluto", name: "Pluto TV", prefixes: ["pluto"], search: "https://pluto.tv/fr/search/details/?query=%@",
+                       freeInPlayer: true, common: false),
         CinemaPlatform(key: "mubi", name: "MUBI", prefixes: ["mubi"], search: "https://mubi.com/fr/search/films?query=%@"),
         CinemaPlatform(key: "adn", name: "ADN", prefixes: ["animation digital network", "anime digital network", "adn"], search: nil),
         CinemaPlatform(key: "crunchyroll", name: "Crunchyroll", prefixes: ["crunchyroll"], search: "https://www.crunchyroll.com/fr/search?q=%@",
@@ -251,10 +254,13 @@ enum CinemaOffers {
         sorted(title.offers, mine: mine).first
     }
 
+    /// TMDB's page always opens in the browser; a platform's own page or search opens in the ad-free player when it is
+    /// YouTube, or a free offer of a site the player knows (France.tv, M6+, Arte, Pluto TV).
     static func destination(_ offer: CinemaOffer, in title: CinemaTitle) -> CinemaDestination {
         let p = offer.platform
-        if let p, let url = title.direct[p.key] { return CinemaDestination(url: url, via: .direct, adFreePlayer: p.adFreePlayer) }
-        if let p, let url = p.searchURL(title.hit.title) { return CinemaDestination(url: url, via: .search, adFreePlayer: p.adFreePlayer) }
+        let player = p.map { $0.adFreePlayer || ($0.freeInPlayer && (offer.kind == .free || offer.kind == .ads)) } ?? false
+        if let p, let url = title.direct[p.key] { return CinemaDestination(url: url, via: .direct, adFreePlayer: player) }
+        if let p, let url = p.searchURL(title.hit.title) { return CinemaDestination(url: url, via: .search, adFreePlayer: player) }
         return CinemaDestination(url: title.watchPage ?? title.hit.tmdbURL + "/watch", via: .tmdb)
     }
 }

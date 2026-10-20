@@ -54,7 +54,8 @@ struct AdBlockPage: View {
     }
 }
 
-/// YouTube and Twitch without their video ads, in a window of the app; and the Safari bookmark that sends a page there.
+/// YouTube, Twitch and the free French platforms without their video ads, in a window of the app; and the Safari bookmark
+/// that sends a page there.
 private struct AdBlockPlayerPanel: View {
     @Environment(AppModel.self) private var app
     @State private var link = ""
@@ -63,7 +64,7 @@ private struct AdBlockPlayerPanel: View {
     var body: some View {
         let m = app.adblock
         let cut = (m.tally.apps["Lecteur sans pub · YouTube"] ?? 0) + (m.tally.apps["Lecteur sans pub · Twitch"] ?? 0)
-        Panel(title: "Lecteur sans pub", subtitle: "YouTube et Twitch dans une fenêtre de Chamois, sans leurs pubs vidéo",
+        Panel(title: "Lecteur sans pub", subtitle: "YouTube, Twitch et les plateformes gratuites dans une fenêtre de Chamois, sans leurs pubs vidéo",
               symbol: "play.tv", tint: AdBlockPage.tint) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
@@ -74,13 +75,21 @@ private struct AdBlockPlayerPanel: View {
                     Spacer(minLength: 0)
                     if cut > 0 { Tag(text: Fmt.plural(cut, "pub vidéo coupée", "pubs vidéo coupées"), symbol: "hand.raised.fill", tint: Theme.good, filled: true) }
                 }
+                HStack(spacing: 6) {
+                    Text("Aussi :").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    ForEach(AdBlockPlayerSite.others) { site in
+                        Button(site.name) { m.player.open(site.home) }
+                            .buttonStyle(SoftButtonStyle(small: true))
+                            .help(site.limit ?? "Sans compte ni pub")
+                    }
+                }
                 HStack(spacing: 8) {
-                    AdBlockField(placeholder: "Colle un lien YouTube ou Twitch", text: $link) { watch() }
+                    AdBlockField(placeholder: "Colle un lien YouTube, Twitch, France.tv, TF1+, M6+, Arte ou Pluto TV", text: $link) { watch() }
                     Button("Regarder") { watch() }
                         .buttonStyle(SoftButtonStyle(small: true))
                         .disabled(AdBlockPlayer.playable(link) == nil)
                 }
-                Text("YouTube : les pubs sont retirées avant que le lecteur les voie ; si YouTube retient la vidéo le temps de sa pub, la fenêtre le dit. Twitch : une coupure pub est remplacée par le même direct sans pub, ou retirée.")
+                Text("YouTube : les pubs sont retirées avant que le lecteur les voie ; si YouTube retient la vidéo le temps de sa pub, la fenêtre le dit. Twitch : une coupure pub est remplacée par le même direct sans pub, ou retirée. France.tv, TF1+ et M6+ : leurs serveurs de pub vidéo sont bloqués, après connexion à ton compte gratuit (une fois, dans la fenêtre). Arte n'a pas de pub. Pluto TV coud sa pub dans le flux lui-même : elle reste.")
                     .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 Divider().overlay(Theme.border)
                 HStack(alignment: .top, spacing: 12) {

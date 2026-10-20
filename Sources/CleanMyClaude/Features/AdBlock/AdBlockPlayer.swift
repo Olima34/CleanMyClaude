@@ -11,9 +11,9 @@ enum AdBlockPlayerNotice: Equatable {
     case twitchCut
 }
 
-/// The ad-free player: YouTube and Twitch in a window of Clean My Claude, the blocking engine built in
-/// (`AdBlockPlayerScripts`). It browses these two sites itself, after the user opened it; links elsewhere open in the
-/// default browser. Closing the window stops everything and frees the page.
+/// The ad-free player: YouTube, Twitch and the free French platforms (`AdBlockPlayerSite`) in a window of the app, the
+/// blocking engine built in (`AdBlockPlayerScripts`). It browses these sites itself, after the user opened it; links
+/// elsewhere open in the default browser. Closing the window stops everything and frees the page.
 @Observable
 @MainActor
 final class AdBlockPlayer: NSObject {
@@ -35,6 +35,9 @@ final class AdBlockPlayer: NSObject {
     @ObservationIgnored private var window: NSWindow?
     @ObservationIgnored private var watches: [NSKeyValueObservation] = []
     @ObservationIgnored private var noticeWork: DispatchWorkItem?
+    /// The Labo's notes on what each site calls (`AdBlockPlayerJournal`), nil in the published app.
+    @ObservationIgnored private lazy var journal: JSONStore<AdBlockPlayerJournal>? =
+        AppEdition.isLab ? JSONStore("player-journal", default: AdBlockPlayerJournal()) : nil
 
     // MARK: Opening
 
@@ -62,13 +65,16 @@ final class AdBlockPlayer: NSObject {
         for source in [AdBlockPlayerScripts.youtube, AdBlockPlayerScripts.twitch] {
             content.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
         }
+        if journal != nil {
+            content.addUserScript(WKUserScript(source: AdBlockPlayerJournal.script, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
+        }
         content.add(AdBlockScriptProxy(self), name: "cmc")
         config.userContentController = content
         let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1240, height: 780), configuration: config)
         web.navigationDelegate = self
         web.uiDelegate = self
         web.allowsBackForwardNavigationGestures = true
-        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "cleanmyclaude-adfree-1",
+        WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "cleanmyclaude-adfree-2",
                                                                  encodedContentRuleList: AdBlockPlayerScripts.rules) { list, _ in
             if let list { content.add(list) }
         }
@@ -129,6 +135,9 @@ final class AdBlockPlayer: NSObject {
             show(.youtubeHeld, for: 40)
         case "released", "adbreak-end":
             show(nil, for: 0)
+        case "journal":
+            guard let journal, let site = web?.url.flatMap(AdBlockPlayerSite.site(of:)) else { return }
+            journal.value.add(body, site: site.key)
         case "swap":
             show(.twitchSwapped, for: 8)
         case "strip":
@@ -152,15 +161,14 @@ final class AdBlockPlayer: NSObject {
 
     // MARK: Links
 
-    /// Hosts the player shows itself; any other page opens in the default browser.
+    /// Hosts the player shows itself (the sites, their sign-in and video servers); any other page opens in the default browser.
     static func belongs(_ url: URL) -> Bool {
         guard let host = url.host?.lowercased() else { return url.scheme == "about" || url.scheme == "blob" || url.scheme == "data" }
-        let own = ["youtube.com", "youtu.be", "youtube-nocookie.com", "ytimg.com", "googlevideo.com", "twitch.tv", "twitchcdn.net",
-                   "ttvnw.net", "jtvnw.net", "accounts.google.com", "google.com", "gstatic.com", "googleusercontent.com"]
-        return own.contains { host == $0 || host.hasSuffix("." + $0) }
+        return AdBlockPlayerSite.all.contains { $0.owns(host) }
     }
 
-    /// A YouTube or Twitch address worth opening in the player (short links made whole), or nil.
+    /// A YouTube or Twitch address worth opening in the player (short links made whole), a page of another site of the
+    /// player (France.tv, TF1+, M6+, Arte, Pluto TV), or nil.
     static func playable(_ raw: String) -> URL? {
         var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if !text.contains("://") { text = "https://" + text }
@@ -174,6 +182,11 @@ final class AdBlockPlayer: NSObject {
         }
         let youtube = host == "youtube.com" || host.hasSuffix(".youtube.com")
         let twitch = host == "twitch.tv" || host.hasSuffix(".twitch.tv")
+        if !youtube, !twitch, AdBlockPlayerSite.others.contains(where: { $0.owns(host) }) {
+            var c = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            c?.scheme = "https"
+            return c?.url
+        }
         guard youtube || twitch else { return nil }
         var c = URLComponents(url: url, resolvingAgainstBaseURL: false)
         c?.scheme = "https"
@@ -268,6 +281,13 @@ struct AdBlockPlayerView: View {
             }
             Button("YouTube") { player.open(AdBlockPlayer.youtube) }.buttonStyle(SoftButtonStyle(small: true))
             Button("Twitch") { player.open(AdBlockPlayer.twitch) }.buttonStyle(SoftButtonStyle(small: true))
+            BorderlessMenu {
+                ForEach(AdBlockPlayerSite.others) { site in
+                    Button(site.name) { player.open(site.home) }
+                }
+            } label: {
+                Text("Plus").font(.ui(11.5, .medium)).foregroundStyle(Theme.text2)
+            }
             Text(player.title.isEmpty ? "Lecteur sans pub" : player.title)
                 .font(.ui(12.5, .medium)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity)

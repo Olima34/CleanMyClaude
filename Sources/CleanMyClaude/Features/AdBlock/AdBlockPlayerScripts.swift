@@ -267,9 +267,16 @@ enum AdBlockPlayerScripts {
         "^https?://([^/]+\\.)?scorecardresearch\\.com[:/]"
     ]
 
+    /// The video ad servers of the other sites of the player (`AdBlockPlayerSite.adHosts`), as patterns.
+    static var sitePatterns: [String] {
+        AdBlockPlayerSite.adHosts.map { "^https?://([^/]+\\.)?" + NSRegularExpression.escapedPattern(for: $0) + "[:/]" }
+    }
+
     /// The rules as WebKit compiles them (a JSON list of triggers and actions).
     static var rules: String {
-        let list = blockedPatterns.map { ["trigger": ["url-filter": $0], "action": ["type": "block"]] }
+        var seen = Set<String>()
+        let patterns = (blockedPatterns + sitePatterns).filter { seen.insert($0).inserted }
+        let list = patterns.map { ["trigger": ["url-filter": $0], "action": ["type": "block"]] }
         guard let data = try? JSONSerialization.data(withJSONObject: list), let text = String(data: data, encoding: .utf8) else { return "[]" }
         return text
     }
