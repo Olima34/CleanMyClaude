@@ -25,17 +25,20 @@ struct RootView: View {
         }
         // The first-launch cards, or a new version of the app: a panel in the middle, nothing behind it answers
         // until the user does. The cards come first; a new version waits for them.
-        .disabled(app.showOnboarding || app.updates.selfUpdate.panelVisible)
-        .allowsHitTesting(!app.showOnboarding && !app.updates.selfUpdate.panelVisible)
+        .disabled(app.showOnboarding || app.updates.selfUpdate.panelVisible || app.showProfilePanel)
+        .allowsHitTesting(!app.showOnboarding && !app.updates.selfUpdate.panelVisible && !app.showProfilePanel)
         .overlay {
             if app.mainWindowOpen && app.showOnboarding {
                 OnboardingModal()
             } else if app.mainWindowOpen && app.updates.selfUpdate.panelVisible {
                 UpdatesSelfModal()
+            } else if app.mainWindowOpen && app.showProfilePanel {
+                ProfileModal()
             }
         }
         .animation(.easeOut(duration: 0.2), value: app.showOnboarding)
         .animation(.easeOut(duration: 0.2), value: app.updates.selfUpdate.panelVisible)
+        .animation(.easeOut(duration: 0.2), value: app.showProfilePanel)
         .ignoresSafeArea()
         .background(Theme.bg)
         .tint(Theme.accent)
@@ -143,6 +146,10 @@ struct BottomBar: View {
 
 struct Sidebar: View {
     @Environment(AppModel.self) private var app
+    /// « Autres outils » unfolded.
+    @AppStorage("sidebar.othersOpen") private var othersOpen = false
+    /// Snapshots unfold it without touching the saved choice.
+    var unfoldOthers = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -161,28 +168,22 @@ struct Sidebar: View {
             if DemoData.isEnabled {
                 Tag(text: "Démo · données fictives", symbol: "theatermasks", tint: Theme.brand, filled: true)
                     .padding(.horizontal, 18)
+                    .padding(.bottom, 6)
             }
+            SidebarProfileButton()
+                .padding(.horizontal, 10)
 
-            ScrollView {
+            ScrollArea(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Page.groups, id: \.0) { group in
-                        Text(group.0)
-                            .font(.ui(11.5))
-                            .foregroundStyle(Theme.text3)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 14)
-                            .padding(.bottom, 4)
-                        ForEach(group.1) { p in
-                            SidebarItem(symbol: p.symbol, title: p.title, badge: badge(for: p), selected: app.page == p) {
-                                app.page = p
-                            }
-                        }
+                    ForEach(app.profile.sections, id: \.0) { group in
+                        header(group.0)
+                        ForEach(group.1) { item($0) }
                     }
+                    others
                 }
                 .padding(.horizontal, 10)
                 .padding(.bottom, 16)
             }
-            .scrollIndicators(.never)
 
             Spacer(minLength: 0)
             if !app.fullDiskAccess {
@@ -209,6 +210,72 @@ struct Sidebar: View {
             footer
         }
         .background(Theme.sidebar)
+    }
+
+    private func header(_ title: String) -> some View {
+        Text(title)
+            .font(.ui(11.5))
+            .foregroundStyle(Theme.text3)
+            .padding(.horizontal, 12)
+            .padding(.top, 14)
+            .padding(.bottom, 4)
+    }
+
+    private func item(_ p: Page) -> some View {
+        SidebarItem(symbol: p.symbol, title: p.title, badge: badge(for: p), selected: app.page == p) {
+            app.page = p
+        }
+        .contextMenu {
+            if p != .dashboard {
+                if app.profile.isFeatured(p) {
+                    Button("Ranger dans Autres outils") { app.profile.setFeatured(p, false) }
+                } else {
+                    Button("Garder dans la barre latérale") { app.profile.setFeatured(p, true) }
+                }
+                Divider()
+            }
+            Button("Personnaliser la barre latérale…") { app.showProfilePanel = true }
+        }
+    }
+
+    /// The tools outside the profile, folded at the bottom. Folded, the page open among them still shows.
+    @ViewBuilder
+    private var others: some View {
+        let list = app.profile.others
+        if !list.isEmpty {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { othersOpen.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Autres outils")
+                        .font(.ui(11.5))
+                        .foregroundStyle(Theme.text3)
+                    Text("\(list.count)")
+                        .font(.ui(10, .medium))
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.text3)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(PillShape().fill(Theme.track))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.ui(9, .semibold))
+                        .foregroundStyle(Theme.text3)
+                        .rotationEffect(.degrees(othersOpen || unfoldOthers ? 90 : 0))
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 14)
+                .padding(.bottom, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(othersOpen ? "Replier" : "Les outils hors de ton profil, toujours à un clic (et dans la barre \(app.launcher.combo?.display ?? "⌥Espace"))")
+            if othersOpen || unfoldOthers {
+                ForEach(list) { item($0) }
+            } else if list.contains(app.page) {
+                item(app.page)
+            }
+        }
     }
 
     private func badge(for p: Page) -> String? {
@@ -240,6 +307,42 @@ struct Sidebar: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+}
+
+/// The profile under the app's name: what the sidebar is tailored for, and the way to change it.
+struct SidebarProfileButton: View {
+    @Environment(AppModel.self) private var app
+    @State private var hovering = false
+
+    var body: some View {
+        let profile = app.profile
+        Button { app.showProfilePanel = true } label: {
+            HStack(spacing: 8) {
+                if Theme.icons != .hidden {
+                    Image(systemName: profile.symbol)
+                        .font(.ui(11.5))
+                        .foregroundStyle(Theme.text2)
+                        .frame(width: 18)
+                }
+                Text(profile.summary)
+                    .font(.ui(12))
+                    .foregroundStyle(Theme.text2)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer(minLength: 4)
+                Text(profile.isChosen ? "Modifier" : "Personnaliser")
+                    .font(.ui(11, .medium))
+                    .foregroundStyle(hovering ? Theme.text : Theme.text3)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(hovering ? Theme.hover : Theme.track.opacity(0.5)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Ton profil décide des outils mis en avant ; les autres sont rangés dans « Autres outils ».")
     }
 }
 

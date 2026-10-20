@@ -6,6 +6,9 @@ struct DashboardPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             hero
+            if !app.profile.isChosen && !app.profile.settings.inviteDismissed {
+                ProfileInvite()
+            }
             vitals
             SmartScanPanel()
             HStack(alignment: .top, spacing: 14) {
@@ -248,48 +251,34 @@ struct ScanResultTile: View {
 
 // MARK: - Tools
 
-/// Every tool beyond maintenance, with its live state: one click opens it.
+/// The tools of the sidebar beyond the analyses above, most used first, with their live state: one click opens them.
 struct ToolsOverview: View {
     @Environment(AppModel.self) private var app
 
+    /// Already behind the smart scan's cards.
+    private static let scanned: Set<Page> = [.dashboard, .cleanup, .protection, .performance, .apps]
+
     var body: some View {
-        Panel(title: "Tout sous la main", subtitle: "Tes outils du quotidien, aussi depuis le lanceur \(app.launcher.combo?.display ?? "")",
-              symbol: "square.grid.3x3", tint: Theme.palette[1]) {
+        let profile = app.profile
+        let pages = profile.ranking.filter { !Self.scanned.contains($0) }
+        let others = profile.others
+        Panel(title: "Tes outils", subtitle: subtitle, symbol: "square.grid.3x3", tint: Theme.palette[1]) {
+            Button(profile.isChosen ? "Modifier mon profil" : "Personnaliser") { app.showProfilePanel = true }
+                .buttonStyle(SoftButtonStyle(small: true))
+        } content: {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12, alignment: .top), count: 4), spacing: 12) {
-                tile(.launcher, tint: Theme.brand, value: app.launcher.combo?.display ?? "—",
-                     detail: indexDetail)
-                tile(.hotkeys, tint: Theme.brand, value: "\(app.hotkeys.bindings.filter { $0.combo != nil }.count)",
-                     detail: app.hotkeys.bindings.isEmpty ? "Ouvre n'importe quelle app d'un raccourci" : "raccourcis pour tes apps, dossiers et sites")
-                tile(.converter, tint: Theme.accent, value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : "Glisser-déposer",
-                     detail: "Images, vidéos, audio, PDF, documents, OCR et QR codes")
-                tile(.translator, tint: Theme.palette[1], value: app.translator.engine == .apple ? "Hors ligne" : "Claude",
-                     detail: "Sur ton Mac ou avec Claude, aussi depuis le lanceur (« trad »)")
-                tile(.updates, tint: Theme.good,
-                     value: app.updates.hasChecked ? "\(app.updates.totalAvailable)" : "—",
-                     detail: app.updates.hasChecked
-                        ? (app.updates.totalAvailable == 0 ? "Tout est à jour" : "mises à jour disponibles (Homebrew, apps, macOS)")
-                        : "Homebrew, apps et macOS : pas encore vérifié")
-                tile(.network, tint: Theme.palette[4],
-                     value: app.network.lastSpeed.map { NetworkFormat.bits($0.download) } ?? "—",
-                     detail: app.network.lastSpeed.map { "reçus au dernier test, \(Fmt.relative($0.date))" } ?? "Débit, Wi-Fi, latence et ports ouverts")
-                tile(.clipboard, tint: Theme.palette[2],
-                     value: app.clipboard.isActive ? Fmt.int(app.clipboard.items.count) : "En pause",
-                     detail: app.clipboard.isActive ? "éléments dans l'historique, mots de passe ignorés" : "Historique désactivé tant que tu ne l'actives pas")
-                tile(.toolbox, tint: Theme.warn, value: app.toolbox.sidebarBadge ?? "Caféine",
-                     detail: "Couleurs, mots de passe, JSON, Caféine, curseur caché et compagnie")
-                if let r = app.battery.reading {
-                    tile(.battery, tint: Theme.good, value: app.battery.activeLimit.map { $0 < 100 ? "Limite \($0) %" : "\(r.percent) %" } ?? "\(r.percent) %",
-                         detail: "Limite de recharge, alerte de batterie faible et santé")
+                ForEach(pages) { tile($0) }
+                if !others.isEmpty {
+                    DashboardMoreTile(pages: others)
                 }
-                tile(.windows, tint: Theme.palette[1],
-                     value: !app.windows.enabled ? "Inactif" : (app.windows.trusted ? "Actif" : "À autoriser"),
-                     detail: "Moitiés, tiers et quarts d'écran au clavier (⌃⌥ + flèches)")
-                tile(.automation, tint: Theme.palette[3], value: "\(app.automation.activeCount)",
-                     detail: app.automation.activeCount == 0 ? "Aucune automatisation active pour l'instant" : "automatisations actives")
-                tile(.assistant, tint: Theme.brand, value: app.assistant.isReady ? "Connecté" : "À connecter",
-                     detail: "Pose une question sur ton Mac : Claude propose, tu décides")
             }
         }
+    }
+
+    private var subtitle: String {
+        let launcher = app.launcher.combo.map { " · tous aussi depuis le lanceur \($0.display)" } ?? ""
+        guard app.profile.isChosen else { return "Tes outils du quotidien, les plus utilisés d'abord\(launcher)" }
+        return "Pour ton profil \(app.profile.summary) et d'après ce dont tu te sers, les plus utilisés d'abord\(launcher)"
     }
 
     private var indexDetail: String {
@@ -297,8 +286,112 @@ struct ToolsOverview: View {
         return "Apps, fichiers, calculs, traductions et toutes les actions"
     }
 
+    @ViewBuilder
+    private func tile(_ page: Page) -> some View {
+        switch page {
+        case .launcher:
+            tile(page, tint: Theme.brand, value: app.launcher.combo?.display ?? "—", detail: indexDetail)
+        case .hotkeys:
+            tile(page, tint: Theme.brand, value: "\(app.hotkeys.bindings.filter { $0.combo != nil }.count)",
+                 detail: app.hotkeys.bindings.isEmpty ? "Ouvre n'importe quelle app d'un raccourci" : "raccourcis pour tes apps, dossiers et sites")
+        case .converter:
+            tile(page, tint: Theme.accent, value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : "Glisser-déposer",
+                 detail: "Images, vidéos, audio, PDF, documents, OCR et QR codes")
+        case .fillsign:
+            tile(page, tint: Theme.accent, value: app.fillSign.document != nil ? "En cours" : "Un PDF",
+                 detail: "Remplis un formulaire, écris où tu veux, signe et paraphe")
+        case .youtube:
+            tile(page, tint: Theme.bad, value: app.youtube.activeJobs.isEmpty ? "Un lien" : "\(app.youtube.activeJobs.count) en cours",
+                 detail: "La vidéo en MP4 ou le son en MP3, en entier ou un extrait")
+        case .translator:
+            tile(page, tint: Theme.palette[1], value: app.translator.engine == .apple ? "Hors ligne" : "Claude",
+                 detail: "Sur ton Mac ou avec Claude, aussi depuis le lanceur (« trad »)")
+        case .updates:
+            tile(page, tint: Theme.good,
+                 value: app.updates.hasChecked ? "\(app.updates.totalAvailable)" : "—",
+                 detail: app.updates.hasChecked
+                    ? (app.updates.totalAvailable == 0 ? "Tout est à jour" : "mises à jour disponibles (Homebrew, apps, macOS)")
+                    : "Homebrew, apps et macOS : pas encore vérifié")
+        case .network:
+            tile(page, tint: Theme.palette[4],
+                 value: app.network.lastSpeed.map { NetworkFormat.bits($0.download) } ?? "—",
+                 detail: app.network.lastSpeed.map { "reçus au dernier test, \(Fmt.relative($0.date))" } ?? "Débit, Wi-Fi, latence et ports ouverts")
+        case .clipboard:
+            tile(page, tint: Theme.palette[2],
+                 value: app.clipboard.isActive ? Fmt.int(app.clipboard.items.count) : "En pause",
+                 detail: app.clipboard.isActive ? "éléments dans l'historique, mots de passe ignorés" : "Historique désactivé tant que tu ne l'actives pas")
+        case .toolbox:
+            tile(page, tint: Theme.warn, value: app.toolbox.sidebarBadge ?? "Caféine",
+                 detail: "Couleurs, mots de passe, JSON, Caféine, curseur caché et compagnie")
+        case .battery:
+            if let r = app.battery.reading {
+                tile(page, tint: Theme.good, value: app.battery.activeLimit.map { $0 < 100 ? "Limite \($0) %" : "\(r.percent) %" } ?? "\(r.percent) %",
+                     detail: "Limite de recharge, alerte de batterie faible et santé")
+            }
+        case .storage:
+            tile(page, tint: Theme.palette[3], value: Fmt.bytes(app.monitor.diskFree),
+                 detail: "libres · la carte du disque, les gros fichiers et les doublons")
+        case .adblock:
+            tile(page, tint: Theme.good, value: app.adblock.state.isOn ? "Actif" : (app.adblock.installed ? "Inactif" : "À installer"),
+                 detail: "Pubs, pisteurs et sites piégés bloqués pour tout le Mac")
+        case .darkmode:
+            tile(page, tint: Theme.palette[4], value: app.darkmode.toForce.isEmpty ? "Sombre" : "\(app.darkmode.toForce.count) apps",
+                 detail: app.darkmode.toForce.isEmpty ? "Les sites et les apps restés clairs passent en sombre" : "restées claires, à passer en sombre")
+        case .windows:
+            tile(page, tint: Theme.palette[1],
+                 value: !app.windows.enabled ? "Inactif" : (app.windows.trusted ? "Actif" : "À autoriser"),
+                 detail: "Moitiés, tiers et quarts d'écran au clavier (⌃⌥ + flèches)")
+        case .automation:
+            tile(page, tint: Theme.palette[3], value: "\(app.automation.activeCount)",
+                 detail: app.automation.activeCount == 0 ? "Aucune automatisation active pour l'instant" : "automatisations actives")
+        case .assistant:
+            tile(page, tint: Theme.brand, value: app.assistant.isReady ? "Connecté" : "À connecter",
+                 detail: "Pose une question sur ton Mac : Claude propose, tu décides")
+        case .menubar:
+            tile(page, tint: Theme.palette[2], value: "En direct",
+                 detail: "Processeur, mémoire et actions express dans la barre des menus")
+        case .dashboard, .cleanup, .protection, .performance, .apps:
+            EmptyView()
+        }
+    }
+
     private func tile(_ page: Page, tint: Color, value: String, detail: String) -> some View {
         ScanResultTile(symbol: page.symbol, title: page.title, tint: tint, running: false, activity: .inspecting, value: value, detail: detail, page: page)
+    }
+}
+
+/// The last tile: the tools put away, and the way to bring them back.
+struct DashboardMoreTile: View {
+    var pages: [Page]
+    @Environment(AppModel.self) private var app
+    @State private var hovering = false
+
+    var body: some View {
+        Button { app.showProfilePanel = true } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 7) {
+                    IconBadge(symbol: "ellipsis", tint: Theme.text3)
+                    Text("Autres outils").font(.ui(12)).foregroundStyle(Theme.text2)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.ui(10, .semibold)).foregroundStyle(Theme.text3).opacity(hovering ? 1 : 0.4)
+                }
+                Text("+\(pages.count)").font(.serif(26)).foregroundStyle(Theme.text)
+                Text(detail).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(hovering ? Theme.hover.opacity(0.6) : .clear))
+            .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.borderStrong, style: StrokeStyle(lineWidth: Theme.line, dash: [4, 3])))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .help("Les outils hors de ton profil : choisis ceux à garder sous la main")
+    }
+
+    private var detail: String {
+        let names = pages.prefix(2).map(\.title).joined(separator: ", ")
+        return pages.count > 2 ? "\(names) et \(pages.count - 2) autres, rangés en bas de la barre latérale" : "\(names), rangés en bas de la barre latérale"
     }
 }
 
@@ -437,6 +530,11 @@ struct Recommendations: View {
             out.append(Advice(id: "unused", symbol: "moon.zzz", title: "\(app.apps.unused.count) apps dorment",
                               text: "Pas ouvertes depuis trois mois : \(Fmt.bytes(app.apps.unused.reduce(0) { $0 + $1.size })) au total.", tint: Theme.palette[4], page: .apps,
                               tab: { app.apps.filter = .unused }))
+        }
+        // Last: a tool of the profile not tried yet.
+        if let p = app.profile.discovery {
+            out.append(Advice(id: "discover", symbol: p.symbol, title: "À essayer : \(p.title)",
+                              text: "\(p.pitch) Il fait partie de ton profil \(app.profile.summary).", tint: Theme.brand, page: p))
         }
         return out
     }

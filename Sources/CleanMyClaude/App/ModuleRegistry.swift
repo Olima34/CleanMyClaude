@@ -48,7 +48,8 @@ extension AppModule {
     func dump() -> [String] { [] }
 }
 
-/// The single list of modules. Adding a module means adding it here, in `Page`, `AppModel`, `PageView` and `BottomBar`;
+/// The single list of modules. Adding a module means adding it here, in `Page`, `AppModel`, `PageView`, `BottomBar` and the
+/// profiles that need it (`ToolProfileKind.pages`);
 /// everything else (launcher, demo, self-tests, snapshots, menu bar) goes through this registry.
 @MainActor
 enum ModuleRegistry {

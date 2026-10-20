@@ -67,6 +67,35 @@ enum Page: String, CaseIterable, Identifiable {
         }
     }
 
+    /// One line on what the page is for (the profile panel, the dashboard's suggestions).
+    var pitch: String {
+        switch self {
+        case .dashboard: return "Ton Mac en un coup d'œil et l'analyse intelligente."
+        case .cleanup: return "Caches, journaux et fichiers oubliés : tu choisis ce qui part."
+        case .protection: return "Défenses de macOS, logiciels malveillants et traces laissées."
+        case .performance: return "Boost, capteurs, démarrage : un Mac plus frais et plus vif."
+        case .battery: return "Limite de recharge, alerte de batterie faible et santé."
+        case .updates: return "Homebrew, tes apps et macOS à jour, au même endroit."
+        case .apps: return "Les apps que tu n'ouvres plus, désinstallées sans rien oublier."
+        case .storage: return "La carte de ton disque, les gros fichiers et les doublons."
+        case .converter: return "Images, vidéos, audio, PDF et documents : dépose, c'est converti."
+        case .fillsign: return "Remplis un formulaire PDF, signe et paraphe en quelques clics."
+        case .youtube: return "Colle un lien : la vidéo en MP4 ou le son en MP3."
+        case .translator: return "Traduis sur ton Mac, hors ligne, ou avec Claude."
+        case .toolbox: return "Couleurs, mots de passe, Caféine et autres petits outils."
+        case .clipboard: return "Retrouve tout ce que tu as copié : texte, liens et images."
+        case .network: return "Wi-Fi, débit, latence : ta connexion à la loupe."
+        case .adblock: return "Les pubs et les pisteurs bloqués pour tout le Mac."
+        case .darkmode: return "Les sites et les apps restés clairs passent en sombre."
+        case .launcher: return "Une barre pour tout faire, d'un raccourci, depuis n'importe où."
+        case .hotkeys: return "Un raccourci clavier pour chaque app, dossier ou site."
+        case .windows: return "Moitiés, tiers et quarts d'écran au clavier."
+        case .automation: return "Ton Mac s'entretient tout seul, selon tes règles."
+        case .assistant: return "Pose tes questions sur ton Mac, Claude te répond."
+        case .menubar: return "Processeur, mémoire et actions express dans la barre des menus."
+        }
+    }
+
     static let groups: [(String, [Page])] = [
         ("Accueil", [.dashboard]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
@@ -105,7 +134,9 @@ struct CleanupHistory {
 @Observable
 @MainActor
 final class AppModel {
-    var page: Page = .dashboard
+    var page: Page = .dashboard {
+        didSet { if page != oldValue { profile.recordVisit(page) } }
+    }
     let monitor: SystemMonitor
     let cleanup = CleanupModel()
     let protection = ProtectionModel()
@@ -130,9 +161,13 @@ final class AppModel {
     let battery = BatteryModel()
     let adblock = AdBlockModel()
     let darkmode = DarkModeModel()
+    /// The profile: which tools the sidebar and the dashboard put forward.
+    let profile = ToolProfileModel()
     var history = DemoData.isEnabled ? DemoData.history : CleanupHistory.load()
     var fullDiskAccess = Permissions.hasFullDiskAccess
     var showOnboarding = !DemoData.isEnabled && !UserDefaults.standard.bool(forKey: Preferences.onboardedKey)
+    /// The profile panel, in the middle of the main window.
+    var showProfilePanel = false
     /// False once the main window is closed, not when it is only covered, minimised or on another Space.
     /// A closed SwiftUI window keeps its views alive and redrawn: RootView drops the pages until it reopens.
     var mainWindowOpen = true
@@ -150,7 +185,10 @@ final class AppModel {
         if DemoData.isEnabled {
             DemoData.populate(self)
             ModuleRegistry.loadDemo(self)
-        } else if liveMonitor {
+            profile.loadDemo()
+        }
+        profile.refresh(self)
+        if !DemoData.isEnabled && liveMonitor {
             let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, Alerts.isOn else { return }
@@ -192,6 +230,7 @@ final class AppModel {
         if !DemoData.isEnabled { UserDefaults.standard.set(true, forKey: Preferences.onboardedKey) }
         showOnboarding = false
         startModules()
+        profile.refresh(self)
     }
 
     // MARK: Modules

@@ -300,6 +300,8 @@ enum Snapshot {
         let model = AppModel(liveMonitor: false)
         model.showOnboarding = false
         if !DemoData.isEnabled { scan(model) }
+        // `--profile etudes,loisirs` (or `aucun`): the sidebar and the dashboard of that profile, nothing saved.
+        if let slugs = Entry.value(after: "--profile") { model.profile.preview(slugs) }
 
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var shots: [(String, AnyView)] = []
@@ -319,6 +321,9 @@ enum Snapshot {
             shots.append(("menubar-panel", AnyView(MenuBarPanel())))
         }
         if everything || only == .dashboard {
+            // The sidebar (it follows the profile, `--tab autres` unfolds « Autres outils ») and the profile panel.
+            shots.append(("sidebar-panel", AnyView(Sidebar(unfoldOthers: Entry.value(after: "--tab") == "autres").fixedSize(horizontal: false, vertical: true))))
+            shots.append(("profile-panel", AnyView(ProfilePanel())))
             // The first-launch cards, one picture each (`--tab barre` keeps only that one), then as the user sees
             // them: in the middle of the window, the dashboard dimmed behind them.
             let tab = Entry.value(after: "--tab")
@@ -376,7 +381,8 @@ enum Snapshot {
                 .frame(width: ["menubar-panel": 340, "launcher-panel": LauncherView.width, "clipboard-window-panel": ClipboardWindow.width,
                                "adblock-player-panel": 960,
                                "appearance-panel": AppearanceSettings.width, "mascotte-panel": MascotGallery.width,
-                               "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180][name]
+                               "selfupdate-panel": UpdatesSelfPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180,
+                               "sidebar-panel": 248, "profile-panel": ProfilePanel.width][name]
                        ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
@@ -497,7 +503,7 @@ enum SelfTest {
         }
         // Module checks (calculator, conversions, command ids…).
         let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() }
-        for f in moduleFailures + ThemeChecks.run() + MascotActivity.selfTest() + MascotFigure.selfTest() + Shell.selfTest() + LoginItem.selfTest() + thirdPartyTools() {
+        for f in moduleFailures + ThemeChecks.run() + ToolProfileRules.selfTest().map({ "[Profils] \($0)" }) + MascotActivity.selfTest() + MascotFigure.selfTest() + Shell.selfTest() + LoginItem.selfTest() + thirdPartyTools() {
             print("✗ \(f)")
             ok = false
         }

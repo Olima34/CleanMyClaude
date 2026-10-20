@@ -20,13 +20,14 @@ struct OnboardingModal: View {
 }
 
 enum OnboardingSlide: Int, CaseIterable, Identifiable {
-    case welcome, launcher, control, permissions
+    case welcome, profile, launcher, control, permissions
 
     var id: Int { rawValue }
 
     var title: String {
         switch self {
         case .welcome: return "Bienvenue"
+        case .profile: return "Ton profil"
         case .launcher: return "La barre"
         case .control: return "Tu gardes la main"
         case .permissions: return "Autorisations"
@@ -37,6 +38,7 @@ enum OnboardingSlide: Int, CaseIterable, Identifiable {
     var snapshotName: String {
         switch self {
         case .welcome: return "bienvenue"
+        case .profile: return "profil"
         case .launcher: return "barre"
         case .control: return "controle"
         case .permissions: return "autorisations"
@@ -124,6 +126,7 @@ struct OnboardingPanel: View {
     private func card(_ slide: OnboardingSlide) -> some View {
         switch slide {
         case .welcome: OnboardingWelcomeCard()
+        case .profile: OnboardingProfileCard()
         case .launcher: OnboardingLauncherCard()
         case .control: OnboardingControlCard()
         case .permissions: OnboardingPermissionsCard(active: index == slide.rawValue)
@@ -376,7 +379,36 @@ struct OnboardingWelcomeCard: View {
     }
 }
 
-// MARK: - 2. The bar
+// MARK: - 2. Profile
+
+/// What the user does with their Mac: the sidebar and the dashboard put its tools forward. Nothing ticked, everything shows.
+struct OnboardingProfileCard: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        OnboardingCardFrame(
+            kicker: "Ton profil",
+            title: "Qu'est-ce que tu fais avec ton Mac ?",
+            text: "Coche ce qui te ressemble, même plusieurs : je mets tes outils en avant et je range les autres, toujours à un clic.",
+            artHeight: 26,
+            seed: 63
+        ) {
+            EmptyView()
+        } content: {
+            VStack(alignment: .leading, spacing: 12) {
+                ProfileKindGrid(columns: 2)
+                Text(app.profile.isChosen
+                     ? "Tu pourras changer d'avis à tout moment, sous mon nom dans la barre latérale."
+                     : "Sans choix, je te montre tous les outils. Tu pourras choisir plus tard.")
+                    .font(.ui(11.5))
+                    .foregroundStyle(Theme.text3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+// MARK: - 3. The bar
 
 struct OnboardingLauncherCard: View {
     @Environment(AppModel.self) private var app
@@ -457,7 +489,7 @@ struct OnboardingKeycap: View {
     }
 }
 
-// MARK: - 3. Control
+// MARK: - 4. Control
 
 struct OnboardingControlCard: View {
     var body: some View {
@@ -493,7 +525,7 @@ struct OnboardingControlCard: View {
     }
 }
 
-// MARK: - 4. Permissions
+// MARK: - 5. Permissions
 
 /// Every macOS permission in one place, asked only when the user clicks: each one is ticked, and unticking it
 /// leaves it for later (Réglages › Autorisations, or the page that needs it).

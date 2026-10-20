@@ -42,6 +42,8 @@ enum AppContext {
     private static func setMainWindowOpen(_ open: Bool) {
         guard let model, model.mainWindowOpen != open else { return }
         model.mainWindowOpen = open
+        // Back on screen: the tools used since are placed again (never while the sidebar is in front of the user).
+        if open { model.profile.refresh(model) }
     }
 
     /// No Dock icon by default, like Raycast: the app lives in the menu bar and behind its shortcut.
@@ -291,7 +293,8 @@ struct CleanMyClaudeApp: App {
                 }
             }
             CommandMenu("Aller à") {
-                ForEach(Array(Page.allCases.enumerated()), id: \.element) { i, p in
+                // The sidebar's order, « Autres outils » last: ⌘1…⌘9 are its first nine pages.
+                ForEach(Array(model.profile.menuOrder.enumerated()), id: \.element) { i, p in
                     // Only the first nine pages get ⌘1…⌘9 (Character("10") would crash).
                     if i < 9 {
                         Button(p.title) { model.page = p }

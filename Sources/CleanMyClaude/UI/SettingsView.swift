@@ -36,6 +36,19 @@ struct GeneralSettings: View {
                     .onChange(of: alerts) { _, on in if on { Alerts.requestPermission() } }
                     .disabled(!Alerts.available)
                 HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Profil")
+                        Text(app.profile.isChosen ? app.profile.summary : "Aucun : tous les outils sont dans la barre latérale")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Modifier") {
+                        app.showProfilePanel = true
+                        AppContext.showMainWindow()
+                    }
+                    .disabled(app.showOnboarding)
+                }
+                HStack {
                     Text("Présentation de l'app")
                     Spacer()
                     Button("Revoir") {

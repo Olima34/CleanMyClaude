@@ -263,6 +263,14 @@ enum LauncherAppActions {
             }
         }
         list += [
+            // Opens the profile panel over the page already open: it only changes what the sidebar shows.
+            AppCommand(id: "act_profile", title: "Choisir mon profil", subtitle: "Les outils mis en avant dans la barre latérale",
+                       keywords: ["profil", "personnaliser", "barre latérale", "outils", "autres outils"],
+                       icon: .symbol("person.crop.rectangle.stack"), group: .actions, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
+                openMain(ctx.app, ctx.app.page)
+                ctx.app.showProfilePanel = true
+                return .done
+            },
             AppCommand(id: "act_smart_scan", title: "Analyse intelligente", subtitle: "Fichiers inutiles, sécurité, apps, démarrage",
                        keywords: ["analyser", "scan", "bilan", "santé"], icon: .symbol("wand.and.stars"), group: .actions,
                        assistantSafe: true, urlSafe: true) { ctx in
