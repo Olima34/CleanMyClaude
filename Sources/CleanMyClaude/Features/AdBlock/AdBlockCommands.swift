@@ -218,14 +218,15 @@ enum AdBlockChecks {
             ("https://exemple.fr/video", nil), ("https://youtu.be/", nil), ("javascript:alert(1)", nil), ("bonjour", nil),
             ("http://www.france.tv/films/123-un-film.html", "https://www.france.tv/films/123-un-film.html"),
             ("pluto.tv/fr/search/details/?query=dune", "https://pluto.tv/fr/search/details/?query=dune"),
-            ("www.m6.fr/recherche?q=x", "https://www.m6.fr/recherche?q=x"), ("https://faux-france.tv.exemple.fr/", nil)
+            ("www.m6.fr/recherche?q=x", "https://www.m6.fr/recherche?q=x"), ("https://faux-france.tv.exemple.fr/", nil),
+            ("https://www.tf1.fr/tf1/x.html", nil)
         ]
         for (raw, want) in links where AdBlockPlayer.playable(raw)?.absoluteString != want {
             f.append("lecteur : « \(raw) » → \(AdBlockPlayer.playable(raw)?.absoluteString ?? "rien") au lieu de \(want ?? "rien")")
         }
         expect(AdBlockPlayer.belongs(URL(string: "https://rr3---sn-x.googlevideo.com/videoplayback")!)
                && AdBlockPlayer.belongs(URL(string: "https://video-weaver.fra05.hls.ttvnw.net/v1/playlist/x.m3u8")!)
-               && AdBlockPlayer.belongs(URL(string: "https://compte.tf1.fr/connexion")!)
+               && !AdBlockPlayer.belongs(URL(string: "https://www.tf1.fr/")!)
                && AdBlockPlayer.belongs(URL(string: "https://login-gigya.m6.fr/")!)
                && !AdBlockPlayer.belongs(URL(string: "https://exemple.fr/")!) && !AdBlockPlayer.belongs(URL(string: "https://notfrance.tv/")!),
                "lecteur : sites gardés dans la fenêtre")
@@ -239,7 +240,7 @@ enum AdBlockChecks {
         let fw = filters.first { $0.contains("fwmrm") }.flatMap { try? NSRegularExpression(pattern: $0) }
         func hits(_ s: String) -> Bool { fw?.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil }
         expect(hits("https://mssl.fwmrm.net/ad/g/1") && !hits("https://exemple.fr/fwmrm.net")
-               && filters.contains { $0.contains("tf1admanager") } && !filters.contains { $0.contains("|") }, "lecteur : règles des plateformes")
+               && filters.contains { $0.contains("stickyadstv") } && !filters.contains { $0.contains("|") }, "lecteur : règles des plateformes")
         var journal = AdBlockPlayerJournal()
         journal.add(["hosts": ["mssl.fwmrm.net", "WWW.France.tv", "a/b"], "drm": ["com.apple.fps ok"], "played": true, "notes": ["adblock"]], site: "francetv")
         journal.add(["hosts": ["mssl.fwmrm.net"]], site: "francetv")

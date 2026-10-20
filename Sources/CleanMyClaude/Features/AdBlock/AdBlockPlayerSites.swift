@@ -3,8 +3,10 @@ import Foundation
 /// A site the ad-free player shows itself: the domains it browses (pages, sign-in, video), and the ad servers its player
 /// calls, blocked on top of the common list (`AdBlockPlayerScripts.blockedPatterns`).
 /// Checked in a WebKit bench (20 Oct. 2026): Arte plays without account nor ads; Pluto TV plays, its ads sewn into the
-/// stream itself (same server as the programme: they cannot be blocked as requests); France.tv, TF1+ and M6+ ask for a
-/// free account before any video, their ad servers read from their public code; M6+'s player gets FairPlay from WebKit.
+/// stream itself (same server as the programme: they cannot be blocked as requests); France.tv and M6+ ask for a free
+/// account before any video, their ad servers read from their public code; M6+'s player gets FairPlay from WebKit.
+/// TF1+ is left out: it refuses to play as soon as one of its ad servers does not answer (« Un bloqueur de publicité
+/// empêche la lecture »), and getting past that wall would be circumventing its access protection, not blocking ads.
 struct AdBlockPlayerSite: Identifiable, Equatable {
     var key: String
     var name: String
@@ -25,10 +27,6 @@ struct AdBlockPlayerSite: Identifiable, Equatable {
                                             domains: ["france.tv", "francetv.fr", "ftven.fr", "francetelevisions.fr"],
                                             adHosts: ["fwmrm.net", "stickyadstv.com", "outbrain.com", "smartadserver.com"],
                                             limit: "Compte gratuit France.tv demandé avant toute vidéo")
-    static let tf1 = AdBlockPlayerSite(key: "tf1", name: "TF1+", home: URL(string: "https://www.tf1.fr/")!,
-                                       domains: ["tf1.fr", "tf1info.fr", "gigya.com"],
-                                       adHosts: ["tf1admanager.fr", "stickyadstv.com", "fwmrm.net", "adsafeprotected.com"],
-                                       limit: "Compte gratuit TF1+ demandé avant toute vidéo")
     static let m6 = AdBlockPlayerSite(key: "m6", name: "M6+", home: URL(string: "https://www.m6.fr/")!,
                                       domains: ["m6.fr", "6play.fr", "6cloud.fr", "m6web.fr", "bedrock.tech", "gigya.com"],
                                       adHosts: ["stickyadstv.com", "fwmrm.net", "outbrain.com", "smartadserver.com"],
@@ -40,9 +38,9 @@ struct AdBlockPlayerSite: Identifiable, Equatable {
                                          adHosts: ["imasdk.googleapis.com"],
                                          limit: "Pub cousue dans le flux : elle ne peut pas être coupée")
 
-    static let all: [AdBlockPlayerSite] = [youtube, twitch, francetv, tf1, m6, arte, pluto]
+    static let all: [AdBlockPlayerSite] = [youtube, twitch, francetv, m6, arte, pluto]
     /// Offered in the player's menu and on the page, after YouTube and Twitch.
-    static let others: [AdBlockPlayerSite] = [francetv, tf1, m6, arte, pluto]
+    static let others: [AdBlockPlayerSite] = [francetv, m6, arte, pluto]
 
     static func named(_ key: String) -> AdBlockPlayerSite? { all.first { $0.key == key } }
 

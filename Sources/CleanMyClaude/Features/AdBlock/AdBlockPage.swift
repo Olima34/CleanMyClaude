@@ -84,12 +84,12 @@ private struct AdBlockPlayerPanel: View {
                     }
                 }
                 HStack(spacing: 8) {
-                    AdBlockField(placeholder: "Colle un lien YouTube, Twitch, France.tv, TF1+, M6+, Arte ou Pluto TV", text: $link) { watch() }
+                    AdBlockField(placeholder: "Colle un lien YouTube, Twitch, France.tv, M6+, Arte ou Pluto TV", text: $link) { watch() }
                     Button("Regarder") { watch() }
                         .buttonStyle(SoftButtonStyle(small: true))
                         .disabled(AdBlockPlayer.playable(link) == nil)
                 }
-                Text("YouTube : les pubs sont retirées avant que le lecteur les voie ; si YouTube retient la vidéo le temps de sa pub, la fenêtre le dit. Twitch : une coupure pub est remplacée par le même direct sans pub, ou retirée. France.tv, TF1+ et M6+ : leurs serveurs de pub vidéo sont bloqués, après connexion à ton compte gratuit (une fois, dans la fenêtre). Arte n'a pas de pub. Pluto TV coud sa pub dans le flux lui-même : elle reste.")
+                Text("YouTube : les pubs sont retirées avant que le lecteur les voie ; si YouTube retient la vidéo le temps de sa pub, la fenêtre le dit. Twitch : une coupure pub est remplacée par le même direct sans pub, ou retirée. France.tv et M6+ : leurs serveurs de pub vidéo sont bloqués, après connexion à ton compte gratuit (une fois, dans la fenêtre). Arte n'a pas de pub. Pluto TV coud sa pub dans le flux lui-même : elle reste. TF1+ refuse de lire une vidéo dès qu'une de ses pubs est bloquée : il n'est pas dans le lecteur.")
                     .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 Divider().overlay(Theme.border)
                 HStack(alignment: .top, spacing: 12) {

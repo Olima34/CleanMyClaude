@@ -153,7 +153,8 @@ struct CinemaPlatform: Equatable, Hashable, Identifiable {
         // ARTE's paid store before arte.tv, whose search only finds what is free to watch.
         CinemaPlatform(key: "artevod", name: "ARTE VOD", prefixes: ["arte vod"], search: nil, common: false),
         CinemaPlatform(key: "arte", name: "Arte", prefixes: ["arte"], search: "https://www.arte.tv/fr/search/?q=%@", freeInPlayer: true),
-        CinemaPlatform(key: "tf1", name: "TF1+", prefixes: ["tf1", "tf1+"], search: nil, freeInPlayer: true),
+        // TF1+ refuses to play while its ads are blocked: its offers open in the browser.
+        CinemaPlatform(key: "tf1", name: "TF1+", prefixes: ["tf1", "tf1+"], search: nil),
         CinemaPlatform(key: "m6", name: "M6+", prefixes: ["m6", "m6+", "6play"], search: "https://www.m6.fr/recherche?q=%@", freeInPlayer: true),
         CinemaPlatform(key: "youtube", name: "YouTube", prefixes: ["youtube"], search: "https://www.youtube.com/results?search_query=%@",
                        adFreePlayer: true),
@@ -255,7 +256,7 @@ enum CinemaOffers {
     }
 
     /// TMDB's page always opens in the browser; a platform's own page or search opens in the ad-free player when it is
-    /// YouTube, or a free offer of a site the player knows (France.tv, M6+, Arte, Pluto TV).
+    /// YouTube, or a free offer of a site the player knows (France.tv, M6+, Arte, Pluto TV; not TF1+).
     static func destination(_ offer: CinemaOffer, in title: CinemaTitle) -> CinemaDestination {
         let p = offer.platform
         let player = p.map { $0.adFreePlayer || ($0.freeInPlayer && (offer.kind == .free || offer.kind == .ads)) } ?? false
