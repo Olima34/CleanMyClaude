@@ -365,7 +365,9 @@ final class ConverterPreviewer {
             r.outputDetail = "HEVC · 1 920 × 1 080"
         case .pdf where op == .pdfMerge:
             r.outputSize = Int64(Double(r.sourceSize) * 0.97)
-            r.outputDetail = Fmt.plural(all.reduce(0) { $0 + ($1.pages ?? 0) }, "page", "pages")
+            r.sourceDetail = Fmt.plural(all.count, "document", "documents")
+            r.outputDetail = Fmt.plural(model.mergePageCount ?? all.reduce(0) { $0 + ($1.pages ?? 1) }, "page", "pages")
+            r.outputs = [URL(fileURLWithPath: FS.home + "/Downloads/" + ConverterPDFEngine.mergeName(model.options.mergeName, first: file.url) + ".pdf")]
         case .pdf:
             r.outputSize = Int64(Double(file.size) * 0.2)
             r.outputDetail = "4 pages"

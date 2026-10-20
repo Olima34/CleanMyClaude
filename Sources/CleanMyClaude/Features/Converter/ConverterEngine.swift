@@ -65,7 +65,8 @@ enum ConverterEngine {
             return ConverterOutput(files: [try await ConverterMediaEngine.convertAudio(input, to: o.audioFormat, bitrate: o.audioBitrate,
                                                                                         ffmpeg: spec.ffmpeg, folder: folder, control: control)])
         case .pdfMerge:
-            return ConverterOutput(files: [try ConverterPDFEngine.merge(spec.inputs, folder: folder, control: control)])
+            return ConverterOutput(files: [try ConverterPDFEngine.merge(spec.inputs, kinds: spec.kinds, options: o, folder: folder,
+                                                                         control: control)])
         case .pdfSplit:
             return ConverterOutput(files: try ConverterPDFEngine.split(input, spec: o.pdfPages, mode: o.splitMode, folder: folder, control: control))
         case .pdfRotate:

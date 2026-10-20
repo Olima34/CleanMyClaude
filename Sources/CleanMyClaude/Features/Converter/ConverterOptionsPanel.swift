@@ -167,7 +167,7 @@ struct ConverterOptionsPanel: View {
                 note("shippingbox", "Le MP3 arrive si tu installes ffmpeg (brew install ffmpeg) : macOS ne sait pas en créer seul.")
             }
         case .pdfMerge:
-            note("arrow.up.arrow.down", "Les PDF sont assemblés dans l'ordre de la liste : utilise les flèches pour le changer.")
+            ConverterMergeOptions()
         case .pdfSplit:
             pagesRow(required: true)
             ConverterOptionRow(label: "Résultat") {

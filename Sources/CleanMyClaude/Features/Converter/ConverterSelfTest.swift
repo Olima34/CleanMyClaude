@@ -1,5 +1,7 @@
 import Foundation
 import AVFoundation
+import PDFKit
+import AppKit
 
 /// `--selftest`: pure checks (names, matrix, page ranges, rename patterns, presets, Markdown, QR round trip). Writes nothing.
 extension ConverterModel {
@@ -43,6 +45,7 @@ extension ConverterModel {
         expect(!images.contains(.pdfMerge) && !images.contains(.videoCompress), "Opérations des images en trop")
         expect(!ConverterOperation.available(for: [.pdf]).contains(.pdfMerge), "Fusion proposée pour un seul PDF")
         expect(ConverterOperation.available(for: [.pdf, .pdf]).contains(.pdfMerge), "Fusion absente pour deux PDF")
+        expect(ConverterOperation.available(for: [.pdf, .image]).contains(.pdfMerge), "Fusion absente pour un PDF et une image")
         let folder = ConverterOperation.available(for: [.folder])
         expect(Set(folder) == [.archiveZip, .rename], "Opérations d'un dossier : \(folder.map(\.rawValue))")
         expect(ConverterOperation.available(for: [.markdown]).contains(.documentConvert), "Markdown sans conversion")
@@ -172,6 +175,82 @@ extension ConverterModel {
             failures.append("QR code non créé")
         }
         expect(ConverterVision.qrImage("") == nil, "QR code d'un texte vide")
+        failures += Self.mergeChecks()
         return failures + previewFailures
+    }
+
+    /// The merge, in memory: pages kept, the sources' own bookmarks under theirs, blank pages for double-sided printing.
+    static func mergeChecks() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ what: @autoclosure () -> String) {
+            if !condition { failures.append("Fusion : " + what()) }
+        }
+        guard let a = samplePDF("A", pages: 3), let b = samplePDF("B", pages: 1), let c = samplePDF("C", pages: 2),
+              let a0 = a.page(at: 0), let a1 = a.page(at: 1), let a2 = a.page(at: 2) else {
+            return ["Fusion : PDF d'essai non créés"]
+        }
+        // A's own bookmarks: "Début" (page 1), "Chapitre 2" (page 2, left out) and under it "Section" (page 3, kept).
+        let own = PDFOutline()
+        a.outlineRoot = own
+        for (label, page) in [("Début", a0), ("Chapitre 2", a1)] {
+            let item = PDFOutline()
+            item.label = label
+            item.destination = PDFDestination(page: page, at: CGPoint(x: 0, y: 400))
+            own.insertChild(item, at: own.numberOfChildren)
+        }
+        let section = PDFOutline()
+        section.label = "Section"
+        section.destination = PDFDestination(page: a2, at: CGPoint(x: 0, y: 400))
+        own.child(at: 1)?.insertChild(section, at: 0)
+        guard let photo = samplePDF("P", pages: 1) else { return ["Fusion : image d'essai non créée"] }
+        let parts = [ConverterPDFEngine.MergePart(name: "A", source: .pdf(a, pages: "1, 3")),
+                     ConverterPDFEngine.MergePart(name: "B", source: .pdf(b, pages: "")),
+                     ConverterPDFEngine.MergePart(name: "C", source: .pdf(c, pages: "2-")),
+                     ConverterPDFEngine.MergePart(name: "Photo", source: .image(photo))]
+        let control = ConverterControl { _ in }
+        guard let doc = try? ConverterPDFEngine.mergedDocument(parts, settings: .init(bookmarks: true, duplex: true, title: "Essai"),
+                                                               control: control) else {
+            return ["Fusion : échec sur des PDF valides"]
+        }
+        // A1 A3 · B1 · blank (B ended on a recto) · C2 · blank · the image
+        let texts = (0..<doc.pageCount).map { doc.page(at: $0)?.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+        expect(texts == ["A1", "A3", "B1", "", "C2", "", "P1"], "pages \(texts) au lieu de A1 A3 B1 (blanche) C2 (blanche) P1")
+        let root = doc.outlineRoot
+        let labels = (0..<(root?.numberOfChildren ?? 0)).compactMap { root?.child(at: $0)?.label }
+        expect(labels == ["A", "B", "C", "Photo"], "signets \(labels)")
+        let inA = root?.child(at: 0)
+        let ownLabels = (0..<(inA?.numberOfChildren ?? 0)).compactMap { inA?.child(at: $0)?.label }
+        expect(ownLabels == ["Début", "Section"], "signets de A : \(ownLabels) au lieu de Début, Section")
+        if let target = inA?.child(at: 1)?.destination?.page { expect(doc.index(for: target) == 1, "« Section » ne mène pas à sa page") }
+        if let target = root?.child(at: 2)?.destination?.page { expect(doc.index(for: target) == 4, "le signet de C ne mène pas à sa page") }
+        // Written and read back: the outline and the title stay.
+        let back = doc.dataRepresentation().flatMap { PDFDocument(data: $0) }
+        expect(back?.outlineRoot?.numberOfChildren == 4, "signets perdus à l'écriture")
+        expect(back?.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String == "Essai", "titre perdu à l'écriture")
+        let invalid = [ConverterPDFEngine.MergePart(name: "A", source: .pdf(a, pages: "9"))]
+        expect((try? ConverterPDFEngine.mergedDocument(invalid, settings: .init(), control: control)) == nil, "page 9 d'un PDF de 3 acceptée")
+        let first = URL(fileURLWithPath: "/tmp/Devis cuisine.pdf")
+        for (typed, expected) in [("", "Devis cuisine fusionné"), ("  ", "Devis cuisine fusionné"), ("Dossier/2026.PDF", "Dossier-2026"),
+                                  (".cache", "cache"), ("Dossier cuisine", "Dossier cuisine")] {
+            let got = ConverterPDFEngine.mergeName(typed, first: first)
+            expect(got == expected, "nom « \(typed) » → « \(got) » au lieu de « \(expected) »")
+        }
+        return failures
+    }
+
+    /// A small PDF whose pages say "A1", "A2"…
+    static func samplePDF(_ label: String, pages: Int) -> PDFDocument? {
+        let data = NSMutableData()
+        var box = CGRect(x: 0, y: 0, width: 300, height: 400)
+        guard let consumer = CGDataConsumer(data: data as CFMutableData), let ctx = CGContext(consumer: consumer, mediaBox: &box, nil) else { return nil }
+        for i in 1...pages {
+            ctx.beginPDFPage(nil)
+            let text = NSAttributedString(string: "\(label)\(i)", attributes: [.font: NSFont.systemFont(ofSize: 20)])
+            ctx.textPosition = CGPoint(x: 40, y: 300)
+            CTLineDraw(CTLineCreateWithAttributedString(text), ctx)
+            ctx.endPDFPage()
+        }
+        ctx.closePDF()
+        return PDFDocument(data: data as Data)
     }
 }

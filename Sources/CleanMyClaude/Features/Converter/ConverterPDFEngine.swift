@@ -76,21 +76,149 @@ enum ConverterPDFEngine {
 
     // MARK: - Operations
 
-    static func merge(_ inputs: [URL], folder: URL?, control: ConverterControl) throws -> URL {
-        let docs = try inputs.map(open)
-        let total = max(1, docs.reduce(0) { $0 + $1.pageCount })
-        let result = PDFDocument()
-        var done = 0
-        for doc in docs {
-            for i in 0..<doc.pageCount {
-                try control.check()
-                if let page = doc.page(at: i)?.copy() as? PDFPage { result.insert(page, at: result.pageCount) }
-                done += 1
-                control.progress(Double(done) / Double(total))
+    // MARK: - Merge
+
+    /// One document of a merge, already open: a PDF and the pages kept from it, or an image made into a page.
+    struct MergePart {
+        enum Source {
+            case pdf(PDFDocument, pages: String)
+            /// The one-page PDF made from the image (kept whole: a page lives only as long as its document).
+            case image(PDFDocument)
+        }
+        var name: String
+        var source: Source
+    }
+
+    /// What a merge asks for, besides the documents.
+    struct MergeSettings {
+        var bookmarks = true
+        /// A blank page after a document that ends on a recto, so that each one starts on a new sheet once printed double-sided.
+        var duplex = false
+        var title = ""
+    }
+
+    /// The PDFs (the chosen pages of each) and the images, in order, in one document: a bookmark per document with its own
+    /// bookmarks under it, links and form fields kept. Writes nothing: `merge` saves it.
+    static func mergedDocument(_ parts: [MergePart], settings: MergeSettings, control: ConverterControl) throws -> PDFDocument {
+        var plan: [(part: MergePart, pages: [Int])] = []
+        for part in parts {
+            switch part.source {
+            case .pdf(let doc, let spec):
+                guard let pages = parsePages(spec, count: doc.pageCount), !pages.isEmpty else {
+                    throw ConverterError.unsupported("Pages invalides pour « \(part.name) » : « \(spec) ». Il a \(Fmt.plural(doc.pageCount, "page", "pages")) ; exemple : 1-3, 5, 8-")
+                }
+                plan.append((part, pages))
+            case .image:
+                plan.append((part, [0]))
             }
         }
-        let out = FileOps.outputURL(for: inputs[0], extension: "pdf", suffix: "fusionné", folder: folder)
-        return try write(result, to: out)
+        let total = max(1, plan.reduce(0) { $0 + $1.pages.count })
+        let result = PDFDocument()
+        // A fresh document's outline is written with it (one opened from a file would drop it).
+        let root = PDFOutline()
+        if settings.bookmarks { result.outlineRoot = root }
+        var done = 0
+        for (n, step) in plan.enumerated() {
+            let first = result.pageCount
+            var map: [Int: PDFPage] = [:]
+            switch step.part.source {
+            case .pdf(let doc, _):
+                for i in step.pages {
+                    try control.check()
+                    guard let page = doc.page(at: i)?.copy() as? PDFPage else { continue }
+                    result.insert(page, at: result.pageCount)
+                    map[i] = page
+                    done += 1
+                    control.progress(Double(done) / Double(total))
+                }
+                if settings.bookmarks, let start = result.page(at: first) {
+                    let entry = bookmark(step.part.name, to: start)
+                    root.insertChild(entry, at: root.numberOfChildren)
+                    if let own = doc.outlineRoot { copyOutline(own, into: entry, pages: map, of: doc) }
+                }
+            case .image(let doc):
+                try control.check()
+                guard let page = doc.page(at: 0)?.copy() as? PDFPage else { continue }
+                result.insert(page, at: result.pageCount)
+                done += 1
+                control.progress(Double(done) / Double(total))
+                if settings.bookmarks { root.insertChild(bookmark(step.part.name, to: page), at: root.numberOfChildren) }
+            }
+            // Printed double-sided, the next document starts on a new sheet.
+            if settings.duplex, n < plan.count - 1, result.pageCount % 2 == 1, let last = result.page(at: result.pageCount - 1) {
+                result.insert(blankPage(like: last), at: result.pageCount)
+            }
+        }
+        guard result.pageCount > 0 else { throw ConverterError.failed("Aucune page à assembler.") }
+        var attributes: [AnyHashable: Any] = [PDFDocumentAttribute.creatorAttribute: "Clean My Claude"]
+        if !settings.title.isEmpty { attributes[PDFDocumentAttribute.titleAttribute] = settings.title }
+        result.documentAttributes = attributes
+        return result
+    }
+
+    /// Opens the documents of the list (PDFs and images) and saves their merge as one new PDF.
+    static func merge(_ inputs: [URL], kinds: [ConverterKind], options o: ConverterOptions, folder: URL?,
+                      control: ConverterControl) throws -> URL {
+        var parts: [MergePart] = []
+        for (url, kind) in zip(inputs, kinds) {
+            let name = url.deletingPathExtension().lastPathComponent
+            if kind == .image {
+                let data = try imagesPDFData([url], pageSize: o.pageSize, quality: 0.9, control: ConverterControl { _ in })
+                guard let doc = PDFDocument(data: data), doc.pageCount > 0 else { throw ConverterError.unreadable(url.lastPathComponent) }
+                parts.append(MergePart(name: name, source: .image(doc)))
+            } else {
+                parts.append(MergePart(name: name, source: .pdf(try open(url), pages: o.mergePages[url.path] ?? "")))
+            }
+        }
+        let name = mergeName(o.mergeName, first: inputs[0])
+        let doc = try mergedDocument(parts, settings: MergeSettings(bookmarks: o.mergeBookmarks, duplex: o.mergeDuplex, title: name),
+                                     control: control)
+        let dir = folder ?? inputs[0].deletingLastPathComponent()
+        return try write(doc, to: FileOps.uniqueURL(dir.appendingPathComponent(name).appendingPathExtension("pdf")))
+    }
+
+    /// The merged PDF's name, without extension: the one typed (cleaned of "/" and ".pdf"), or "<first document> fusionné".
+    static func mergeName(_ typed: String, first: URL) -> String {
+        var name = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        if name.lowercased().hasSuffix(".pdf") { name = String(name.dropLast(4)).trimmingCharacters(in: .whitespaces) }
+        while name.hasPrefix(".") { name.removeFirst() }
+        return name.isEmpty ? first.deletingPathExtension().lastPathComponent + " fusionné" : name
+    }
+
+    private static func bookmark(_ label: String, to page: PDFPage) -> PDFOutline {
+        let item = PDFOutline()
+        item.label = label
+        let box = page.bounds(for: .cropBox)
+        item.destination = PDFDestination(page: page, at: CGPoint(x: box.minX, y: box.maxY))
+        return item
+    }
+
+    /// The bookmarks of a source whose page was kept, under its document's bookmark; those of left-out pages go,
+    /// their kept children move up a level.
+    private static func copyOutline(_ item: PDFOutline, into parent: PDFOutline, pages: [Int: PDFPage], of doc: PDFDocument) {
+        for i in 0..<item.numberOfChildren {
+            guard let child = item.child(at: i) else { continue }
+            let destination = child.destination ?? (child.action as? PDFActionGoTo)?.destination
+            if let destination, let page = destination.page, let target = pages[doc.index(for: page)] {
+                let copy = PDFOutline()
+                copy.label = child.label
+                copy.destination = PDFDestination(page: target, at: destination.point)
+                parent.insertChild(copy, at: parent.numberOfChildren)
+                copyOutline(child, into: copy, pages: pages, of: doc)
+            } else {
+                copyOutline(child, into: parent, pages: pages, of: doc)
+            }
+        }
+    }
+
+    /// An empty page of the same size and orientation.
+    private static func blankPage(like page: PDFPage) -> PDFPage {
+        let blank = PDFPage()
+        blank.setBounds(page.bounds(for: .mediaBox), for: .mediaBox)
+        blank.setBounds(page.bounds(for: .cropBox), for: .cropBox)
+        blank.rotation = page.rotation
+        return blank
     }
 
     static func split(_ input: URL, spec: String, mode: ConverterSplitMode, folder: URL?, control: ConverterControl) throws -> [URL] {
@@ -222,7 +350,7 @@ enum ConverterPDFEngine {
         ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
         ctx.interpolationQuality = .high
         ctx.scaleBy(x: CGFloat(w) / pageW, y: CGFloat(h) / pageH)
-        ctx.concatenate(page.transform(for: .cropBox))
+        // `draw(with:to:)` turns and crops the page itself: adding `transform(for:)` drew a turned or cropped page off the image.
         page.draw(with: .cropBox, to: ctx)
         return ctx.makeImage()
     }
@@ -230,6 +358,13 @@ enum ConverterPDFEngine {
     /// One page per image, in order. Photos are embedded as JPEG at `quality`; images with transparency stay lossless.
     static func fromImages(_ inputs: [URL], pageSize: ConverterPageSize, quality: Double, folder: URL?,
                            control: ConverterControl) throws -> URL {
+        let data = try imagesPDFData(inputs, pageSize: pageSize, quality: quality, control: control)
+        let out = FileOps.outputURL(for: inputs[0], extension: "pdf", folder: folder)
+        return try FileOps.write(data, to: out)
+    }
+
+    /// The PDF of `fromImages`, in memory (a merge takes its pages from there).
+    static func imagesPDFData(_ inputs: [URL], pageSize: ConverterPageSize, quality: Double, control: ConverterControl) throws -> Data {
         let data = NSMutableData()
         guard let consumer = CGDataConsumer(data: data as CFMutableData) else { throw ConverterError.failed("PDF impossible à créer.") }
         var media = CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
@@ -269,8 +404,7 @@ enum ConverterPDFEngine {
             control.progress(Double(n + 1) / Double(inputs.count))
         }
         ctx.closePDF()
-        let out = FileOps.outputURL(for: inputs[0], extension: "pdf", folder: folder)
-        return try FileOps.write(data as Data, to: out)
+        return data as Data
     }
 
     /// A JPEG-backed copy (Core Graphics then embeds the JPEG bytes as they are), unless the image has transparency.

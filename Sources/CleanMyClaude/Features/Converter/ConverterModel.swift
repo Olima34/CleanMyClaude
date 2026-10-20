@@ -86,6 +86,7 @@ final class ConverterModel: AppModule {
 
     func remove(_ file: ConverterFile) {
         files.removeAll { $0.id == file.id }
+        if options.mergePages[file.url.path] != nil { options.mergePages[file.url.path] = nil }
     }
 
     /// The scratch files of the previews go when the app quits.
@@ -97,6 +98,7 @@ final class ConverterModel: AppModule {
         previewer.cleanUp()
         files.removeAll()
         pendingFiles.removeAll()
+        if !options.mergePages.isEmpty { options.mergePages = [:] }
         message = nil
     }
 
@@ -106,6 +108,59 @@ final class ConverterModel: AppModule {
         let j = i + offset
         guard files.indices.contains(j) else { return }
         files.swapAt(i, j)
+    }
+
+    /// Drag and drop in the merge order: the file goes to `index` among the files of `op`; the others keep their places.
+    func move(_ id: UUID, to index: Int, among op: ConverterOperation) {
+        var order = targets(for: op)
+        guard let from = order.firstIndex(where: { $0.id == id }) else { return }
+        let file = order.remove(at: from)
+        order.insert(file, at: min(max(0, index), order.count))
+        guard order.map(\.id) != targets(for: op).map(\.id) else { return }
+        var next = order.makeIterator()
+        files = files.map { op.accepts.contains($0.kind) ? (next.next() ?? $0) : $0 }
+    }
+
+    // MARK: - Merge
+
+    /// The pages kept from a PDF of the merge ("" : all of them).
+    func mergePages(_ file: ConverterFile) -> String {
+        options.mergePages[file.url.path] ?? ""
+    }
+
+    func setMergePages(_ file: ConverterFile, _ spec: String) {
+        options.mergePages[file.url.path] = spec.isEmpty ? nil : spec
+    }
+
+    /// The pages each document brings to the merge (nil while a PDF's page count is unknown or its list is not understood),
+    /// blank pages for double-sided printing included.
+    var mergePageCount: Int? {
+        var total = 0
+        let parts = targets(for: .pdfMerge)
+        for (n, file) in parts.enumerated() {
+            if file.kind == .image {
+                total += 1
+            } else {
+                guard let count = file.pages, let pages = ConverterPDFEngine.parsePages(mergePages(file), count: count), !pages.isEmpty else { return nil }
+                total += pages.count
+            }
+            if options.mergeDuplex, n < parts.count - 1, total % 2 == 1 { total += 1 }
+        }
+        return total
+    }
+
+    /// Why the merge cannot start yet: no PDF, or a list of pages not understood.
+    var mergeProblem: String? {
+        let parts = targets(for: .pdfMerge)
+        guard parts.contains(where: { $0.kind == .pdf }) else { return "Il faut au moins un PDF." }
+        for file in parts where file.kind == .pdf {
+            guard let count = file.pages else { continue }
+            let spec = mergePages(file)
+            if ConverterPDFEngine.parsePages(spec, count: count)?.isEmpty != false {
+                return "Pages de « \(file.name) » : « \(spec) » ne va pas (\(Fmt.plural(count, "page", "pages")))."
+            }
+        }
+        return nil
     }
 
     var kinds: [ConverterKind] { files.map(\.kind) }
@@ -161,6 +216,8 @@ final class ConverterModel: AppModule {
         guard count >= op.minimumCount else { return false }
         switch op {
         case .rename: return renamePreview.contains { !$0.unchanged } && renameDatesReady
+        case .pdfMerge:
+            return mergeProblem == nil
         case .pdfSplit, .pdfRotate, .pdfToImages:
             return targets(for: op).allSatisfy { file in
                 guard let pages = file.pages else { return false }
@@ -453,7 +510,7 @@ final class ConverterModel: AppModule {
     static func batchTitle(_ op: ConverterOperation, count: Int) -> String {
         switch op {
         case .imagesToPDF: return "\(Fmt.plural(count, "image", "images")) → PDF"
-        case .pdfMerge: return "Fusion de \(count) PDF"
+        case .pdfMerge: return "Fusion de \(Fmt.plural(count, "document", "documents"))"
         case .archiveZip: return "Archive de \(Fmt.plural(count, "élément", "éléments"))"
         default: return op.title
         }
@@ -487,7 +544,7 @@ final class ConverterModel: AppModule {
         case .audioConvert:
             return "→ \(o.audioFormat.name)" + (o.audioFormat.lossy ? " · \(o.audioBitrate) kb/s" : "")
         case .pdfMerge:
-            return "→ un seul PDF, dans l'ordre de la liste"
+            return "→ un seul PDF" + (o.mergeBookmarks ? " · un signet par document" : "") + (o.mergeDuplex ? " · prêt pour le recto verso" : "")
         case .pdfSplit:
             let pages = o.pdfPages.trimmingCharacters(in: .whitespaces)
             return "→ pages \(pages.isEmpty ? "toutes" : pages) · \(o.splitMode.title.lowercased())"

@@ -254,7 +254,7 @@ enum ConverterOperation: String, CaseIterable, Identifiable, Sendable {
         case .videoAudio: return "Garde seulement le son de la vidéo, en AAC (.m4a)."
         case .videoGIF: return "Un GIF animé qui tourne en boucle, prêt à coller dans un message."
         case .audioConvert: return "Convertit avec les encodeurs de macOS. Le fichier d'origine reste intact."
-        case .pdfMerge: return "Assemble les PDF dans l'ordre de la liste. Réordonne avec les flèches."
+        case .pdfMerge: return "Assemble PDF et images en un seul document : l'ordre et les pages que tu veux, un signet par document."
         case .pdfSplit: return "Garde les pages choisies dans un nouveau PDF, ou une page par fichier."
         case .pdfRotate: return "Fait pivoter toutes les pages, ou seulement celles que tu indiques."
         case .pdfCompress: return "Recompresse les images du PDF. Je ne garde le résultat que s'il est vraiment plus léger."
@@ -275,7 +275,8 @@ enum ConverterOperation: String, CaseIterable, Identifiable, Sendable {
         case .imageConvert, .imageResize, .imageCompress, .imageStrip, .imagesToPDF: return [.image]
         case .videoCompress, .videoContainer, .videoAudio, .videoGIF: return [.video]
         case .audioConvert: return [.audio]
-        case .pdfMerge, .pdfSplit, .pdfRotate, .pdfCompress, .pdfToImages: return [.pdf]
+        case .pdfMerge: return [.pdf, .image]
+        case .pdfSplit, .pdfRotate, .pdfCompress, .pdfToImages: return [.pdf]
         case .documentConvert: return [.document, .markdown]
         case .archiveExtract: return [.archive]
         case .archiveZip, .rename: return Set(ConverterKind.allCases)
@@ -396,7 +397,7 @@ enum ConverterOperation: String, CaseIterable, Identifiable, Sendable {
         case .videoAudio: return ["son", "m4a", "audio", "musique", "vidéo"]
         case .videoGIF: return ["gif", "animation", "vidéo", "boucle"]
         case .audioConvert: return ["mp3", "m4a", "wav", "aiff", "flac", "aac", "son"]
-        case .pdfMerge: return ["pdf", "assembler", "combiner", "merge"]
+        case .pdfMerge: return ["pdf", "assembler", "combiner", "merge", "fusion", "regrouper", "joindre", "dossier"]
         case .pdfSplit: return ["pdf", "pages", "extraire", "split"]
         case .pdfRotate: return ["pdf", "rotation", "tourner", "pages"]
         case .pdfCompress: return ["pdf", "alléger", "réduire", "poids"]
@@ -413,7 +414,11 @@ enum ConverterOperation: String, CaseIterable, Identifiable, Sendable {
 
     /// Operations offered for a set of files: at least `minimumCount` of them must be accepted.
     static func available(for kinds: [ConverterKind]) -> [ConverterOperation] {
-        allCases.filter { op in op != .qrGenerate && kinds.filter { op.accepts.contains($0) }.count >= op.minimumCount }
+        allCases.filter { op in
+            op != .qrGenerate && kinds.filter { op.accepts.contains($0) }.count >= op.minimumCount
+                // A merge takes images too, but only around a PDF (images alone: « Images → PDF »).
+                && (op != .pdfMerge || kinds.contains(.pdf))
+        }
     }
 
     /// The operation picked when files arrive and nothing suitable is selected.
@@ -664,6 +669,12 @@ struct ConverterOptions: Equatable, Sendable {
     var audioBitrate = 256
     // PDF
     var pdfPages = ""
+    /// Merge: the pages kept from each PDF, by path (missing or empty: all of them), a bookmark per document, a blank page
+    /// so that each document starts on a new sheet once printed double-sided, and the name of the result ("" : "<premier> fusionné").
+    var mergePages: [String: String] = [:]
+    var mergeBookmarks = true
+    var mergeDuplex = false
+    var mergeName = ""
     var splitMode: ConverterSplitMode = .extract
     var rotation = 90
     var pdfCompression: ConverterPDFCompression = .balanced

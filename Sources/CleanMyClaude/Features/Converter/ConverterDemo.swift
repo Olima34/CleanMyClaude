@@ -110,9 +110,13 @@ enum ConverterDemo {
             model.files = [
                 file(documents + "/Maison/Devis cuisine.pdf", .pdf, 1.9, "4 pages", pages: 4),
                 file(documents + "/Maison/Plan rez-de-chaussée.pdf", .pdf, 3.4, "2 pages", pages: 2),
-                file(documents + "/Maison/Conditions générales.pdf", .pdf, 0.8, "12 pages", pages: 12)
+                file(documents + "/Maison/Conditions générales.pdf", .pdf, 0.8, "12 pages", pages: 12),
+                file(pictures + "/Photo de la cuisine actuelle.jpg", .image, 2.6, "4 032 × 3 024")
             ]
             model.operation = .pdfMerge
+            model.options.mergePages = [documents + "/Maison/Conditions générales.pdf": "1-3, 12"]
+            model.options.mergeName = "Dossier cuisine"
+            model.options.pageSize = .a4
             model.jobs = [
                 job(model, .pdfCompress, [documents + "/Banque/Relevé annuel 2025.pdf"], kind: .pdf, state: .done, inputSize: 18.4,
                     output: [documents + "/Banque/Relevé annuel 2025 allégé.pdf"], outputSize: 2.7, seconds: 4),
