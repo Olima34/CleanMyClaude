@@ -324,14 +324,12 @@ final class RefugeCompanion {
         func spot(_ s: RefugeSurface) -> CGPoint { CGPoint(x: min(max(feet.x, s.minX), s.maxX), y: s.y) }
         func distance(_ p: CGPoint) -> CGFloat { hypot(p.x - feet.x, p.y - feet.y) }
         let roll = Int.random(in: 0..<100)
-        if roll < 55, let best = surfaces.map({ (s: $0, p: spot($0)) }).filter({ distance($0.p) < 700 }).min(by: { distance($0.p) < distance($1.p) }) {
+        if roll < 55, let best = surfaces.map({ (s: $0, p: spot($0)) }).min(by: { distance($0.p) < distance($1.p) }) {
             leap(to: best.p, landing: .surface(best.s))
         } else if roll < 80 {
             leanOnSide(f)
-        } else if f.maxY - feet.y < 520 {
-            leap(to: CGPoint(x: feet.x, y: f.maxY - Self.figure.height), landing: .hang)
         } else {
-            startFalling()
+            leap(to: CGPoint(x: feet.x, y: f.maxY - Self.figure.height), landing: .hang)
         }
     }
 
@@ -392,7 +390,8 @@ final class RefugeCompanion {
     private func leap(to point: CGPoint, landing: Jump.Landing, walkOn: Bool = false) {
         state.rotation = 0
         let distance = hypot(point.x - feet.x, point.y - feet.y)
-        jump = Jump(from: feet, to: point, steps: max(4, min(14, Int(distance / 22))), height: 18 + min(90, distance * 0.18), landing: landing,
+        // A big leap takes longer and goes higher, up to the top of a window under the menu bar.
+        jump = Jump(from: feet, to: point, steps: max(4, min(22, Int(distance / 30))), height: 18 + min(120, distance * 0.15), landing: landing,
                     walkOn: walkOn)
         surface = nil
         mode = .jumping
@@ -408,7 +407,7 @@ final class RefugeCompanion {
             return
         }
         let roll = Int.random(in: 0..<100)
-        let others = surfaces.filter { $0.id != surface?.id && abs($0.y - feet.y) < 520 }
+        let others = surfaces.filter { $0.id != surface?.id }
         switch roll {
         case ..<30:
             mode = .walk
@@ -427,21 +426,11 @@ final class RefugeCompanion {
                 ticksLeft = 60
             }
         case ..<93:
-            // Onto the side of the screen, if it is not far.
-            if min(feet.x - f.minX, f.maxX - feet.x) < 420 {
-                leanOnSide(f)
-            } else {
-                mode = .sit
-                ticksLeft = 30
-            }
+            // Onto the side of the screen, its head peeking in.
+            leanOnSide(f)
         default:
-            // Up to the top of the screen, if it stands high enough.
-            if f.maxY - feet.y < 420 {
-                leap(to: CGPoint(x: feet.x, y: f.maxY - Self.figure.height), landing: .hang)
-            } else {
-                mode = .sit
-                ticksLeft = 30
-            }
+            // Up to the top of the screen, to hang upside down.
+            leap(to: CGPoint(x: feet.x, y: f.maxY - Self.figure.height), landing: .hang)
         }
     }
 
