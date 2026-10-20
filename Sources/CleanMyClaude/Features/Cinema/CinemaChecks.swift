@@ -42,10 +42,26 @@ enum CinemaChecks {
                                           ("Amazon Video", "prime"), ("Disney Plus", "disney"), ("Canal+", "canal"), ("Apple TV", "apple"),
                                           ("Apple TV Plus", "apple"), ("HBO Max", "max"), ("Max", "max"), ("France TV", "francetv"),
                                           ("Arte", "arte"), ("TF1+", "tf1"), ("M6+", "m6"), ("YouTube", "youtube"), ("Maxdome", nil),
-                                          ("Artesia", nil), ("Universciné", nil)]
+                                          ("Artesia", nil), ("Universciné", nil),
+                                          // Names TMDB really gives in France (October 2026).
+                                          ("Apple TV Store", "apple"), ("Canal VOD", "canal"), ("Canal+ Séries", "canal"), ("ARTE VOD", "artevod"),
+                                          ("Amazon Prime Video with Ads", "prime"), ("YouTube Premium", "youtube"), ("Paramount Plus Premium", "paramount"),
+                                          ("Animation Digital Network", "adn"), ("France TV Amazon Channel", "prime"), ("MUBI Amazon Channel", "prime"),
+                                          ("Cine+ OCS Amazon Channel ", "prime"), ("HBO Max Amazon Channel", "prime"),
+                                          ("Paramount Plus Apple TV channel", "apple"), ("Orange VOD", nil), ("SFR Play", nil), ("JustWatch TV", nil)]
         for (name, key) in names where CinemaPlatform.match(name)?.key != key {
             f.append("plateforme : « \(name) » → \(CinemaPlatform.match(name)?.key ?? "aucune") au lieu de \(key ?? "aucune")")
         }
+
+        // Channels: shown by their own name, watched in the platform that sells them, never merged with each other.
+        let channels = [CinemaOffer(kind: .subscription, providerID: 2535, name: "France TV Amazon Channel"),
+                        CinemaOffer(kind: .subscription, providerID: 2173, name: "Anime Digital Network Amazon Channel"),
+                        CinemaOffer(kind: .subscription, providerID: 119, name: "Amazon Prime Video")]
+        expect(channels.map(\.displayName) == ["France TV via Prime Video", "Anime Digital Network via Prime Video", "Prime Video"]
+               && CinemaOffers.merged(channels).count == 3, "chaînes : \(channels.map(\.displayName))")
+        expect(CinemaOffersView.groups(t.offers, compact: true).map(\.label) == ["Abonnement", "Gratuit", "Location ou achat"]
+               && CinemaOffersView.groups(t.offers, compact: true).last?.offers.count == 1
+               && CinemaOffersView.groups(t.offers, compact: false).map(\.label) == ["Abonnement", "Gratuit", "Location", "Achat"], "groupes d'offres")
 
         // Where a click goes: the title's own page, else the platform's search, else TMDB.
         var linked = t

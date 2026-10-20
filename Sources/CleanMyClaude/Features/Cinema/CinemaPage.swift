@@ -323,7 +323,7 @@ struct CinemaBottomBar: View {
                 }
                 if let offer = CinemaOffers.best(t, mine: model.mine) {
                     Button { model.open(offer, in: t) } label: {
-                        Label("Regarder sur \(offer.platform?.name ?? offer.name)", systemImage: "play.fill")
+                        Label("Regarder sur \(offer.displayName)", systemImage: "play.fill")
                     }
                     .buttonStyle(SoftButtonStyle(prominent: true))
                     .keyboardShortcut(.return, modifiers: .command)

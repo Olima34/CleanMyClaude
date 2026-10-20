@@ -194,7 +194,7 @@ enum CinemaWikidata {
     static func wantedPlatforms(_ title: CinemaTitle) -> [CinemaPlatform] {
         var out: [CinemaPlatform] = []
         for o in title.offers {
-            guard let p = o.platform, p.wikidataProperty(title.hit.kind) != nil, !out.contains(p) else { continue }
+            guard CinemaPlatform.channel(o.name) == nil, let p = o.platform, p.wikidataProperty(title.hit.kind) != nil, !out.contains(p) else { continue }
             out.append(p)
         }
         return out

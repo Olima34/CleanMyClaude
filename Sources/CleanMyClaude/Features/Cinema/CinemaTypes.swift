@@ -74,6 +74,18 @@ struct CinemaOffer: Codable, Equatable, Hashable, Identifiable {
 
     var id: String { "\(kind.rawValue)-\(providerID)" }
     var platform: CinemaPlatform? { CinemaPlatform.match(name) }
+
+    /// « Netflix », or for a channel sold inside another platform « France TV via Prime Video ».
+    var displayName: String {
+        if let c = CinemaPlatform.channel(name) { return "\(c.label) via \(c.host.name)" }
+        return platform?.name ?? name.trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Two offers are the same when they are the same platform (or the same channel) and kind.
+    var mergeKey: String {
+        let who = CinemaPlatform.channel(name).map { "channel:" + Fuzzy.fold($0.label) } ?? platform?.key ?? "id\(providerID)"
+        return kind.rawValue + "|" + who
+    }
 }
 
 /// Everything shown about a title.
@@ -128,13 +140,16 @@ struct CinemaPlatform: Equatable, Hashable, Identifiable {
                        search: "https://www.primevideo.com/search?phrase=%@"),
         CinemaPlatform(key: "disney", name: "Disney+", prefixes: ["disney plus", "disney+"], search: nil,
                        wikidataMovie: "P7595", wikidataTV: "P7596", directTemplate: nil),
-        CinemaPlatform(key: "canal", name: "Canal+", prefixes: ["canal+", "canal plus", "mycanal", "ocs"], search: nil),
+        // « Canal+ », « Canal+ Séries », « Canal VOD » (its rental store).
+        CinemaPlatform(key: "canal", name: "Canal+", prefixes: ["canal", "mycanal", "ocs"], search: nil),
         CinemaPlatform(key: "apple", name: "Apple TV", prefixes: ["apple tv"], search: "https://tv.apple.com/fr/search?term=%@",
                        wikidataMovie: "P9586", wikidataTV: "P9751", directTemplate: nil),
         CinemaPlatform(key: "max", name: "HBO Max", prefixes: ["hbo max", "max"], search: "https://play.hbomax.com/search?q=%@"),
         CinemaPlatform(key: "paramount", name: "Paramount+", prefixes: ["paramount"], search: nil),
         CinemaPlatform(key: "francetv", name: "France.tv", prefixes: ["france tv", "france.tv", "francetv"],
                        search: "https://www.france.tv/recherche/?q=%@"),
+        // ARTE's paid store before arte.tv, whose search only finds what is free to watch.
+        CinemaPlatform(key: "artevod", name: "ARTE VOD", prefixes: ["arte vod"], search: nil, common: false),
         CinemaPlatform(key: "arte", name: "Arte", prefixes: ["arte"], search: "https://www.arte.tv/fr/search/?q=%@"),
         CinemaPlatform(key: "tf1", name: "TF1+", prefixes: ["tf1", "tf1+"], search: nil),
         CinemaPlatform(key: "m6", name: "M6+", prefixes: ["m6", "m6+", "6play"], search: "https://www.m6.fr/recherche?q=%@"),
@@ -145,6 +160,7 @@ struct CinemaPlatform: Equatable, Hashable, Identifiable {
         CinemaPlatform(key: "rakuten", name: "Rakuten TV", prefixes: ["rakuten"], search: "https://www.rakuten.tv/fr/search?q=%@", common: false),
         CinemaPlatform(key: "pluto", name: "Pluto TV", prefixes: ["pluto"], search: "https://pluto.tv/fr/search/details/?query=%@", common: false),
         CinemaPlatform(key: "mubi", name: "MUBI", prefixes: ["mubi"], search: "https://mubi.com/fr/search/films?query=%@"),
+        CinemaPlatform(key: "adn", name: "ADN", prefixes: ["animation digital network", "anime digital network", "adn"], search: nil),
         CinemaPlatform(key: "crunchyroll", name: "Crunchyroll", prefixes: ["crunchyroll"], search: "https://www.crunchyroll.com/fr/search?q=%@",
                        wikidataMovie: nil, wikidataTV: "P11330", directTemplate: "https://www.crunchyroll.com/series/$1")
     ]
@@ -152,11 +168,23 @@ struct CinemaPlatform: Equatable, Hashable, Identifiable {
     static func named(_ key: String) -> CinemaPlatform? { all.first { $0.key == key } }
 
     /// The platform behind a TMDB provider name, or nil for one the app does not know (it still links through TMDB).
+    /// A channel (« MUBI Amazon Channel ») is watched in the platform that sells it.
     static func match(_ providerName: String) -> CinemaPlatform? {
+        if let c = channel(providerName) { return c.host }
         let n = Fuzzy.fold(providerName).trimmingCharacters(in: .whitespaces)
         return all.first { p in
             p.prefixes.contains { pre in n == pre || n.hasPrefix(pre + " ") || (pre.count > 4 && n.hasPrefix(pre)) }
         }
+    }
+
+    /// « France TV Amazon Channel » → France TV inside Prime Video; « Paramount Plus Apple TV channel » → inside Apple TV.
+    static func channel(_ providerName: String) -> (label: String, host: CinemaPlatform)? {
+        let n = providerName.trimmingCharacters(in: .whitespaces)
+        for (suffix, key) in [(" amazon channel", "prime"), (" apple tv channel", "apple")] where n.lowercased().hasSuffix(suffix) {
+            let label = String(n.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
+            if !label.isEmpty, let host = named(key) { return (label, host) }
+        }
+        return nil
     }
 
     func wikidataProperty(_ kind: CinemaKind) -> String? { kind == .movie ? wikidataMovie : wikidataTV }
@@ -212,10 +240,10 @@ enum CinemaOffers {
         }
     }
 
-    /// One offer per platform and kind (TMDB lists « Netflix » and « Netflix Standard with Ads » apart).
+    /// One offer per platform (or channel) and kind: TMDB lists « Netflix » and « Netflix Standard with Ads » apart.
     static func merged(_ offers: [CinemaOffer]) -> [CinemaOffer] {
         var seen = Set<String>()
-        return offers.filter { o in seen.insert("\(o.kind.rawValue)|\(o.platform?.key ?? "id\(o.providerID)")").inserted }
+        return offers.filter { seen.insert($0.mergeKey).inserted }
     }
 
     /// The offer ↩ opens: on one of the user's platforms when possible, else the first one listed.

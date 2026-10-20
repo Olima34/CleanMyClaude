@@ -11,6 +11,7 @@ swift build                                         # sans erreur ni avertisseme
 .build/debug/CleanMyClaude --snapshot out/ --demo --page <page> [--tab <onglet>] [--theme graphite] [--scale 2] [--profile etudes,loisirs|aucun]
 .build/debug/CleanMyClaude --dump --only <page>    # ce que le module voit, en texte
 .build/debug/CleanMyClaude --update-check --as-version 0.2.0   # la mise à jour de l'app contre le vrai GitHub
+TMDB_KEY=… .build/debug/CleanMyClaude --cinema-check "dune" [--kind film|serie] [--region FR] [--pick N]   # Films et séries contre le vrai TMDB
 ```
 
 Relis toujours la capture PNG de ta page. `./scripts/build_app.sh` installe l'app dans `~/Applications` : **ne le lance pas depuis une copie de travail parallèle** (toutes partagent la même app installée et les mêmes autorisations macOS).

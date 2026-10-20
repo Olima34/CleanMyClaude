@@ -115,6 +115,17 @@ enum Entry {
             while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
             return
         }
+        if args.contains("--cinema-check") {
+            // Films et séries against the real TMDB and Wikidata (see CinemaCLI).
+            final class Done: @unchecked Sendable { var value = false }
+            let done = Done()
+            Task.detached {
+                await CinemaCLI.run()
+                done.value = true
+            }
+            while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return
+        }
         if let i = args.firstIndex(of: "--adblock") {
             // The ad blocker from the command line: measure it, check a domain, write its profile (see AdBlockCLI).
             final class Done: @unchecked Sendable { var value = false }

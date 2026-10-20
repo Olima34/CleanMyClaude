@@ -46,7 +46,7 @@ struct CinemaLogo: View {
                 let fill = Theme.color(index: offer.name.unicodeScalars.reduce(0) { ($0 &* 31 &+ Int($1.value)) & 0xFFFF })
                 ZStack {
                     fill
-                    Text(String((offer.platform?.name ?? offer.name).prefix(1)))
+                    Text(String(offer.displayName.prefix(1)))
                         .font(.ui(size * 0.58, .bold)).foregroundStyle(Theme.ink(on: fill))
                 }
             }
@@ -69,7 +69,7 @@ struct CinemaOfferChip: View {
         Button { model.open(offer, in: title) } label: {
             HStack(spacing: 5) {
                 CinemaLogo(offer: offer, size: 16)
-                Text(offer.platform?.name ?? offer.name).font(.ui(11.5, .medium)).lineLimit(1)
+                Text(offer.displayName).font(.ui(11.5, .medium)).lineLimit(1)
                 if mine {
                     Image(systemName: "checkmark.circle.fill").font(.ui(9.5)).foregroundStyle(Theme.good)
                 }
@@ -86,7 +86,7 @@ struct CinemaOfferChip: View {
 
     private var help: String {
         let d = CinemaOffers.destination(offer, in: title)
-        let name = offer.platform?.name ?? offer.name
+        let name = offer.displayName
         switch d.via {
         case .direct: return "Ouvre « \(title.hit.title) » sur \(name)" + (d.adFreePlayer ? ", dans le lecteur sans pub" : "")
         case .search: return "Cherche « \(title.hit.title) » sur \(name)" + (d.adFreePlayer ? ", dans le lecteur sans pub" : "")
@@ -112,20 +112,55 @@ struct CinemaOffersView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: compact ? 7 : 10) {
-                ForEach(CinemaOfferKind.allCases, id: \.self) { kind in
-                    let group = offers.filter { $0.kind == kind }
-                    if !group.isEmpty {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(kind.label.uppercased())
-                                .font(.ui(9.5, .semibold)).tracking(0.6).foregroundStyle(Theme.text3)
-                            FlowLayout(spacing: 5, lineSpacing: 5) {
-                                ForEach(group) { CinemaOfferChip(offer: $0, title: title) }
+                ForEach(CinemaOffersView.groups(offers, compact: compact), id: \.label) { group in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(group.label.uppercased())
+                            .font(.ui(9.5, .semibold)).tracking(0.6).foregroundStyle(Theme.text3)
+                        FlowLayout(spacing: 5, lineSpacing: 5) {
+                            ForEach(group.offers) { CinemaOfferChip(offer: $0, title: title) }
+                            if group.more > 0 {
+                                Text("+\(group.more)").font(.ui(11, .medium)).foregroundStyle(Theme.text3)
+                                    .padding(.horizontal, 6).padding(.vertical, 4)
+                                    .help("⌘↩ ouvre la fiche complète avec toutes les boutiques")
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+extension CinemaOffersView {
+    struct Group {
+        var label: String
+        var offers: [CinemaOffer]
+        var more = 0
+    }
+
+    /// By kind of offer. In the launcher, rental and purchase share one row (the same stores often do both: once each)
+    /// and a few stores are shown, the user's first.
+    static func groups(_ offers: [CinemaOffer], compact: Bool) -> [Group] {
+        var out: [Group] = []
+        for kind in [CinemaOfferKind.subscription, .free, .ads] {
+            let list = offers.filter { $0.kind == kind }
+            if !list.isEmpty { out.append(Group(label: kind.label, offers: list)) }
+        }
+        let paid = offers.filter { $0.kind == .rent || $0.kind == .buy }
+        guard !paid.isEmpty else { return out }
+        if compact {
+            var seen = Set<String>()
+            let stores = paid.filter { seen.insert($0.displayName).inserted }
+            let kinds = Set(paid.map(\.kind))
+            let label = kinds.count == 2 ? "Location ou achat" : (kinds.first?.label ?? "Location")
+            out.append(Group(label: label, offers: Array(stores.prefix(5)), more: max(0, stores.count - 5)))
+        } else {
+            for kind in [CinemaOfferKind.rent, .buy] {
+                let list = paid.filter { $0.kind == kind }
+                if !list.isEmpty { out.append(Group(label: kind.label, offers: list)) }
+            }
+        }
+        return out
     }
 }
 
@@ -263,7 +298,7 @@ struct CinemaLauncherPane: View {
     }
 
     private func hints(_ offer: CinemaOffer?) -> String {
-        let watch = offer.map { "↩ Regarder sur \($0.platform?.name ?? $0.name)" } ?? "↩ Où regarder"
+        let watch = offer.map { "↩ Regarder sur \($0.displayName)" } ?? "↩ Où regarder"
         return watch + " · ⌘↩ Fiche complète"
     }
 }
@@ -305,7 +340,7 @@ struct CinemaSearchPane: View {
                 }
                 Spacer(minLength: 0)
             }
-            Text(hits.isEmpty ? "↩ Tous les résultats" : "↩ Tous les résultats · " + (model.bestOffer(hits[0]).map { "sur \($0.platform?.name ?? $0.name)" } ?? "où regarder"))
+            Text(hits.isEmpty ? "↩ Tous les résultats" : "↩ Tous les résultats · " + (model.bestOffer(hits[0]).map { "sur \($0.displayName)" } ?? "où regarder"))
                 .lineLimit(1).font(.ui(10.5)).foregroundStyle(Theme.text3)
         }
         .padding(14)

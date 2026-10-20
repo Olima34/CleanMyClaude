@@ -357,10 +357,10 @@ final class CinemaModel: AppModule {
     func hitCommand(_ hit: CinemaHit, boost: Double) -> AppCommand {
         let offer = bestOffer(hit)
         var subtitle = hit.line
-        if let o = offer { subtitle += " · " + (o.platform?.name ?? o.name) } else if titles[hit.id] != nil { subtitle += " · pas en streaming" }
+        if let o = offer { subtitle += " · " + o.displayName } else if titles[hit.id] != nil { subtitle += " · pas en streaming" }
         return AppCommand(id: "cinema_\(hit.kind.rawValue)_\(hit.tmdbID)", title: hit.title, subtitle: subtitle,
                           icon: .symbol(hit.kind.symbol, CinemaStyle.tint), group: .cinema,
-                          hint: offer.map { "Regarder sur \($0.platform?.name ?? $0.name)" } ?? "Où regarder", boost: boost,
+                          hint: offer.map { "Regarder sur \($0.displayName)" } ?? "Où regarder", boost: boost,
                           pane: { AnyView(CinemaLauncherPane(hit: hit)) }) { [weak self] ctx in
             if ctx.alternate { self?.show(hit, app: ctx.app) } else { self?.watch(hit) }
             return .done
