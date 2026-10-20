@@ -208,16 +208,18 @@ final class RefugeCompanion {
             if state.frame % 2 == 0, jumpTicks == 0 { state.lift = 1 }
             // Coming in from off the screen, it keeps walking in; then it turns at the ends of its edge.
             if entering, s.contains(feet.x) { entering = false }
-            if !entering, feet.x < s.minX { feet.x = s.minX; direction = 1; if Bool.random() { next(f) } }
-            if !entering, feet.x > s.maxX { feet.x = s.maxX; direction = -1; if Bool.random() { next(f) } }
-            if night { mode = .sleep; break }
-            if ticksLeft <= 0 { next(f) }
+            if !entering, feet.x < s.minX { feet.x = s.minX; direction = 1; if Bool.random() { next(f, night: night) } }
+            if !entering, feet.x > s.maxX { feet.x = s.maxX; direction = -1; if Bool.random() { next(f, night: night) } }
+            if ticksLeft <= 0 { next(f, night: night) }
         case .sit:
-            if night { mode = .sleep; break }
-            if ticksLeft <= 0 { next(f) }
+            if ticksLeft <= 0 { next(f, night: night) }
         case .sleep:
+            // A nap: at night it takes many, between two strolls.
             state.mood = .sleepy
-            if !night { mode = .walk; ticksLeft = 40; refreshLook() }
+            if ticksLeft <= 0 {
+                refreshLook()
+                next(f, night: night)
+            }
         case .jumping:
             guard var j = jump else { startFalling(); break }
             j.step += 1
@@ -342,9 +344,15 @@ final class RefugeCompanion {
         mode = .jumping
     }
 
-    /// What it does next, as it likes: walk, sit, jump to another edge, lean in from a side, hang from the top.
-    private func next(_ f: NSRect) {
+    /// What it does next, as it likes: walk, sit, jump to another edge, lean in from a side, hang from the top; at
+    /// night, mostly a nap.
+    private func next(_ f: NSRect, night: Bool = false) {
         state.rotation = 0
+        if night, Int.random(in: 0..<100) < 55 {
+            mode = .sleep
+            ticksLeft = Int.random(in: 120...240)
+            return
+        }
         let roll = Int.random(in: 0..<100)
         let others = surfaces.filter { $0.id != surface?.id && abs($0.y - feet.y) < 520 }
         switch roll {
