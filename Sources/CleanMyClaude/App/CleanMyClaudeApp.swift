@@ -257,7 +257,7 @@ struct CleanMyClaudeApp: App {
     }
 
     var body: some Scene {
-        Window("Clean My Claude", id: "main") {
+        Window(AppEdition.name, id: "main") {
             RootView()
                 .environment(model)
                 .frame(minWidth: 1100, minHeight: 720)

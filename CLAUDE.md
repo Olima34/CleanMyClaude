@@ -15,7 +15,7 @@ swift build                                         # sans erreur ni avertisseme
 
 Relis toujours la capture PNG de ta page. `./scripts/build_app.sh` installe l'app dans `~/Applications` : **ne le lance pas depuis une copie de travail parallèle** (toutes partagent la même app installée et les mêmes autorisations macOS).
 
-Chaque push sur `main` dont la CI réussit est publié comme nouvelle version (`v0.3.N`, numéro donné par `scripts/version.sh`), puis proposé aux apps déjà installées : ne pousse que du code prêt.
+Chaque push sur `main` dont la CI réussit est publié comme nouvelle version (`v0.3.N`, numéro donné par `scripts/version.sh`), puis proposé aux apps déjà installées. On ne travaille donc jamais sur `main` : chaque changement vérifié est commité sur la branche locale `labo` (jamais poussée), avec une ligne `Labo: L-NNN` qui le relie au cahier des fonctionnalités, puis essayé dans l'app de test « Labo » (`labo/construire.sh`, identifiant `io.github.olima34.cleanmyclaude.labo`, ses propres données et réglages, `AppEdition.isLab`). `main` ne reçoit que les fonctionnalités que l'utilisateur demande de publier (`labo/publier.sh`). Le dossier `labo/` du dépôt principal est hors Git (`.git/info/exclude`).
 
 ## Architecture
 

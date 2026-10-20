@@ -111,7 +111,8 @@ final class UpdatesSelfModel {
         refreshPlace()
     }
 
-    var canCheck: Bool { build.version != nil }
+    /// The Labo copy is rebuilt from the local branch for every test: it never compares itself with the published versions.
+    var canCheck: Bool { build.version != nil && !AppEdition.isLab }
     var isSkipped: Bool { release != nil && release?.version == skipped }
 
     // MARK: Lifecycle
@@ -157,8 +158,11 @@ final class UpdatesSelfModel {
             return
         }
         guard canCheck else {
-            state = .failed("Version de développement : assemble l'app avec ./scripts/build_app.sh pour la comparer aux versions publiées.")
-            if tell { HUD.show("Version de développement : rien à comparer", symbol: "exclamationmark.triangle.fill") }
+            state = .failed(AppEdition.isLab
+                            ? "Version Labo : elle est reconstruite à chaque essai et ne se compare pas aux versions publiées."
+                            : "Version de développement : assemble l'app avec ./scripts/build_app.sh pour la comparer aux versions publiées.")
+            if tell { HUD.show(AppEdition.isLab ? "Version Labo : rien à comparer" : "Version de développement : rien à comparer",
+                               symbol: "exclamationmark.triangle.fill") }
             return
         }
         state = .checking

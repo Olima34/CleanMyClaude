@@ -117,7 +117,7 @@ enum CleanupCatalog {
         "node-gyp", "ms-playwright", "electron", "electron-builder", "typescript", "JetBrains", "Cypress", "composer",
         "com.apple.Safari", "Google", "Firefox", "Microsoft Edge", "BraveSoftware", "Arc", "com.operasoftware.Opera",
         "Vivaldi", "com.anthropic.claudefordesktop", "com.anthropic.claudefordesktop.ShipIt", "claude-cli-nodejs",
-        "io.github.olima34.cleanmyclaude"
+        AppEdition.regularID, AppEdition.labID
     ]
 
     /// Caches that hold state macOS or iCloud rely on: never offered.

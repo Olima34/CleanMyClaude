@@ -4,7 +4,7 @@ import Security
 /// Secrets (API keys) in the user's login keychain. Never in UserDefaults or a file.
 /// With an ad-hoc signature, macOS may ask again after each rebuild whether the app can read its item.
 enum Keychain {
-    static let service = "io.github.olima34.cleanmyclaude"
+    static let service = AppEdition.isLab ? AppEdition.labID : AppEdition.regularID
 
     static func get(_ account: String) -> String? {
         guard !DemoData.isEnabled else { return nil }

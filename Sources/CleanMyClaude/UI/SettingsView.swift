@@ -97,7 +97,7 @@ struct GeneralSettings: View {
         let m = app.updates.selfUpdate
         if m.state.isChecking { return "Vérification…" }
         if let r = m.release { return "Version \(r.version) disponible, tu as la \(m.build.label)" }
-        guard m.canCheck else { return "Version de développement" }
+        guard m.canCheck else { return AppEdition.isLab ? "Version Labo \(m.build.label)" : "Version de développement" }
         if case .failed(let message) = m.state { return message }
         if let d = m.state.date { return "À jour : \(m.build.label), vérifié \(Fmt.relative(d))" }
         return "Version \(m.build.label)"

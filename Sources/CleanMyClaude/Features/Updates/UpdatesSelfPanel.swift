@@ -411,7 +411,10 @@ struct UpdatesSelfCard: View {
 
     private func subtitle(_ m: UpdatesSelfModel) -> String {
         if let r = m.release { return "La version \(r.version) est publiée sur GitHub. Tu as la \(m.build.label)." }
-        guard m.canCheck else { return "Version de développement : rien à comparer aux versions publiées." }
+        guard m.canCheck else {
+            return AppEdition.isLab ? "Version Labo \(m.build.label) : reconstruite à chaque essai, jamais remplacée par une version publiée."
+                                    : "Version de développement : rien à comparer aux versions publiées."
+        }
         if let d = m.state.date { return "Tu as la dernière version : \(m.build.label). Vérifié \(Fmt.relative(d))." }
         return "Ta version : \(m.build.label)."
     }

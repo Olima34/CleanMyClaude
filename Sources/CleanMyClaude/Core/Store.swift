@@ -8,11 +8,11 @@ final class CancelFlag: @unchecked Sendable {
     func cancel() { lock.lock(); flag = true; lock.unlock() }
 }
 
-/// Where the app keeps its own data: ~/Library/Application Support/CleanMyClaude/
+/// Where the app keeps its own data: ~/Library/Application Support/CleanMyClaude/ (CleanMyClaude Labo/ for the test copy).
 /// `Remover` never deletes anything inside it. The folders are readable by this user alone (0700), and so are the files
 /// written there (0600): the clipboard history, the settings and the journals are nobody else's business.
 enum DataStore {
-    static let folder = FS.home + "/Library/Application Support/CleanMyClaude"
+    static let folder = FS.home + "/Library/Application Support/" + (AppEdition.isLab ? "CleanMyClaude Labo" : "CleanMyClaude")
 
     static func url(_ name: String) -> URL {
         URL(fileURLWithPath: folder).appendingPathComponent(name)
