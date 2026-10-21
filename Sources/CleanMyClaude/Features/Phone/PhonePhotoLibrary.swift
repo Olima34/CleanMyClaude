@@ -72,11 +72,11 @@ enum PhonePhotoLibrary {
     }
 
     /// Whether this library is the iPhone's: a dozen of its photos and videos, spread over the years, looked for in it.
-    static func check(_ items: [PhoneItem]) async -> PhoneLibrarySync {
+    static func check(_ items: [PhoneItem], before: Int?) async -> PhoneLibrarySync {
         guard access == .granted else { return .unknown }
         let sample = PhoneRules.sample(items, count: 12)
         let search = await find(sample, diagnose: false)
-        return PhoneRules.sync(total: search.total, sampled: sample.count, found: search.found.count)
+        return PhoneRules.sync(total: search.total, sampled: sample.count, found: search.found.count, before: before)
     }
 
     /// Moves the assets to « Supprimés récemment » (macOS shows its own confirmation). Returns how many went.

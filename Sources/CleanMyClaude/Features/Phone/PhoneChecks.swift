@@ -110,7 +110,10 @@ enum PhoneChecks {
             f.append("Échantillon de la photothèque mal réparti")
         }
         if PhoneRules.sync(total: 40, sampled: 12, found: 0) != .missing(40) || PhoneRules.sync(total: 18_000, sampled: 12, found: 11) != .synced(18_000)
-            || PhoneRules.sync(total: 0, sampled: 0, found: 0) != .missing(0) {
+            || PhoneRules.sync(total: 0, sampled: 0, found: 0) != .missing(0)
+            || PhoneRules.sync(total: 137, sampled: 12, found: 0, before: 40) != .syncing(137)
+            || PhoneRules.sync(total: 900, sampled: 12, found: 3) != .syncing(900)
+            || PhoneRules.sync(total: 137, sampled: 12, found: 0, before: 137) != .missing(137) {
             f.append("Photothèque du Mac : synchronisation mal jugée")
         }
         if PhoneRules.batches(Array(0..<25), size: 10).map(\.count) != [10, 10, 5] || !PhoneRules.batches([Int](), size: 10).isEmpty {

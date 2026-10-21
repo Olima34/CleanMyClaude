@@ -17,13 +17,25 @@ final class PhoneModel: AppModule {
     var iCloudPhotos = false
     var canDelete = false
     var task: PhoneTask?
-    var selection: Set<String> = []
+    var selection: Set<String> = [] {
+        didSet { if selection != oldValue { lookUpSelection() } }
+    }
+    /// With iCloud Photos, while this Mac's library is not known to be the iPhone's: which ticked items it holds
+    /// (item → asset), looked a moment after each change; nil while looking.
+    var selectionInLibrary: [String: String]?
+    @ObservationIgnored private var selectionLookup: Task<Void, Never>?
     /// The category being reviewed, thumbnail by thumbnail.
     var reviewing: PhoneCategoryKind?
     /// The Photos permission, for iCloud Photos.
     var photosAccess: PermissionState = .notAsked
     /// With iCloud Photos: whether this Mac's library is the iPhone's, the only way to delete.
     var librarySync: PhoneLibrarySync = .unknown
+    var libraryCheckedAt: Date?
+    /// The page is on screen: a library still filling is looked at again every minute.
+    @ObservationIgnored var pageVisible = false {
+        didSet { updateRecheck() }
+    }
+    @ObservationIgnored private var recheck: Timer?
     var health: PhoneHealthLog {
         didSet { healthStore.value = health }
     }
@@ -53,8 +65,9 @@ final class PhoneModel: AppModule {
     var deletion: PhoneDeletion {
         if canDelete { return .cable }
         guard iCloudPhotos else { return .none }
-        if case .missing = librarySync { return .none }
-        return .library
+        if !librarySync.waiting { return .library }
+        // Part of the library came from iCloud (older photos, or iCloud full): the ticked items that are there.
+        return selectionInLibrary?.isEmpty == false ? .library : .none
     }
     var isBusy: Bool { task != nil }
     var mediaSize: Int64 { items.reduce(0) { $0 + $1.size } }
@@ -245,7 +258,10 @@ final class PhoneModel: AppModule {
             photosAccess = PhonePhotoLibrary.access
             if librarySync == .unknown { checkLibrary() }
         }
-        if photoState != .ready { librarySync = .unknown }
+        if photoState != .ready {
+            librarySync = .unknown
+            updateRecheck()
+        }
     }
 
     private func runAnalysis() {
@@ -276,7 +292,11 @@ final class PhoneModel: AppModule {
         if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
     }
 
-    func category(_ kind: PhoneCategoryKind) -> PhoneCategory? { categories.first { $0.kind == kind } }
+    func category(_ kind: PhoneCategoryKind) -> PhoneCategory? {
+        guard kind == .all else { return categories.first { $0.kind == kind } }
+        let sorted = items.sorted { $0.date < $1.date }
+        return PhoneCategory(kind: .all, ids: sorted.map(\.id), size: sorted.reduce(0) { $0 + $1.size })
+    }
 
     func selectAll(_ kind: PhoneCategoryKind) { selection.formUnion(category(kind)?.ids ?? []) }
     func deselectAll(_ kind: PhoneCategoryKind) { selection.subtract(category(kind)?.ids ?? []) }
@@ -434,13 +454,48 @@ final class PhoneModel: AppModule {
     func checkLibrary() {
         guard !DemoData.isEnabled, !Snapshot.isActive, iCloudPhotos, photoState == .ready, photosAccess == .granted,
               librarySync != .checking else { return }
+        let before = librarySync.total
         librarySync = .checking
         let sample = items
         Task {
-            let result = await PhonePhotoLibrary.check(sample)
+            let result = await PhonePhotoLibrary.check(sample, before: before)
             if photoState == .ready { librarySync = result }
+            libraryCheckedAt = Date()
+            lookUpSelection()
             // The page's card says it now, better than the trouble of an earlier attempt.
-            if case .missing = result { deletionTrouble = nil }
+            if result.waiting { deletionTrouble = nil }
+            updateRecheck()
+        }
+    }
+
+    private func lookUpSelection() {
+        selectionLookup?.cancel()
+        selectionInLibrary = nil
+        let chosen = items.filter { selection.contains($0.id) }
+        guard !DemoData.isEnabled, !Snapshot.isActive, iCloudPhotos, !canDelete, photosAccess == .granted,
+              librarySync.waiting, !chosen.isEmpty else { return }
+        selectionLookup = Task {
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            let search = await PhonePhotoLibrary.find(chosen, diagnose: false)
+            guard !Task.isCancelled else { return }
+            selectionInLibrary = search.found
+        }
+    }
+
+    /// Every minute (a dozen lookups in Photos), only while the page shows a library still filling.
+    private func updateRecheck() {
+        let needed = pageVisible && iCloudPhotos && photoState == .ready && photosAccess == .granted && librarySync.waiting
+        if !needed {
+            recheck?.invalidate()
+            recheck = nil
+        } else if recheck == nil {
+            let t = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkLibrary() }
+            }
+            t.tolerance = 10
+            RunLoop.main.add(t, forMode: .common)
+            recheck = t
         }
     }
 

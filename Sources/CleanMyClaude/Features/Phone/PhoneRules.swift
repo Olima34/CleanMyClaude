@@ -231,9 +231,12 @@ enum PhoneRules {
         return (0..<count).map { sorted[$0 * (sorted.count - 1) / max(1, count - 1)] }
     }
 
-    /// Most of the sample found: the same library.
-    static func sync(total: Int, sampled: Int, found: Int) -> PhoneLibrarySync {
-        total > 0 && sampled > 0 && found * 2 >= sampled ? .synced(total) : .missing(total)
+    /// Most of the sample found: the same library. Some of it, or more photos than at the last look: Photos is
+    /// filling it from iCloud.
+    static func sync(total: Int, sampled: Int, found: Int, before: Int? = nil) -> PhoneLibrarySync {
+        if total > 0 && sampled > 0 && found * 2 >= sampled { return .synced(total) }
+        if found > 0 || (before.map { total > $0 } ?? false) { return .syncing(total) }
+        return .missing(total)
     }
 
     static func batches<T>(_ list: [T], size: Int) -> [[T]] {

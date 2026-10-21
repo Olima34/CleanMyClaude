@@ -40,7 +40,15 @@ struct PhonePage: View {
             }
         }
         // A fresh check-up each time the page comes back (about a second, in the background).
-        .onAppear { if m.link == .ready { m.read() } }
+        .onAppear {
+            m.pageVisible = true
+            if m.link == .ready { m.read() }
+        }
+        .onDisappear { m.pageVisible = false }
+        // Back from Photos (its iCloud settings): a library still filling is looked at again.
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            if m.librarySync.waiting { m.checkLibrary() }
+        }
     }
 }
 
@@ -300,6 +308,11 @@ private struct PhoneCategoryList: View {
             if m.categories.isEmpty && m.analysed {
                 EmptyHint(text: "Rien à trier : ton iPhone est déjà bien rangé.", symbol: "checkmark.seal")
             }
+            HStack(spacing: 10) {
+                Text("Ou choisis toi-même parmi toutes les photos et vidéos, des plus anciennes aux plus récentes.")
+                    .font(.ui(11.5)).foregroundStyle(Theme.text3)
+                Button("Tout parcourir") { m.reviewing = .all }.buttonStyle(SoftButtonStyle(small: true))
+            }
             VStack(spacing: 2) {
                 ForEach(m.categories) { c in PhoneCategoryRow(category: c) }
             }
@@ -366,22 +379,57 @@ private struct PhoneModeNote: View {
     }
 }
 
+/// One way out, in the iCloud card.
+private struct PhoneWay: View {
+    var symbol: String
+    var title: String
+    var text: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            IconBadge(symbol: symbol, tint: PhonePage.tint, size: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.ui(12, .semibold)).foregroundStyle(Theme.text)
+                Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.leading, 4)
+    }
+}
+
 /// iCloud Photos on the iPhone: deletions go through this Mac's Photos library, when it is the same one.
 private struct PhoneCloudNote: View {
     @Environment(AppModel.self) private var app
+
+    private var actions: some View {
+        let m = app.phone
+        return HStack(spacing: 8) {
+            Button("Ouvrir Photos") { m.openPhotosApp() }.buttonStyle(SoftButtonStyle(small: true))
+            Button("Vérifier maintenant") { m.checkLibrary() }.buttonStyle(SoftButtonStyle(small: true))
+            if let at = m.libraryCheckedAt {
+                Text("Vérifié à \(Fmt.clock(at))").font(.ui(11)).foregroundStyle(Theme.text3)
+            }
+        }
+    }
 
     var body: some View {
         let m = app.phone
         VStack(alignment: .leading, spacing: 8) {
             switch (m.photosAccess, m.librarySync) {
             case (.granted, .missing(let total)):
-                Callout(symbol: "icloud.slash", title: "La photothèque de ce Mac n'est pas celle de ton iPhone",
-                        text: "Elle a \(Fmt.plural(total, "photo ou vidéo", "photos et vidéos")), ton iPhone \(Fmt.int(m.items.count)). Avec Photos iCloud, l'iPhone refuse toute suppression par le câble : Chamois supprime par l'app Photos de ce Mac. Pour cela, ouvre Photos › Réglages › iCloud, active « Photos iCloud » avec le même compte que l'iPhone, choisis « Optimiser le stockage du Mac » (il ne garde alors que de petites versions) et laisse la synchronisation finir. En attendant, « Copier sur le Mac » marche.",
+                Callout(symbol: "icloud.slash", title: "La photothèque de ce Mac n'a pas les photos de ton iPhone",
+                        text: "Elle a \(Fmt.plural(total, "photo ou vidéo", "photos et vidéos")), ton iPhone \(Fmt.int(m.items.count)). Avec Photos iCloud, l'iPhone refuse toute suppression par le câble : Chamois ne peut supprimer que par l'app Photos de ce Mac, quand elle a les mêmes photos. En attendant, « Copier sur le Mac » marche.",
                         tint: Theme.warn)
-                HStack(spacing: 8) {
-                    Button("Ouvrir Photos") { m.openPhotosApp() }.buttonStyle(SoftButtonStyle(small: true))
-                    Button("Vérifier à nouveau") { m.checkLibrary() }.buttonStyle(SoftButtonStyle(small: true))
-                }
+                PhoneWay(symbol: "icloud", title: "Ton stockage iCloud a de la place",
+                         text: "Dans Photos sur ce Mac, Réglages › iCloud : active « Photos iCloud » avec le même compte que l'iPhone, choisis « Optimiser le stockage du Mac » (il ne garde que de petites versions) et laisse la synchronisation finir.")
+                PhoneWay(symbol: "exclamationmark.icloud", title: "Ton iPhone dit « Stockage iCloud saturé »",
+                         text: "Alors tes photos récentes ne sont que sur l'iPhone, et iCloud ne les enverra jamais à ce Mac. Pour que Chamois les libère, désactive Photos iCloud sur l'iPhone (Réglages › ton nom › iCloud › Photos, en gardant les photos sur l'iPhone) : il copiera chaque élément choisi sur ce Mac, vérifiera la copie, puis le supprimera par le câble. Tes photos ne se synchroniseront plus entre tes appareils ; celles déjà dans iCloud y restent.")
+                actions
+            case (.granted, .syncing(let total)):
+                Callout(symbol: "arrow.triangle.2.circlepath.icloud", title: "Photos synchronise ta photothèque sur ce Mac",
+                        text: "\(Fmt.plural(total, "photo ou vidéo arrivée", "photos et vidéos arrivées")) pour l'instant, ton iPhone en a \(Fmt.int(m.items.count)). Photos commence par les plus anciennes ; selon la taille de ta photothèque, compte de quelques minutes à quelques heures, et garder Photos ouvert va plus vite. Chamois revérifie toutes les minutes tant que cette page est ouverte : « Supprimer » apparaîtra quand tes photos y seront.",
+                        tint: PhonePage.tint)
+                actions
             case (.granted, .checking):
                 HStack(spacing: 10) {
                     BusyMascot(.searching, pixel: 1)
@@ -424,8 +472,11 @@ private struct PhoneReview: View {
         Panel(title: kind.title, subtitle: "\(Fmt.plural(ids.count, "élément", "éléments")) · \(Fmt.bytes(category?.size ?? 0)) · \(kind.detail)",
               symbol: kind.symbol, tint: PhonePage.tint) {
             HStack(spacing: 8) {
-                Button(allPicked ? "Tout décocher" : "Tout cocher") { allPicked ? m.deselectAll(kind) : m.selectAll(kind) }
-                    .buttonStyle(SoftButtonStyle(small: true))
+                // Everything at once from « Tout parcourir » would be one click from emptying the iPhone.
+                if kind != .all {
+                    Button(allPicked ? "Tout décocher" : "Tout cocher") { allPicked ? m.deselectAll(kind) : m.selectAll(kind) }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                }
                 Button {
                     m.reviewing = nil
                 } label: {
@@ -535,7 +586,8 @@ struct PhoneBottomBar: View {
         ActionBar {
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(Fmt.bytes(m.selectedSize)) sélectionnés").font(.serif(18)).foregroundStyle(Theme.text).monospacedDigit()
-                Text("\(Fmt.plural(count, "élément", "éléments")) · \(folderText)").font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
+                Text("\(Fmt.plural(count, "élément", "éléments")) · \(folderText)\(libraryText.map { " · " + $0 } ?? "")")
+                    .font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
             }
             Button("Changer de dossier") { m.chooseFolder() }.buttonStyle(.plain).font(.ui(11)).foregroundStyle(Theme.accent)
             Spacer()
@@ -575,6 +627,15 @@ struct PhoneBottomBar: View {
                        button: "Supprimer", isPresented: $confirmDelete) {
             run { await m.deleteSelection() }
         }
+    }
+
+    /// With iCloud Photos and a library still partial: how much of the selection Photos on this Mac holds.
+    private var libraryText: String? {
+        let m = app.phone
+        guard m.iCloudPhotos, !m.canDelete, m.librarySync.waiting, m.photosAccess == .granted else { return nil }
+        guard let found = m.selectionInLibrary?.count else { return "je cherche dans Photos…" }
+        if found == 0 { return "absents de la photothèque de ce Mac" }
+        return found == m.selection.count ? "tous dans Photos" : "\(Fmt.int(found)) sur \(Fmt.int(m.selection.count)) dans Photos"
     }
 
     private var folderName: String {

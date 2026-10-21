@@ -94,6 +94,8 @@ struct PhoneItem: Identifiable, Hashable {
 
 enum PhoneCategoryKind: String, CaseIterable, Identifiable {
     case videos, similar, screenshots, recordings, bursts, duplicates, utility, failed
+    /// Everything, oldest first: « Tout parcourir », never in the list of what to free.
+    case all
 
     var id: String { rawValue }
 
@@ -107,6 +109,7 @@ enum PhoneCategoryKind: String, CaseIterable, Identifiable {
         case .duplicates: return "Doublons exacts"
         case .utility: return "Images utilitaires"
         case .failed: return "Photos sans doute ratées"
+        case .all: return "Toutes les photos et vidéos"
         }
     }
 
@@ -120,6 +123,7 @@ enum PhoneCategoryKind: String, CaseIterable, Identifiable {
         case .duplicates: return "plus.square.on.square"
         case .utility: return "doc.text.viewfinder"
         case .failed: return "camera.metering.unknown"
+        case .all: return "photo.on.rectangle"
         }
     }
 
@@ -134,6 +138,7 @@ enum PhoneCategoryKind: String, CaseIterable, Identifiable {
         case .duplicates: return "Le même fichier deux fois : l'original reste sur l'iPhone"
         case .utility: return "Tickets, papiers, images reçues : rien d'un souvenir, d'après l'analyse d'images"
         case .failed: return "Floues, sombres ou prises dans la poche, d'après l'analyse d'images"
+        case .all: return "Des plus anciennes aux plus récentes, pour choisir toi-même"
         }
     }
 
@@ -179,7 +184,25 @@ enum PhoneLibrarySync: Equatable {
     case checking
     /// Most of a sample of the iPhone's photos is in it; the number of photos and videos it holds.
     case synced(Int)
+    /// Photos is filling it from iCloud (oldest first): it grew since the last look, or holds part of the sample.
+    case syncing(Int)
     case missing(Int)
+
+    /// The photos and videos it held at the last look.
+    var total: Int? {
+        switch self {
+        case .synced(let n), .syncing(let n), .missing(let n): return n
+        default: return nil
+        }
+    }
+
+    /// Not usable yet: looked at again now and then.
+    var waiting: Bool {
+        switch self {
+        case .syncing, .missing: return true
+        default: return false
+        }
+    }
 }
 
 /// The work under way on the photos.
