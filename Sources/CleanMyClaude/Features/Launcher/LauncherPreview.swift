@@ -38,6 +38,8 @@ struct LauncherPreview: View {
             }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 4).onChanged { _ in app.launcher.beginFileDrag(path, fromRow: false) })
+            // A snapshot never runs the reading task: its fictional details are read right here.
+            let info = Snapshot.isActive ? LauncherFileInfo.read(path) : info
             VStack(alignment: .leading, spacing: 5) {
                 row("Type", info.kind)
                 row(info.isDir ? "Contenu" : "Taille", info.size)

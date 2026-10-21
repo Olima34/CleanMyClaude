@@ -1,6 +1,8 @@
-# Clean My Claude : le guide complet
+# Chamois : le guide complet
 
 Tout ce que fait l'app, comment elle protège tes données, et comment la compiler toi-même. Pour l'installer, deux lignes suffisent : voir le [README](../README.md).
+
+Chamois s'appelait Clean My Claude : le temps de la transition, l'app installée, son archive, ses dossiers et certains menus de macOS gardent cet ancien nom.
 
 <p align="center">
   <img src="screenshots/dashboard.png" alt="Tableau de bord : score de santé, stockage, mémoire, processeur, batterie, analyse intelligente, activité en direct, conseils et les outils du profil, les plus utilisés d'abord" width="900">
@@ -72,6 +74,12 @@ Tout ce que fait l'app, comment elle protège tes données, et comment la compil
     <td valign="top"><img src="screenshots/performance.png" alt="Optimisation : le Boost, température, consommation, fréquences des cœurs, apps passées sur les cœurs économes et diagnostic"></td>
   </tr>
   <tr>
+    <th colspan="2">Films et séries</th>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><img src="screenshots/cinema.png" alt="Films et séries : la recherche « marée » liste films et séries, la fiche du film choisi avec sa note, sa bande-annonce sans pub et les plateformes où le regarder en France" width="760"></td>
+  </tr>
+  <tr>
     <th colspan="2">Menu d'état</th>
   </tr>
   <tr>
@@ -118,6 +126,7 @@ L'app s'adapte aussi à ce dont tu te sers, sans rien envoyer nulle part : un ou
 | **Convertisseur** | **Aperçu du résultat réel avant d'enregistrer** : l'opération tourne pour de vrai sur le fichier choisi, dans un dossier temporaire, et le rendu s'affiche à côté de l'original (images, PDF page par page, vidéo dans le lecteur de macOS, sur un morceau au choix (10 s, 30 s, 1 min ou tout) à partir du passage voulu, avec la taille estimée ; son et GIF en entier, son, documents, contenu d'une archive, texte reconnu), avec la taille avant et après. Enregistrement dans **Téléchargements** (par défaut), à côté des originaux ou dans un dossier choisi. Glisser-déposer, lanceur, Dock ou clic droit dans le Finder (**Services › Convertir avec Clean My Claude**). Images (HEIC, JPEG, PNG, AVIF, TIFF, GIF, BMP, PDF, JPEG 2000 ; redimensionner, compresser, **retirer le GPS** sans recompresser), vidéo (H.264, HEVC, MOV ↔ MP4 sans réencodage, **vidéo → GIF**, extraction de l'audio), audio (AAC, ALAC, WAV, AIFF, FLAC), PDF (**fusionner** PDF et images dans l'ordre voulu, glissé à la poignée, avec les pages choisies de chacun, un signet par document et ses propres signets dessous, une page blanche pour l'impression recto verso si besoin ; découper, pivoter, alléger, images ↔ PDF), documents (Word, RTF, HTML, TXT, ODT, Markdown → HTML ou PDF), ZIP, **renommage par lot** avec aperçu, **OCR** en français et en anglais, QR codes. MP3, OGG, MKV ou WebM si `ffmpeg` est installé |
 | **Remplir et signer** | Ouvre un PDF, un formulaire ou la **photo d'un document** (glisser-déposer, lanceur, ou **⌘K › Remplir et signer…** sur un PDF) : les **champs du formulaire** deviennent des cases où écrire, cocher ou choisir (⇥ passe au suivant), et pour un PDF sans champs ou un scan on écrit **où l'on veut** (texte, coche, croix, point, date du jour, double-clic pour écrire). **Signature et paraphe** dessinés à la souris ou au trackpad, tapés dans une écriture manuscrite ou importés d'une photo (le papier devient transparent), gardés sur ce Mac pour la prochaine fois ; un cadre de signature se remplit d'un clic, un paraphe se recopie sur toutes les pages. Tout se déplace, se redimensionne, s'annule (⌘Z). L'original ne bouge pas : une copie « … – signé.pdf » est enregistrée à côté, en **version finale** (tout intégré aux pages) ou, pour un formulaire sans signature, encore modifiable ; un PDF protégé garde son mot de passe. Mail s'ouvre avec la copie en pièce jointe si tu veux l'envoyer. C'est une signature simple, comme une signature manuscrite scannée |
 | **Vidéos YouTube** | Colle un lien (ici ou dans le lanceur) : miniature, titre, chaîne et durée s'affichent, puis tu choisis **MP4** (de 360p à la 4K, en H.264 lisible partout jusqu'en 1080p, avec la taille de chaque qualité), **MP3** ou **M4A** avec la pochette, la vidéo entière ou **un extrait à la seconde** (deux poignées sur la durée, ou le début et la fin tapés). Une file de téléchargements avec la progression (pourcentage et temps restant, extraits compris), l'annulation et « Afficher dans le Finder », suivie aussi depuis n'importe quelle page (en bas de la barre latérale) et depuis la barre des menus, où un anneau se remplit à côté de l'icône ; enregistrement dans **Téléchargements** ou un dossier choisi. S'appuie sur `yt-dlp` et `ffmpeg`, installés et mis à jour d'un clic avec Homebrew |
+| **Films et séries** | Tape un titre (ici ou dans le lanceur : `film …`, `série …`, `regarder …`) : la fiche (année, durée, note, réalisation, distribution), la **bande-annonce sans pub** et **où le regarder** dans ton pays, par abonnement, location ou achat. Tes plateformes cochées passent en tête et ↩ ouvre la première. Données de The Movie Database (TMDB) et de Wikidata, avec ta **clé TMDB gratuite**, gardée dans le Trousseau ; seules les offres légales sont listées |
 | **Traducteur** | Deux moteurs : **Apple, sur ton Mac**, hors ligne et instantané (les langues se téléchargent une fois depuis la page), ou **Claude** pour le ton (neutre, formel, familier) et les nuances. Détection de la langue, inversion, historique local, et traduction en direct dans le lanceur |
 | **Boîte à outils** | Pipette et conversions de couleurs, mots de passe et phrases de passe (copie confidentielle effacée au bout de 90 s), empreintes SHA et MD5 de fichiers, Base64, URL, JSON, casse, compteur de mots, Lorem ipsum, UUID, horodatages, et **Caféine** pour empêcher la veille (aussi depuis le menu d'état) |
 | **Presse-papiers** | Historique des textes, images et fichiers copiés, épingles, recherche, rappel depuis le lanceur (`cb …`). **Désactivé tant que tu ne l'actives pas**, il ignore les mots de passe et ce qui est copié depuis un gestionnaire de mots de passe |
@@ -131,6 +140,14 @@ L'app s'adapte aussi à ce dont tu te sers, sans rien envoyer nulle part : un ou
 | **Automatisations** | Nettoyage planifié (seulement le « sans risque »), purge de la Corbeille au-delà de N jours, **rangement de Téléchargements** par règles, historique de santé du Mac en graphiques, journal. Tout est désactivé au départ et chaque automatisation montre un **aperçu à blanc** avant de s'activer. Elles tournent tant que l'app est ouverte (fenêtre fermée comprise) |
 | **Assistant Claude** | Pose tes questions sur ton Mac en langage naturel : Claude explique et propose jusqu'à trois actions de l'app, que tu lances d'un clic. « Demander à Claude » est aussi dans le clic droit d'un processus, d'un agent de démarrage ou d'un dossier, et dans le lanceur (`?`) |
 | **Menu d'état** | Dans la barre des menus : le téléchargement YouTube en cours (anneau et pourcentage à côté de l'icône, annulation dans le panneau), processeur, mémoire, disque, réseau, batterie, apps gourmandes, interrupteurs (Caféine, presse-papiers, fenêtres) et actions express. Alertes optionnelles si le disque est presque plein ou la mémoire saturée |
+
+### Le Refuge
+
+Un petit chamois naît d'un buisson de myrtilles et vit dans l'app. Prendre soin du Mac (un passage de l'analyse, un nettoyage, une menace écartée, un outil découvert, la tournée du jour) lui fait cueillir des **myrtilles** : données, elles le font grandir en six stades, de cabri à Chamois d'or ; gardées dans le panier, elles paient la **boutique** (pelages, accessoires, décoration de sa chambre, objets de saison). Il a son humeur, sa maison où chaque outil est une pièce, ses médailles, sa photo souvenir, et peut se promener sur le bureau, en haut des fenêtres (désactivé au départ). Rien ne s'achète avec de l'argent, il ne tombe jamais malade et ne perd rien de ce qu'il a gagné ; tout reste sur ce Mac.
+
+<p align="center">
+  <img src="screenshots/refuge-room.png" alt="Le Refuge : la chambre du chamois, ses myrtilles dans le panier et son humeur" width="860">
+</p>
 
 ## Le Boost, mesuré
 
@@ -371,15 +388,17 @@ swift build
 `--demo` fonctionne aussi avec `--dump` et `--snapshot`. Les données de démonstration décrivent un Mac inventé : un dossier personnel fictif, des apps aux noms et icônes inventés, leurs caches, processus, agents de démarrage, mises à jour, conversions et historique de presse-papiers. En mode démo, aucun scanner ne lit le disque, aucune commande ni requête n'est lancée et `Remover` refuse toute suppression ; `--selftest --demo` le vérifie sur un fichier témoin. Les captures de ce README en sortent :
 
 ```bash
-for p in dashboard cleanup protection performance apps storage menubar updates converter translator hotkeys toolbox clipboard network windows automation assistant; do
+for p in dashboard cleanup protection performance apps storage menubar updates converter translator hotkeys toolbox clipboard network windows automation assistant cinema refuge; do
   .build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page $p
 done
-.build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page launcher --query facture
+.build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page launcher --tab files --query facture
+ffmpeg -loglevel error -y -i docs/screenshots/refuge.png -vf crop=iw:1160:0:12 docs/screenshots/refuge-room.png && rm docs/screenshots/refuge.png   # la chambre, en haut de la page
 .build/debug/CleanMyClaude --snapshot docs/screenshots --demo --scale 2 --page appearance
 for t in graphite phosphore sorbet minuit; do
   .build/debug/CleanMyClaude --snapshot /tmp/theme-$t --demo --page dashboard --theme $t && mv /tmp/theme-$t/dashboard.png docs/screenshots/theme-$t.png
 done
-rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-*-panel.png docs/screenshots/sidebar-panel.png docs/screenshots/selfupdate-panel.png
+rm docs/screenshots/menubar.png docs/screenshots/launcher.png docs/screenshots/onboarding-*-panel.png docs/screenshots/sidebar-panel.png docs/screenshots/selfupdate-panel.png \
+   docs/screenshots/statusitem-panel.png docs/screenshots/clipboard-window-panel.png docs/screenshots/refuge-ceremony-panel.png
 pngquant --quality 80-95 --force --ext .png docs/screenshots/*.png   # optionnel : divise le poids par quatre
 ```
 
