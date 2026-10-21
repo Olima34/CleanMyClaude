@@ -583,7 +583,10 @@ enum NetworkDemo {
     /// Two minutes of a video call and a download, in bytes per second.
     static let trafficIn: [Double] = (0..<NetworkModel.trafficLength).map { i in
         let x = Double(i)
-        return 180_000 + 120_000 * sin(x / 3.1) + (i > 24 && i < 33 ? 2_400_000 + 300_000 * sin(x) : 0) + Double((i * 37) % 11) * 9_000
+        // Summed step by step: Xcode 16 gives up on long expressions of literals.
+        let call: Double = 180_000 + 120_000 * sin(x / 3.1)
+        let download: Double = i > 24 && i < 33 ? 2_400_000 + 300_000 * sin(x) : 0
+        return call + download + Double((i * 37) % 11) * 9_000
     }
     static let trafficOut: [Double] = (0..<NetworkModel.trafficLength).map { i in
         let x = Double(i)

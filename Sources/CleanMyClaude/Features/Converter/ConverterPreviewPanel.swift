@@ -444,9 +444,12 @@ struct ConverterDemoWave: View {
             let bars = 48
             let w = size.width / CGFloat(bars)
             for i in 0..<bars {
+                // Typed step by step: one expression mixing Double and CGFloat is too slow for Xcode 16's type checker.
                 let x = Double(i) / Double(bars)
-                let h = (0.25 + 0.6 * abs(sin(x * 9.3) * cos(x * 3.1))) * size.height * 0.7
-                let r = CGRect(x: CGFloat(i) * w + w * 0.2, y: (size.height - h) / 2, width: w * 0.6, height: h)
+                let wave: Double = abs(sin(x * 9.3) * cos(x * 3.1))
+                let h: CGFloat = CGFloat(0.25 + 0.6 * wave) * size.height * 0.7
+                let left: CGFloat = CGFloat(i) * w + w * 0.2
+                let r = CGRect(x: left, y: (size.height - h) / 2, width: w * 0.6, height: h)
                 ctx.fill(Path(roundedRect: r, cornerRadius: w * 0.3), with: .color(Theme.palette[3].opacity(after ? 0.85 : 0.6)))
             }
         }
