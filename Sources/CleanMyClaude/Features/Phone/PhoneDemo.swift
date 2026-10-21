@@ -53,6 +53,11 @@ enum PhoneDemo {
         case "icloud":
             m.setDemo(link: .ready, info: info, items: makeItems(), analysed: true, iCloudPhotos: true, canDelete: false)
             m.photosAccess = .notAsked
+            m.librarySync = .unknown
+            m.selection = Set(m.category(.screenshots)?.ids.prefix(30) ?? [])
+        case "autre-phototheque":
+            m.setDemo(link: .ready, info: info, items: makeItems(), analysed: true, iCloudPhotos: true, canDelete: false)
+            m.librarySync = .missing(40)
             m.selection = Set(m.category(.screenshots)?.ids.prefix(30) ?? [])
         default:
             break

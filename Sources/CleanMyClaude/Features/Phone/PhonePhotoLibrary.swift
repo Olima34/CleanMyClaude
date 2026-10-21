@@ -24,7 +24,7 @@ enum PhonePhotoLibrary {
 
     /// The assets of this Mac's library that are these iPhone items. Missing ones are not in it: another Apple Account,
     /// iCloud Photos off on the Mac, or not synced yet; `misses` says what was there instead.
-    static func find(_ items: [PhoneItem]) async -> PhoneLibrarySearch {
+    static func find(_ items: [PhoneItem], diagnose: Bool = true) async -> PhoneLibrarySearch {
         guard access == .granted else { return PhoneLibrarySearch() }
         return await Task.detached(priority: .userInitiated) {
             var search = PhoneLibrarySearch()
@@ -36,7 +36,7 @@ enum PhonePhotoLibrary {
                 let near = assets(item, within: 2, sameSize: false)
                 if let id = PhoneRules.match(item, in: near) ?? PhoneRules.match(item, in: assets(item, within: 14 * 3600, sameSize: true)) {
                     search.found[item.id] = id
-                } else if search.total > 0, search.misses.count < 20 {
+                } else if diagnose, search.total > 0, search.misses.count < 20 {
                     // Why not, for the first ones: what the library holds around that moment (one file name read).
                     let around = assets(item, within: 14 * 3600, sameSize: false, names: false)
                     var nearest = around.min { abs($0.date.timeIntervalSince(item.date)) < abs($1.date.timeIntervalSince(item.date)) }
@@ -69,6 +69,14 @@ enum PhonePhotoLibrary {
                                          width: asset.pixelWidth, height: asset.pixelHeight, video: asset.mediaType == .video))
         }
         return out
+    }
+
+    /// Whether this library is the iPhone's: a dozen of its photos and videos, spread over the years, looked for in it.
+    static func check(_ items: [PhoneItem]) async -> PhoneLibrarySync {
+        guard access == .granted else { return .unknown }
+        let sample = PhoneRules.sample(items, count: 12)
+        let search = await find(sample, diagnose: false)
+        return PhoneRules.sync(total: search.total, sampled: sample.count, found: search.found.count)
     }
 
     /// Moves the assets to « Supprimés récemment » (macOS shows its own confirmation). Returns how many went.

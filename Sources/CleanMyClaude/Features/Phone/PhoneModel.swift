@@ -22,6 +22,8 @@ final class PhoneModel: AppModule {
     var reviewing: PhoneCategoryKind?
     /// The Photos permission, for iCloud Photos.
     var photosAccess: PermissionState = .notAsked
+    /// With iCloud Photos: whether this Mac's library is the iPhone's, the only way to delete.
+    var librarySync: PhoneLibrarySync = .unknown
     var health: PhoneHealthLog {
         didSet { healthStore.value = health }
     }
@@ -48,7 +50,12 @@ final class PhoneModel: AppModule {
     }
 
     var current: String? { devices.first?.udid }
-    var deletion: PhoneDeletion { canDelete ? .cable : (iCloudPhotos ? .library : .none) }
+    var deletion: PhoneDeletion {
+        if canDelete { return .cable }
+        guard iCloudPhotos else { return .none }
+        if case .missing = librarySync { return .none }
+        return .library
+    }
     var isBusy: Bool { task != nil }
     var mediaSize: Int64 { items.reduce(0) { $0 + $1.size } }
     /// What the categories hold, each item once.
@@ -234,7 +241,11 @@ final class PhoneModel: AppModule {
             pendingAnalysis = false
             runAnalysis()
         }
-        if photoState == .ready { photosAccess = iCloudPhotos ? PhonePhotoLibrary.access : photosAccess }
+        if photoState == .ready, iCloudPhotos {
+            photosAccess = PhonePhotoLibrary.access
+            if librarySync == .unknown { checkLibrary() }
+        }
+        if photoState != .ready { librarySync = .unknown }
     }
 
     private func runAnalysis() {
@@ -413,7 +424,29 @@ final class PhoneModel: AppModule {
     var archivedCount: Int { archiveStore.value.count }
 
     func requestPhotosAccess() {
-        Task { photosAccess = await PhonePhotoLibrary.requestAccess() }
+        Task {
+            photosAccess = await PhonePhotoLibrary.requestAccess()
+            checkLibrary()
+        }
+    }
+
+    /// Looks whether this Mac's Photos library is the iPhone's (a second or two): « Supprimer » only when it is.
+    func checkLibrary() {
+        guard !DemoData.isEnabled, !Snapshot.isActive, iCloudPhotos, photoState == .ready, photosAccess == .granted,
+              librarySync != .checking else { return }
+        librarySync = .checking
+        let sample = items
+        Task {
+            let result = await PhonePhotoLibrary.check(sample)
+            if photoState == .ready { librarySync = result }
+            // The page's card says it now, better than the trouble of an earlier attempt.
+            if case .missing = result { deletionTrouble = nil }
+        }
+    }
+
+    func openPhotosApp() {
+        guard !DemoData.isEnabled, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Photos") else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
     }
 
     // MARK: Launcher
@@ -467,6 +500,7 @@ final class PhoneModel: AppModule {
         photoState = items.isEmpty ? .idle : .ready
         categories = PhoneRules.categories(items, analysed: analysed)
         photosAccess = .granted
+        librarySync = iCloudPhotos ? .synced(18_412) : .unknown
     }
 
     func selfTest() -> [String] { PhoneChecks.run() }

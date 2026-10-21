@@ -224,6 +224,18 @@ enum PhoneRules {
         return "\(item.name) (\(when), \(item.width)×\(item.height)) : \(around) à 14 h près, le plus proche « \(nearest.filename) » à \(gap) s, \(nearest.width)×\(nearest.height)"
     }
 
+    /// A few items spread over the whole library, to see whether this Mac's Photos library holds them.
+    static func sample(_ items: [PhoneItem], count: Int) -> [PhoneItem] {
+        let sorted = items.sorted { $0.date < $1.date }
+        guard sorted.count > count, count > 0 else { return sorted }
+        return (0..<count).map { sorted[$0 * (sorted.count - 1) / max(1, count - 1)] }
+    }
+
+    /// Most of the sample found: the same library.
+    static func sync(total: Int, sampled: Int, found: Int) -> PhoneLibrarySync {
+        total > 0 && sampled > 0 && found * 2 >= sampled ? .synced(total) : .missing(total)
+    }
+
     static func batches<T>(_ list: [T], size: Int) -> [[T]] {
         stride(from: 0, to: list.count, by: max(1, size)).map { Array(list[$0..<min(list.count, $0 + max(1, size))]) }
     }

@@ -357,7 +357,37 @@ private struct PhoneModeNote: View {
                     text: "Photos iCloud est désactivé : Chamois copie chaque original dans le dossier de ton choix, vérifie la copie, puis le supprime de l'iPhone. Une suppression par le câble est définitive, d'où la copie d'abord.",
                     tint: Theme.good)
         case .library, .none:
-            VStack(alignment: .leading, spacing: 8) {
+            if m.iCloudPhotos { PhoneCloudNote() } else {
+                Callout(symbol: "lock", title: "Cet iPhone refuse les suppressions par le câble",
+                        text: "Ses photos viennent sans doute d'une synchronisation avec un ordinateur. Tu peux les copier sur ce Mac ; pour les supprimer, passe par l'iPhone ou par l'ordinateur qui les y a mises.",
+                        tint: Theme.warn)
+            }
+        }
+    }
+}
+
+/// iCloud Photos on the iPhone: deletions go through this Mac's Photos library, when it is the same one.
+private struct PhoneCloudNote: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let m = app.phone
+        VStack(alignment: .leading, spacing: 8) {
+            switch (m.photosAccess, m.librarySync) {
+            case (.granted, .missing(let total)):
+                Callout(symbol: "icloud.slash", title: "La photothèque de ce Mac n'est pas celle de ton iPhone",
+                        text: "Elle a \(Fmt.plural(total, "photo ou vidéo", "photos et vidéos")), ton iPhone \(Fmt.int(m.items.count)). Avec Photos iCloud, l'iPhone refuse toute suppression par le câble : Chamois supprime par l'app Photos de ce Mac. Pour cela, ouvre Photos › Réglages › iCloud, active « Photos iCloud » avec le même compte que l'iPhone, choisis « Optimiser le stockage du Mac » (il ne garde alors que de petites versions) et laisse la synchronisation finir. En attendant, « Copier sur le Mac » marche.",
+                        tint: Theme.warn)
+                HStack(spacing: 8) {
+                    Button("Ouvrir Photos") { m.openPhotosApp() }.buttonStyle(SoftButtonStyle(small: true))
+                    Button("Vérifier à nouveau") { m.checkLibrary() }.buttonStyle(SoftButtonStyle(small: true))
+                }
+            case (.granted, .checking):
+                HStack(spacing: 10) {
+                    BusyMascot(.searching, pixel: 1)
+                    Text("Je regarde si la photothèque de ce Mac est celle de ton iPhone…").font(.ui(12)).foregroundStyle(Theme.text2)
+                }
+            default:
                 Callout(symbol: "icloud", title: "Photos iCloud est activé sur cet iPhone",
                         text: "Supprimer une photo la supprime aussi d'iCloud et de tes autres appareils. Chamois passe par l'app Photos de ce Mac, avec le même compte iCloud : chaque photo reste 30 jours dans « Supprimés récemment ». Tu peux aussi en garder une copie sur ce Mac avant.",
                         tint: PhonePage.tint)
@@ -516,7 +546,7 @@ struct PhoneBottomBar: View {
                 Button("Arrêter") { m.stopTask() }.buttonStyle(SoftButtonStyle())
             } else {
                 Button("Tout décocher") { m.selection = [] }.buttonStyle(SoftButtonStyle())
-                Button("Copier sur le Mac") { run { await m.archive(free: false) } }.buttonStyle(SoftButtonStyle())
+                Button("Copier sur le Mac") { run { await m.archive(free: false) } }.buttonStyle(SoftButtonStyle(prominent: m.deletion == .none))
                 switch m.deletion {
                 case .cable:
                     if m.selectionIsDuplicates {

@@ -103,6 +103,16 @@ enum PhoneChecks {
         if PhoneRules.match(item("x") { $0.name = "IMG_E1156.JPG" }, in: [asset("e", "IMG_1156.HEIC", at: 0, w: 1206, h: 1680)]) != "e" {
             f.append("Photothèque du Mac : une retouche IMG_E doit retrouver sa photo")
         }
+        let many = (0..<100).map { n in item("m\(n)", at: Double(n) * 86400) }
+        let picked = PhoneRules.sample(many, count: 12)
+        if picked.count != 12 || picked.first?.id != "m0" || picked.last?.id != "m99" || Set(picked.map(\.id)).count != 12
+            || PhoneRules.sample(Array(many.prefix(5)), count: 12).count != 5 {
+            f.append("Échantillon de la photothèque mal réparti")
+        }
+        if PhoneRules.sync(total: 40, sampled: 12, found: 0) != .missing(40) || PhoneRules.sync(total: 18_000, sampled: 12, found: 11) != .synced(18_000)
+            || PhoneRules.sync(total: 0, sampled: 0, found: 0) != .missing(0) {
+            f.append("Photothèque du Mac : synchronisation mal jugée")
+        }
         if PhoneRules.batches(Array(0..<25), size: 10).map(\.count) != [10, 10, 5] || !PhoneRules.batches([Int](), size: 10).isEmpty {
             f.append("Lots de suppression mal coupés")
         }
@@ -208,7 +218,7 @@ enum PhoneChecks {
     private static func describePhotos(_ m: PhoneModel) -> [String] {
         let photos = m.items.filter { $0.kind == .photo }.count
         var lines = ["Photos : \(m.photoState) · \(Fmt.int(photos)) photos, \(Fmt.int(m.items.count - photos)) vidéos, \(Fmt.bytes(m.mediaSize))"
-                     + " · Photos iCloud \(m.iCloudPhotos ? "activé" : "désactivé") · suppression \(m.deletion)"
+                     + " · Photos iCloud \(m.iCloudPhotos ? "activé" : "désactivé") · suppression \(m.deletion) · photothèque du Mac \(m.librarySync)"
                      + " · analyse fine \(m.analysed ? "faite" : "non faite")"]
         for c in m.categories {
             lines.append("  \(c.kind.title) : \(Fmt.int(c.ids.count)) · \(Fmt.bytes(c.size))\(c.groups.isEmpty ? "" : " · \(Fmt.plural(c.groups.count, "série", "séries"))")")

@@ -167,8 +167,19 @@ enum PhoneDeletion: Equatable {
     case cable
     /// iCloud Photos is on: through the Photos library of this Mac, which keeps it 30 days in « Supprimés récemment ».
     case library
-    /// iCloud Photos is on and the iPhone refuses deletions through the cable.
+    /// iCloud Photos is on but this Mac's library is another one, or the iPhone refuses deletions: copies only.
     case none
+}
+
+/// Whether this Mac's Photos library is the iPhone's (iCloud Photos on both, same Apple Account). With iCloud Photos,
+/// the iPhone refuses any deletion through the cable (« Delete files failed », seen on iOS 27): this is the only way.
+enum PhoneLibrarySync: Equatable {
+    /// Not looked yet (no Photos permission, or nothing listed).
+    case unknown
+    case checking
+    /// Most of a sample of the iPhone's photos is in it; the number of photos and videos it holds.
+    case synced(Int)
+    case missing(Int)
 }
 
 /// The work under way on the photos.
