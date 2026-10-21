@@ -605,8 +605,6 @@ enum RefugeRules {
         RefugeRoom(page: .wheel, name: "Le Moulin"),
         RefugeRoom(page: .media, name: "Le Ciné-club"),
         RefugeRoom(page: .toolbox, name: "L'Établi"),
-        RefugeRoom(page: .clipboard, name: "Le Tiroir à souvenirs"),
-        RefugeRoom(page: .launcher, name: "Le Bureau"),
         RefugeRoom(page: .hotkeys, name: "Le Tableau des clés"),
         RefugeRoom(page: .automation, name: "Le Jardin"),
         RefugeRoom(page: .assistant, name: "Le Salon"),
@@ -616,7 +614,13 @@ enum RefugeRules {
     static func room(_ page: Page) -> RefugeRoom? { rooms.first { $0.page == page } }
 
     static func discovered(_ s: RefugeState) -> [RefugeRoom] {
-        rooms.filter { s.claimed.contains("page:" + $0.page.rawValue) }
+        rooms.filter { isDiscovered($0.page, s) }
+    }
+
+    /// A room lit before the refonte under one of the pages its page took in (the Ciné-club opened as Films et séries)
+    /// stays lit, and is not paid again.
+    static func isDiscovered(_ page: Page, _ s: RefugeState) -> Bool {
+        ([page.rawValue] + (ToolProfileRules.formerKeys[page] ?? [])).contains { s.claimed.contains("page:" + $0) }
     }
 
     // MARK: Moods
@@ -804,6 +808,13 @@ enum RefugeRules {
         for room in rooms { b.claimed.insert("page:" + room.page.rawValue) }
         if award(&b, now: start).map(\.id) != ["proprietaire"] { f.append("Refuge : tour du propriétaire non donné") }
         if Set(badges.map(\.id)).count != badges.count || badges.count != 18 { f.append("Refuge : 18 insignes distincts attendus") }
+
+        // A room lit under a page folded into another stays lit.
+        var former = RefugeState()
+        former.claimed = ["page:cinema", "page:launcher"]
+        if !isDiscovered(.media, former) || !isDiscovered(.hotkeys, former) || isDiscovered(.wheel, former) {
+            f.append("Refuge : une pièce découverte sous son ancien nom s'éteint")
+        }
 
         // Every page but the Refuge is a room, once.
         let roomPages = rooms.map(\.page)

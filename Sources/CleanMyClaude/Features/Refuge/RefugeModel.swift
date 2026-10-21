@@ -58,14 +58,11 @@ final class RefugeModel: AppModule {
             s.pathSeason = RefugeSeason.key(now)
             RefugeRules.note(&s, kind: "path", text: "J'ai trouvé ma voie : \(path.title). \(path.line)", now: now)
         }
-        if s.welcomed, let r = s.round, r.day == RefugeRules.dayKey(now), !r.paid, r.tasks.allSatisfy({ RefugeStyle.done($0, s, now: now) }) {
-            s.round?.paid = true
-            let paid = RefugeRules.earn(&s, .round, key: "round:" + r.day, now: now)
-            if paid > 0 {
-                RefugeRules.note(&s, kind: "round", text: "La tournée du jour est finie ! Une petite danse pour fêter ça.", amount: paid, now: now)
-                news.append(("+\(paid) myrtilles · tournée du jour finie", true))
-                danceUntil = now.addingTimeInterval(3)
-            }
+        let roundPaid = RefugeStyle.payRound(&s, now: now)
+        if roundPaid > 0 {
+            RefugeRules.note(&s, kind: "round", text: "La tournée du jour est finie ! Une petite danse pour fêter ça.", amount: roundPaid, now: now)
+            news.append(("+\(roundPaid) myrtilles · tournée du jour finie", true))
+            danceUntil = now.addingTimeInterval(3)
         }
         for b in RefugeRules.award(&s, now: now) { news.append(("Nouvel insigne : \(b.title)", false)) }
         state = s
@@ -337,13 +334,20 @@ final class RefugeModel: AppModule {
     // MARK: The daily round
 
     /// Today's round, drawn on the first visit of the day from what really makes sense on this Mac.
+    /// A round saved before a page went away has its mission swapped for another.
     func ensureRound() {
         guard state.welcomed, !DemoData.isEnabled else { return }
-        let today = RefugeRules.dayKey(Date())
-        guard state.round?.day != today else { return }
+        let now = Date()
+        let today = RefugeRules.dayKey(now)
         var s = state
-        s.round = RefugeStyle.makeRound(day: today, candidates: roundCandidates())
-        update(s)
+        if let r = state.round, r.day == today {
+            guard r.tasks.contains(where: { RefugeStyle.task($0).page == nil }) else { return }
+            s.round = RefugeStyle.repairRound(r, state, candidates: roundCandidates(), now: now)
+            guard s.round != r else { return }
+        } else {
+            s.round = RefugeStyle.makeRound(day: today, candidates: roundCandidates())
+        }
+        update(s, now: now)
     }
 
     private func roundCandidates() -> [String] {
@@ -425,7 +429,14 @@ final class RefugeModel: AppModule {
     func visited(_ page: Page) {
         guard state.welcomed else { return }
         if let room = RefugeRules.room(page) {
-            earn(.discovery, key: "page:" + page.rawValue, text: "J'ai découvert une nouvelle pièce : \(room.name).", announce: room.name)
+            if RefugeRules.isDiscovered(page, state), !state.claimed.contains("page:" + page.rawValue) {
+                // Lit under its former name: noted under the new one, without a second reward.
+                var s = state
+                s.claimed.insert("page:" + page.rawValue)
+                update(s)
+            } else {
+                earn(.discovery, key: "page:" + page.rawValue, text: "J'ai découvert une nouvelle pièce : \(room.name).", announce: room.name)
+            }
         }
         observe()
     }
@@ -563,7 +574,7 @@ final class RefugeModel: AppModule {
         s.totals = ["visit": 41, "scan": 22, "cleaning": 34, "fix": 3, "threat": 1, "update": 46, "tool": 182, "discovery": 14,
                     "automation": 1, "round": 5, "fed": 38, "welcome": 10]
         let visited: [Page] = [.dashboard, .cleanup, .protection, .performance, .updates, .apps, .storage, .wheel, .media,
-                               .clipboard, .launcher, .hotkeys, .automation]
+                               .hotkeys, .automation]
         s.claimed = Set(visited.map { "page:" + $0.rawValue } + ["fix:firewall", "fix:filevault", "fix:gatekeeper", "auto:trash", "seen:voie"])
         s.owned = ["confiture", "plante", "tableau", "bonnet", "lanterne", RefugeCoat.chocolat.shopID]
         s.worn = ["confiture", "plante", "tableau", "lanterne"]
@@ -629,6 +640,16 @@ final class RefugeModel: AppModule {
             s.lastFed = Calendar.current.date(byAdding: .day, value: -2, to: Date())
             state = s
             previewMood = .hungry
+        case "tournee-0", "tournee-1", "tournee-2":
+            // The round with nothing done, then only its last mission, then all but the first: the trail counts them,
+            // whatever their order (the demo's own round is all done).
+            var s = state
+            s.lastFed = Calendar.current.date(byAdding: .day, value: -1, to: Date())
+            s.paidToday["cleaning"] = nil
+            let tasks = ["tournee-0": ["feed", "clean", "discover:toolbox"], "tournee-1": ["feed", "clean", "discover:media"],
+                         "tournee-2": ["feed", "tool", "discover:media"]][tab] ?? []
+            s.round = RefugeRound(day: RefugeRules.dayKey(Date()), tasks: tasks)
+            state = s
         case "nouveau":
             // The first day: a cabri, ten blueberries waiting to be eaten.
             var s = RefugeState()

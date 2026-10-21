@@ -224,7 +224,7 @@ struct LauncherFavorite: Codable, Equatable {
 @MainActor
 enum LauncherSaved {
     static let favorites = JSONStore<[LauncherFavorite]>("launcher-favorites", default: [])
-    /// Apps and commands taken out of the search ("Masquer de la recherche"), given back from the Lanceur page.
+    /// Apps and commands taken out of the search ("Masquer de la recherche"), given back from Raccourcis › Chamois.
     static let hidden = JSONStore<[String]>("launcher-hidden", default: [])
 }
 
@@ -905,7 +905,7 @@ extension LauncherModel {
             closeActions()
             if let command {
                 hiddenIDs.append(command.id)
-                HUD.show("« \(name) » n'apparaît plus dans la recherche (page Lanceur pour le remettre)", symbol: "eye.slash.fill")
+                HUD.show("« \(name) » n'apparaît plus dans la recherche (Raccourcis › Chamois pour le remettre)", symbol: "eye.slash.fill")
                 refreshKeepingSelection()
             }
         case .uninstall:

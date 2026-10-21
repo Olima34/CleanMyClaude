@@ -2,8 +2,18 @@ import SwiftUI
 import AppKit
 import Carbon.HIToolbox
 
+/// What the history's window shows.
+enum ClipboardWindowScreen: Equatable {
+    /// Never turned on: what is recorded, and the button that starts it.
+    case activation
+    case history
+    /// The gear (⌘,): what is kept, ignored apps, pause, clearing. ⎋ comes back.
+    case settings
+}
+
 /// The clipboard history in its own floating window (its shortcut, « cb » or the command of the launcher):
 /// the list on the left, the whole item on the right. ↩ pastes it where you were, ⌘↩ only copies it.
+/// The gear turns it to its settings, at the same size; before the first activation it shows the activation.
 @Observable
 @MainActor
 final class ClipboardWindow {
@@ -20,6 +30,15 @@ final class ClipboardWindow {
     /// nil: the first item of the list.
     var selection: UUID?
     var isOpen = false
+    var showSettings = false {
+        didSet { if !showSettings { confirmClear = false } }
+    }
+    /// « Tout effacer… » clicked: the confirmation takes the place of the buttons.
+    var confirmClear = false
+    /// The ignored apps, unfolded (folded each time the window opens: the count says enough most of the time).
+    var showExcluded = false
+    /// For `--snapshot --tab presse-papiers:activer`: the window as it looks before the history is turned on.
+    var forceActivation = false
     /// Set by the arrow keys: only then does the list scroll to the selection (never while the trackpad scrolls it).
     @ObservationIgnored var scrollToSelection = false
     @ObservationIgnored private var panel: FloatingPanel?
@@ -33,13 +52,16 @@ final class ClipboardWindow {
         isOpen ? close() : show()
     }
 
-    func show(query: String = "") {
+    func show(query: String = "", settings: Bool = false) {
         guard let app = AppContext.model else { return }
         // One floating window at a time: the launcher steps aside.
         if app.launcher.isOpen { app.launcher.hide() }
         self.query = query
         filter = .all
         selection = nil
+        showSettings = settings
+        confirmClear = false
+        showExcluded = false
         let p = panel ?? makePanel()
         p.setContent(ClipboardWindowView().environment(app))
         p.present()
@@ -67,6 +89,44 @@ final class ClipboardWindow {
         panel = p
         return p
     }
+
+    static func screen(acknowledged: Bool, forceActivation: Bool, settings: Bool) -> ClipboardWindowScreen {
+        if !acknowledged || forceActivation { return .activation }
+        return settings ? .settings : .history
+    }
+
+    func screen(_ m: ClipboardModel) -> ClipboardWindowScreen {
+        Self.screen(acknowledged: m.settings.acknowledged, forceActivation: forceActivation, settings: showSettings)
+    }
+
+    /// « Activer l'historique »: the list takes the place of the activation.
+    func activate() {
+        guard let m = model else { return }
+        forceActivation = false
+        showSettings = false
+        m.setEnabled(true)
+    }
+
+    /// « Autre app… »: the open panel above this floating window, then the keyboard back here.
+    func chooseOtherApp() {
+        guard let m = model, !DemoData.isEnabled, !Snapshot.isActive else { return }
+        let previous = NSWorkspace.shared.frontmostApplication
+        panel?.closesOnResignKey = false
+        NSApp.activate()
+        m.chooseExcludedApp()
+        // The app the user was in gets the front back, so that a paste from the history still lands there; this
+        // window takes the keyboard again once it is there, without bringing Chamois forward.
+        if let previous, previous != NSRunningApplication.current { previous.activate(options: []) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let panel = self?.panel else { return }
+            if panel.isVisible { panel.makeKeyAndOrderFront(nil) }
+            panel.closesOnResignKey = true
+        }
+    }
+
+    static let tip = HelpTip(
+        id: "clipboard.window", title: "Ton historique",
+        text: "↩ colle l'élément là où tu étais, ⌘↩ le copie seulement. ⌘P l'épingle : il reste en haut et n'est jamais effacé tout seul. Clic droit pour ne plus rien garder d'une app. L'engrenage (⌘,) règle le reste ; le raccourci se change dans Raccourcis › Chamois.")
 
     // MARK: List
 
@@ -133,15 +193,35 @@ final class ClipboardWindow {
 
     // MARK: Keys
 
-    /// Arrows, ↩, ⇥, ⎋, ⌘P and ⌘⌫ are caught before the search field sees them.
+    /// Arrows, ↩, ⇥, ⎋, ⌘P and ⌘⌫ are caught before the search field sees them; ⌘, opens the settings,
+    /// where ⎋ comes back to the list.
     private func installKeyMonitor() {
         removeKeyMonitor()
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, let panel = self.panel, event.window === panel, let m = self.model else { return event }
-            // A held ↩ pastes once, not once per key repeat.
-            if event.isARepeat, [kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode)) { return nil }
             let flags = event.modifierFlags
             let command = flags.contains(.command)
+            let screen = self.screen(m)
+            if command, event.charactersIgnoringModifiers == "," {
+                if screen != .activation { self.showSettings.toggle() }
+                return nil
+            }
+            switch screen {
+            case .activation:
+                if Int(event.keyCode) == kVK_Escape {
+                    self.close()
+                    return nil
+                }
+                return event
+            case .settings:
+                guard Int(event.keyCode) == kVK_Escape else { return event }
+                if self.confirmClear { self.confirmClear = false } else { self.showSettings = false }
+                return nil
+            case .history:
+                break
+            }
+            // A held ↩ pastes once, not once per key repeat.
+            if event.isARepeat, [kVK_Return, kVK_ANSI_KeypadEnter].contains(Int(event.keyCode)) { return nil }
             switch Int(event.keyCode) {
             case kVK_DownArrow:
                 self.move(1)
@@ -186,54 +266,60 @@ struct ClipboardWindowView: View {
     var body: some View {
         let m = app.clipboard
         let w = m.window
-        let items = w.list(m)
-        let item = w.current(items)
-        VStack(spacing: 0) {
-            header
-            Rectangle().fill(Theme.border).frame(height: 1)
-            if !m.settings.acknowledged {
-                ClipboardWindowNotice(title: "L'historique n'est pas encore activé",
-                                      text: "Il garde ce que tu copies (⌘C) pour que tu le retrouves ici. La page Presse-papiers t'explique ce qui est enregistré avant d'allumer quoi que ce soit.",
-                                      button: "Découvrir l'historique") {
-                    w.close()
-                    m.openPage()
-                }
-            } else {
-                filters
-                Rectangle().fill(Theme.border).frame(height: 1)
-                HStack(alignment: .top, spacing: 0) {
-                    ClipboardWindowList(items: items, selected: item?.id)
-                        .frame(width: ClipboardWindow.listWidth)
-                        .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
-                        .clipped()
-                    Rectangle().fill(Theme.border).frame(width: 1)
-                    Group {
-                        if let item {
-                            ClipboardWindowPreview(item: item)
-                        } else {
-                            EmptyHint(text: emptyText(m), symbol: w.query.isEmpty ? "doc.on.clipboard" : "magnifyingglass")
-                                .frame(maxHeight: .infinity)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                // The rest of the window, whatever the length of the list (snapshots lay it out at full height).
-                .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
-                .clipped()
+        Group {
+            switch w.screen(m) {
+            case .activation: ClipboardWindowActivation()
+            case .settings: ClipboardWindowSettings()
+            case .history: history
             }
-            Rectangle().fill(Theme.border).frame(height: 1)
-            footer(item)
         }
         .frame(width: ClipboardWindow.width, height: ClipboardWindow.height)
         .background(RoundedRectangle(cornerRadius: Theme.r(18), style: .continuous).fill(Theme.bg))
         .overlay(RoundedRectangle(cornerRadius: Theme.r(18), style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: Theme.line))
         .clipShape(RoundedRectangle(cornerRadius: Theme.r(18), style: .continuous))
         .onAppear { DispatchQueue.main.async { focused = true } }
+        // Back from the settings or the activation: the search takes the keyboard again.
+        .onChange(of: w.screen(m)) { _, screen in
+            if screen == .history { DispatchQueue.main.async { focused = true } }
+        }
+    }
+
+    private var history: some View {
+        let m = app.clipboard
+        let w = m.window
+        let items = w.list(m)
+        let item = w.current(items)
+        return VStack(spacing: 0) {
+            header
+            Rectangle().fill(Theme.border).frame(height: 1)
+            filters
+            Rectangle().fill(Theme.border).frame(height: 1)
+            HStack(alignment: .top, spacing: 0) {
+                ClipboardWindowList(items: items, selected: item?.id)
+                    .frame(width: ClipboardWindow.listWidth)
+                    .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+                    .clipped()
+                Rectangle().fill(Theme.border).frame(width: 1)
+                Group {
+                    if let item {
+                        ClipboardWindowPreview(item: item)
+                    } else {
+                        EmptyHint(text: emptyText(m), symbol: w.query.isEmpty ? "doc.on.clipboard" : "magnifyingglass")
+                            .frame(maxHeight: .infinity)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            // The rest of the window, whatever the length of the list (snapshots lay it out at full height).
+            .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+            .clipped()
+            Rectangle().fill(Theme.border).frame(height: 1)
+            footer(item)
+        }
     }
 
     private var header: some View {
         @Bindable var w = app.clipboard.window
-        let m = app.clipboard
         return HStack(spacing: 12) {
             CommandIconView(icon: .symbol("doc.on.clipboard", Theme.palette[4]), size: 26)
             if Snapshot.isActive {
@@ -253,20 +339,9 @@ struct ClipboardWindowView: View {
                 }
                 .buttonStyle(.plain)
             }
-            if m.settings.acknowledged {
-                Button { m.setEnabled(!m.settings.enabled) } label: {
-                    HStack(spacing: 6) {
-                        Circle().fill(m.isActive ? Theme.good : Theme.warn).frame(width: 7, height: 7)
-                        Text(m.isActive ? "Actif" : "En pause").font(.ui(11.5, .medium)).foregroundStyle(Theme.text2)
-                    }
-                    .padding(.horizontal, 10).padding(.vertical, 5)
-                    .background(PillShape().fill(Theme.card))
-                    .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
-                    .contentShape(PillShape())
-                }
-                .buttonStyle(.plain)
-                .help(m.isActive ? "Mettre l'historique en pause" : "Reprendre l'historique")
-            }
+            ClipboardStatePill()
+            HelpTipButton(tip: ClipboardWindow.tip, size: 15)
+            ClipboardWindowButton(symbol: "gearshape.fill", help: "Réglages de l'historique (⌘,)") { w.showSettings = true }
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 15)
@@ -275,14 +350,24 @@ struct ClipboardWindowView: View {
     private var filters: some View {
         @Bindable var w = app.clipboard.window
         let m = app.clipboard
+        let access = ClipboardAccess.current
         return HStack(spacing: 10) {
             PillPicker(options: ClipboardFilterTab.allCases, selection: $w.filter, label: { $0.title }, badge: { tab in
                 let n = m.count(tab)
                 return n > 0 && tab != .all ? Fmt.int(n) : nil
             })
             Spacer(minLength: 0)
-            Text(m.isActive ? Fmt.plural(m.items.count, "élément", "éléments") : "En pause : rien de nouveau n'est gardé")
-                .font(.ui(11)).foregroundStyle(Theme.text3).monospacedDigit()
+            if access == .denied {
+                // Nothing new can be recorded: said where the count usually is, with the way out.
+                Button { ClipboardAccess.openPrivacySettings() } label: {
+                    Text("macOS refuse l'accès · Réglages").font(.ui(11, .medium)).foregroundStyle(Theme.bad)
+                }
+                .buttonStyle(.plain)
+                .help(access.explanation)
+            } else {
+                Text(m.isActive ? Fmt.plural(m.items.count, "élément", "éléments") : "En pause : rien de nouveau n'est gardé")
+                    .font(.ui(11)).foregroundStyle(Theme.text3).monospacedDigit()
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -292,23 +377,14 @@ struct ClipboardWindowView: View {
         let m = app.clipboard
         let w = m.window
         return HStack(spacing: 14) {
-            Button {
-                w.close()
-                m.openPage()
-            } label: {
-                HStack(spacing: 5) {
-                    BrandMark(size: 11)
-                    Text("Presse-papiers").font(.serif(12))
-                }
-                .foregroundStyle(Theme.text2)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Ouvrir la page Presse-papiers (réglages, apps ignorées)")
             LauncherKeyHint(key: "↑↓", label: "Naviguer")
             LauncherKeyHint(key: "⇥", label: "Type")
             LauncherKeyHint(key: "⌘P", label: item?.pinned == true ? "Désépingler" : "Épingler")
             LauncherKeyHint(key: "⌘⌫", label: "Supprimer")
+            Button { w.showSettings = true } label: {
+                LauncherKeyHint(key: "⌘,", label: "Réglages").contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
             Spacer()
             if let item {
                 // Without the right to paste, ↩ copies: one button says so.
@@ -347,6 +423,43 @@ struct ClipboardWindowView: View {
         if w.filter == .pinned { return "Épingle ce qui sert souvent (⌘P) : il restera en haut, et ne sera jamais effacé automatiquement." }
         if m.items.isEmpty { return m.isActive ? "Copie quelque chose (⌘C) : ça s'affichera ici." : "L'historique est en pause." }
         return "Rien dans cette catégorie pour l'instant."
+    }
+}
+
+/// "● Actif", a click to pause (or "● En pause", a click to resume).
+struct ClipboardStatePill: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let m = app.clipboard
+        Button { m.setEnabled(!m.settings.enabled) } label: {
+            HStack(spacing: 6) {
+                Circle().fill(m.isActive ? Theme.good : Theme.warn).frame(width: 7, height: 7)
+                Text(m.isActive ? "Actif" : "En pause").font(.ui(11.5, .medium)).foregroundStyle(Theme.text2)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(PillShape().fill(Theme.card))
+            .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
+            .contentShape(PillShape())
+        }
+        .buttonStyle(.plain)
+        .help(m.isActive ? "Mettre l'historique en pause" : "Reprendre l'historique")
+    }
+}
+
+/// A round icon button of the window's top bar (the gear, back).
+struct ClipboardWindowButton: View {
+    var symbol: String
+    var help: String
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol).font(.ui(15)).foregroundStyle(Theme.text3)
+                .frame(width: 20, height: 20).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
@@ -400,13 +513,33 @@ struct ClipboardWindowList: View {
             // One click shows it on the right, a double click pastes it (or copies it).
             .onTapGesture(count: 2) { w.use(item) }
             .simultaneousGesture(TapGesture().onEnded { w.select(item.id) })
-            .contextMenu {
-                Button(app.clipboard.canPaste ? "Coller" : "Copier") { w.use(item) }
-                if app.clipboard.canPaste { Button("Copier sans coller") { w.use(item, copyOnly: true) } }
-                Button(item.pinned ? "Désépingler" : "Épingler") { w.togglePin(item) }
-                Divider()
-                Button("Supprimer de l'historique", role: .destructive) { w.delete(item) }
+            .contextMenu { menu(item) }
+    }
+
+    @ViewBuilder
+    private func menu(_ item: ClipboardItem) -> some View {
+        let m = app.clipboard
+        let w = m.window
+        Button(m.canPaste ? "Coller" : "Copier") { w.use(item) }
+        if m.canPaste { Button("Copier sans coller") { w.use(item, copyOnly: true) } }
+        Button(item.pinned ? "Désépingler" : "Épingler") { w.togglePin(item) }
+        if item.textKind == .link, let s = item.text {
+            // Web pages and mail open; a file:// link is only shown in the Finder; any other kind of link stays closed.
+            switch ClipboardLinks.action(for: s) {
+            case .open(let url): Button("Ouvrir le lien") { NSWorkspace.shared.open(url) }
+            case .reveal(let path): Button("Afficher dans le Finder") { Finder.reveal(path) }
+            case .refuse: EmptyView()
             }
+        }
+        if item.kind == .files, let f = item.files?.first {
+            Button("Afficher dans le Finder") { Finder.reveal(f) }
+        }
+        if let id = item.appBundleID, let name = item.appName, !ClipboardFilter.isExcluded(id, list: m.settings.excluded) {
+            Divider()
+            Button("Ne plus rien garder de \(name)") { m.exclude(bundleID: id, name: name) }
+        }
+        Divider()
+        Button("Supprimer de l'historique", role: .destructive) { w.delete(item) }
     }
 }
 
@@ -573,25 +706,5 @@ struct ClipboardWindowImage: View {
             guard let info = item.image, !DemoData.isEnabled else { return }
             sharp = await Task.detached(priority: .userInitiated) { ClipboardStorage.previewImage(info.file) }.value
         }
-    }
-}
-
-/// Shown instead of the list while the history has never been turned on.
-struct ClipboardWindowNotice: View {
-    var title: String
-    var text: String
-    var button: String
-    var action: () -> Void
-
-    var body: some View {
-        VStack(spacing: 14) {
-            Spacer()
-            IconBadge(symbol: "doc.on.clipboard", tint: Theme.palette[4], size: 44)
-            Text(title).font(.serif(22)).foregroundStyle(Theme.text)
-            Text(text).font(.ui(12.5)).foregroundStyle(Theme.text2).multilineTextAlignment(.center).frame(maxWidth: 480)
-            Button(button, action: action).buttonStyle(SoftButtonStyle(prominent: true))
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

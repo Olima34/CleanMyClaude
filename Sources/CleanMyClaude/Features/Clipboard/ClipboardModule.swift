@@ -79,6 +79,22 @@ enum ClipboardAccess {
         case .unknown: return "Ta version de macOS ne demande pas d'autorisation pour lire le presse-papiers."
         }
     }
+
+    /// One line under « Activer l'historique », when macOS has something to say.
+    var firstStep: String? {
+        switch self {
+        case .notAsked: return "À la première copie, macOS te demandera ton accord : choisis « Toujours autoriser »."
+        case .ask: return "macOS te demandera ton accord à chaque copie."
+        case .denied: return "macOS refuse l'accès au presse-papiers."
+        case .allowed, .unknown: return nil
+        }
+    }
+
+    /// Where « Coller depuis d'autres apps » is set for each app.
+    @MainActor
+    static func openPrivacySettings() {
+        Finder.open("x-apple.systempreferences:com.apple.preference.security")
+    }
 }
 
 /// The app in front when something was copied.
@@ -117,16 +133,11 @@ final class ClipboardModel: AppModule {
     var settings = ClipboardSettings() {
         didSet { settingsStore.value = settings }
     }
-    var filter: ClipboardFilterTab = .all
-    var search = ""
-    var selection: UUID?
     var combo: KeyCombo?
-    /// Copies left out since launch (secrets, excluded apps), shown on the page.
+    /// Copies left out since launch (secrets, excluded apps), counted at the foot of the settings.
     var skipped = 0
     var watching = false
-    /// For `--snapshot --tab intro`: the page as it looks before the user turns the history on.
-    var showIntro = false
-    /// The history in its own floating window (shortcut, « cb » in the launcher).
+    /// The history, its settings and its activation, all in one floating window (shortcut, « cb » in the launcher).
     let window = ClipboardWindow()
 
     /// The general pasteboard; the live tests swap in a private one so the user's clipboard is never touched.
@@ -159,11 +170,6 @@ final class ClipboardModel: AppModule {
 
     // MARK: Module
 
-    var sidebarBadge: String? {
-        if isActive { return items.isEmpty ? nil : Fmt.int(items.count) }
-        return settings.acknowledged ? "Pause" : nil
-    }
-
     func start(app: AppModel) {
         self.app = app
         started = true
@@ -185,12 +191,28 @@ final class ClipboardModel: AppModule {
         settingsStore.flush()
     }
 
+    /// `--snapshot --page hotkeys --tab presse-papiers[:…]`, passed by the snapshot code itself (the module has no page):
+    /// `:reglages` the settings, `:effacer` with the clearing asked, `:apps` with the ignored apps unfolded, `:activer`
+    /// the activation, `:images` (any filter) filtered, `:cherche:lumiere` with a search typed.
     func applySnapshotTab(_ tab: String) {
-        if tab == "intro" { showIntro = true }
-        if let f = ClipboardFilterTab(rawValue: tab) { filter = f; window.filter = f }
-        // "fenetre:lumiere": the window with that search typed.
-        if tab.hasPrefix("fenetre:") { window.query = String(tab.dropFirst(8)) }
+        guard tab == Self.snapshotTab || tab.hasPrefix(Self.snapshotTab + ":") else { return }
+        let rest = String(tab.dropFirst(Self.snapshotTab.count + 1))
+        switch rest {
+        case "reglages": window.showSettings = true
+        case "effacer":
+            window.showSettings = true
+            window.confirmClear = true
+        case "apps":
+            window.showSettings = true
+            window.showExcluded = true
+        case "activer": window.forceActivation = true
+        default:
+            if let f = ClipboardFilterTab(rawValue: rest) { window.filter = f }
+            if rest.hasPrefix("cherche:") { window.query = String(rest.dropFirst(8)) }
+        }
     }
+
+    static let snapshotTab = "presse-papiers"
 
     var quickToggles: [QuickToggle] {
         [QuickToggle(id: "clip_history", title: "Presse-papiers", symbol: "doc.on.clipboard", isOn: isActive) { [weak self] in
@@ -198,8 +220,8 @@ final class ClipboardModel: AppModule {
             if self.settings.acknowledged {
                 self.setEnabled(!self.settings.enabled)
             } else {
-                // The first time, the page explains what is recorded before anything starts.
-                self.openPage()
+                // The first time, the window explains what is recorded before anything starts.
+                self.openWindow()
             }
         }]
     }
@@ -218,10 +240,9 @@ final class ClipboardModel: AppModule {
                  symbol: on ? "doc.on.clipboard.fill" : "pause.circle.fill")
     }
 
-    func openPage() {
-        guard let app = app ?? AppContext.model else { return }
-        app.page = .clipboard
-        NotificationCenter.default.post(name: .openMainWindow, object: nil)
+    /// The history has no page: its window holds everything, the activation and the settings included.
+    func openWindow(settings: Bool = false) {
+        window.show(settings: settings)
     }
 
     func setCombo(_ c: KeyCombo?) {
@@ -506,7 +527,6 @@ final class ClipboardModel: AppModule {
         guard let i = items.firstIndex(where: { $0.id == id }) else { return }
         deleteFiles(of: [items[i]])
         items.remove(at: i)
-        if selection == id { selection = nil }
     }
 
     /// Clears the history; pinned items stay unless `includingPinned`.
@@ -515,7 +535,6 @@ final class ClipboardModel: AppModule {
         let removed = items.filter { includingPinned || !$0.pinned }
         deleteFiles(of: removed)
         items.removeAll { includingPinned || !$0.pinned }
-        selection = nil
     }
 
     func exclude(bundleID: String, name: String) {
@@ -527,20 +546,38 @@ final class ClipboardModel: AppModule {
         settings.excluded.removeAll { $0.bundleID == bundleID }
     }
 
-    /// Picks an app in /Applications and adds it to the excluded list.
+    /// Picks an app in /Applications and adds it to the excluded list. Shown above the history's floating window.
     func chooseExcludedApp() {
-        guard !DemoData.isEnabled else { return }
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
         let panel = NSOpenPanel()
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.allowedContentTypes = [.application]
         panel.allowsMultipleSelection = true
         panel.prompt = "Ignorer"
         panel.message = "Ce que tu copies dans ces apps ne sera jamais enregistré."
+        panel.level = .modalPanel
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {
             guard let id = Bundle(url: url)?.bundleIdentifier else { continue }
             exclude(bundleID: id, name: FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: ""))
         }
+    }
+
+    /// Apps to ignore in one click: those open now and those already in the history (only the latter in the demo),
+    /// minus the ignored ones and Chamois itself.
+    var excludeCandidates: [ClipboardExcludedApp] {
+        var seen = Set<String>()
+        var out: [ClipboardExcludedApp] = []
+        func add(_ id: String?, _ name: String?) {
+            guard let id, let name, !name.isEmpty, id != Bundle.main.bundleIdentifier,
+                  !ClipboardFilter.isExcluded(id, list: settings.excluded), seen.insert(id.lowercased()).inserted else { return }
+            out.append(ClipboardExcludedApp(bundleID: id, name: name))
+        }
+        if !DemoData.isEnabled {
+            for a in NSWorkspace.shared.runningApplications where a.activationPolicy == .regular { add(a.bundleIdentifier, a.localizedName) }
+        }
+        for i in items { add(i.appBundleID, i.appName) }
+        return out.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     // MARK: Search
@@ -550,13 +587,6 @@ final class ClipboardModel: AppModule {
         let k = item.searchKey
         keys[item.id] = k
         return k
-    }
-
-    /// What the page shows: the filter and the search applied, pinned items first.
-    var visible: [ClipboardItem] {
-        let q = Fuzzy.fold(search.trimmingCharacters(in: .whitespaces))
-        let base = items.filter { filter.accepts($0) }
-        return ClipboardHistory.search(base, query: q, keys: key, limit: .max, pinnedFirst: true)
     }
 
     func count(_ tab: ClipboardFilterTab) -> Int { items.filter { tab.accepts($0) }.count }
@@ -603,7 +633,6 @@ final class ClipboardModel: AppModule {
             text("Bien à toi,\nCamille — Atelier Camille, design et illustration", 60 * 24 * 9, tisserand, pinned: true, count: 21)
         ]
         skipped = 4
-        selection = items.first?.id
         // The window shows a text of several lines, the kind that needs the whole preview.
         window.selection = items.first { $0.text?.hasPrefix("Bien à toi") == true }?.id
     }

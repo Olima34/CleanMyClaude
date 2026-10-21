@@ -57,10 +57,10 @@ enum ToolProfileKind: String, Codable, CaseIterable, Identifiable {
     var pages: Set<Page> {
         switch self {
         case .essentials: return [.storage, .apps, .phone, .media]
-        case .studies: return [.wheel, .clipboard, .media, .launcher]
-        case .work: return [.wheel, .clipboard, .launcher, .hotkeys, .toolbox]
-        case .creation: return [.storage, .apps, .phone, .wheel, .toolbox, .hotkeys, .clipboard]
-        case .leisure: return [.media, .launcher, .phone]
+        case .studies: return [.wheel, .media, .hotkeys]
+        case .work: return [.wheel, .hotkeys, .toolbox]
+        case .creation: return [.storage, .apps, .phone, .wheel, .toolbox, .hotkeys]
+        case .leisure: return [.media, .phone, .storage]
         case .everything: return Set(Page.allCases)
         }
     }
@@ -185,7 +185,8 @@ enum ToolProfileRules {
 
     /// The pages that were folded into another (cinema and adblock into Multimédia…): their days and the user's choices
     /// still count for the page that took them in.
-    static let formerKeys: [Page: [String]] = [.media: ["cinema", "adblock"], .hotkeys: ["windows"], .wheel: ["converter", "fillsign"]]
+    static let formerKeys: [Page: [String]] = [.media: ["cinema", "adblock"], .hotkeys: ["windows", "launcher", "clipboard"],
+                                                  .wheel: ["converter", "fillsign"]]
 
     static func days(_ page: Page, in log: ToolUsageLog) -> [String] {
         let keys = [page.rawValue] + (formerKeys[page] ?? [])
@@ -263,7 +264,7 @@ enum ToolProfileRules {
             if k.pages.contains(.dashboard) { f.append("Profil \(k.title) : le tableau de bord n'a pas à y figurer") }
         }
         if !ToolProfileKind.leisure.pages.contains(.media) { f.append("Profils : Multimédia manque aux Loisirs") }
-        for p: Page in [.wheel, .launcher] where !ToolProfileKind.studies.pages.contains(p) {
+        for p: Page in [.wheel, .media] where !ToolProfileKind.studies.pages.contains(p) {
             f.append("Profils : \(p.title) manque aux Études")
         }
         if Set(ToolProfileKind.allCases.map(\.slug)).count != ToolProfileKind.allCases.count { f.append("Profils : deux slugs identiques") }
@@ -281,9 +282,9 @@ enum ToolProfileRules {
         if r[.cleanup] != .upkeep || r[.updates] != .upkeep { f.append("L'entretien doit rester pour tous") }
         if r[.dashboard] != .home { f.append("Le tableau de bord doit toujours rester") }
         // Two profiles add up.
-        s.kinds = [.essentials, .leisure]
+        s.kinds = [.essentials, .work]
         r = resolve(s, log: ToolUsageLog(), signals: signals, now: now)
-        if r[.launcher]?.featured != true || r[.storage]?.featured != true { f.append("Deux profils ne s'additionnent pas") }
+        if r[.toolbox]?.featured != true || r[.storage]?.featured != true { f.append("Deux profils ne s'additionnent pas") }
 
         // A tool opened on three different days joins; on two, not yet; months ago, no longer.
         s.kinds = [.essentials]
@@ -302,8 +303,8 @@ enum ToolProfileRules {
         if resolve(s, log: ToolUsageLog(), signals: withCommands, now: now)[.toolbox] != .used { f.append("Le lanceur ne compte pas dans l'usage") }
         // A feature switched on keeps its page.
         var withActive = signals
-        withActive.active = [.clipboard]
-        if resolve(s, log: ToolUsageLog(), signals: withActive, now: now)[.clipboard] != .active { f.append("Un outil allumé quitte la barre") }
+        withActive.active = [.hotkeys]
+        if resolve(s, log: ToolUsageLog(), signals: withActive, now: now)[.hotkeys] != .active { f.append("Un outil allumé quitte la barre") }
 
         // A tool of the profile fades only after weeks without it, while the app is in use, and not right after choosing.
         let busy = ToolUsageLog(days: ["cleanup": days(Array(1...12))], active: days(Array(1...12)))
@@ -327,7 +328,8 @@ enum ToolProfileRules {
         s.kinds = [.leisure]
         r = resolve(s, log: busy, signals: signals, now: now)
         if r[.phone] != .pinned || r[.automation] != .pinned { f.append("Un outil ajouté par l'utilisateur ne reste pas") }
-        if r[.cleanup] != .removed || r[.launcher] != .removed { f.append("Un outil rangé par l'utilisateur revient") }
+        if r[.cleanup] != .removed { f.append("Un outil rangé par l'utilisateur revient") }
+        if r[.hotkeys] != .removed { f.append("Le Lanceur rangé ne range pas Raccourcis") }
         if r[.media] != .removed { f.append("Le Bloqueur de pub rangé ne range pas Multimédia") }
 
         // A Mac without a battery has no battery page in its sidebar, unless the user wants it.
@@ -471,13 +473,12 @@ final class ToolProfileModel {
             signals.hasBattery = DemoData.isEnabled || Snapshot.isActive ? app.monitor.battery != nil : SystemMonitor.readBattery() != nil
         }
         s.hasBattery = signals.hasBattery
-        if app.clipboard.isActive { s.active.insert(.clipboard) }
         if app.wheel.recentlyUsed { s.active.insert(.wheel) }
         if app.automation.activeCount > 0 { s.active.insert(.automation) }
         if app.hotkeys.bindings.contains(where: { $0.combo != nil }) { s.active.insert(.hotkeys) }
         if let limit = app.battery.activeLimit, limit < 100 { s.active.insert(.battery) }
         // Each module's launcher commands count for its page; « Ouvrir … » counts for the page it opens.
-        // All of them count for the launcher too: it is used through its shortcut, rarely through its page.
+        // All of them count for Raccourcis too, where the launcher is set up: it is used through its shortcut.
         let usage = DemoData.isEnabled ? [:] : CommandRunner.usage.value
         if !usage.isEmpty {
             if owners == nil { mapOwners(app) }
@@ -488,9 +489,10 @@ final class ToolProfileModel {
                 s.commands[page] = merged
             }
             for (id, u) in usage {
-                add(u, to: .launcher)
+                // The launcher's settings are on the Raccourcis page: using it counts for that page too.
+                add(u, to: .hotkeys)
                 let opened = id.hasPrefix("open_") ? Page(rawValue: String(id.dropFirst(5))) : nil
-                guard let page = opened ?? owners?[id] ?? prefixes[Self.prefix(id)], page != .launcher else { continue }
+                guard let page = opened ?? owners?[id] ?? prefixes[Self.prefix(id)], page != .hotkeys else { continue }
                 add(u, to: page)
             }
         }
@@ -545,8 +547,8 @@ final class ToolProfileModel {
         settings = ToolProfileSettings(kinds: [.studies], chosen: now.addingTimeInterval(-40 * 86400))
         var log = ToolUsageLog()
         let d = { (n: Int) in ToolProfileRules.day(n, before: now) }
-        log.days = ["hotkeys": [d(9), d(4), d(1)], "wheel": [d(12), d(6), d(3), d(2), d(0)], "fillsign": [d(8), d(5), d(1)],
-                    "media": [d(2)], "launcher": [d(6), d(3)], "cleanup": [d(7), d(0)]]
+        log.days = ["wheel": [d(12), d(6), d(3), d(2), d(0)], "fillsign": [d(8), d(5), d(1)],
+                    "media": [d(2)], "hotkeys": [d(9), d(6), d(4), d(3), d(1)], "cleanup": [d(7), d(0)]]
         log.active = (0...12).reversed().map(d)
         logStore.value = log
         resolve()

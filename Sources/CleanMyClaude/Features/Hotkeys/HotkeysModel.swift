@@ -53,7 +53,8 @@ enum HotkeysOwner: Equatable {
     }
 }
 
-/// The parts of the Raccourcis page: the user's shortcuts, the window layouts (`WindowsModel`), Chamois' own keys.
+/// The parts of the Raccourcis page: the user's shortcuts, the window layouts (`WindowsModel`), Chamois' own keys
+/// with the launcher's search (index of files, hidden results, most used commands).
 enum HotkeysTab: String, CaseIterable, Identifiable {
     case apps, windows = "fenetres", chamois
 
@@ -136,9 +137,11 @@ final class HotkeysModel: AppModule {
         for b in bindings { takeovers[b.id] = b.combo.flatMap { Self.takeoverNote($0, system: []) } }
     }
 
-    /// `--tab fenetres`, `chamois`; `recherche` types a search; `autoriser` shows Fenêtres without the permission.
+    /// `--tab fenetres`, `chamois` (or `lanceur`, `lanceur:indexation`, `lanceur:sans-index` for the launcher's search);
+    /// `recherche` types a search; `autoriser` shows Fenêtres without the permission.
     func applySnapshotTab(_ tab: String) {
         if let t = HotkeysTab(rawValue: tab) { self.tab = t }
+        if tab == "lanceur" || tab.hasPrefix("lanceur:") { self.tab = .chamois }
         if tab == "recherche" { search = "mo" }
         if tab == "autoriser" { self.tab = .windows }
     }
@@ -238,6 +241,13 @@ final class HotkeysModel: AppModule {
             failures.append("raccourcis : actions de fenêtre mal reconnues")
         }
         if HotkeysTab(rawValue: "fenetres") != .windows { failures.append("raccourcis : onglet Fenêtres introuvable par son nom") }
+        // The most used commands of the launcher: the catalogue's own, best first, never one with its own key.
+        let counts = ["sys_screenshot": 31, "act_smart_scan": 31, "open_wheel": 4, "launcher_open": 50, "hk_1234": 40,
+                      WindowsAction.leftHalf.commandID: 20, "calc_result": 12, "sys_darkmode": 0]
+        let catalog: Set<String> = ["sys_screenshot", "act_smart_scan", "open_wheel", "launcher_open", "hk_1234",
+                                    WindowsAction.leftHalf.commandID, "sys_darkmode"]
+        let top = Self.mostUsed(counts, catalog: catalog, limit: 2).map(\.id)
+        if top != ["act_smart_scan", "sys_screenshot"] { failures.append("raccourcis : commandes les plus utilisées (\(top))") }
         return failures
     }
 
@@ -276,7 +286,7 @@ final class HotkeysModel: AppModule {
         guard let app = app ?? AppContext.model else { return nil }
         if except != .launcher, app.launcher.combo == combo { return "le lanceur" }
         if except != .clipboard, app.clipboard.combo == combo { return "l'historique du presse-papiers" }
-        if except != .wheel, app.wheel.combo == combo { return "la roue des fichiers" }
+        if except != .wheel, app.wheel.combo == combo { return "la roue du Convertisseur" }
         if except != .windows, let action = app.windows.combos.first(where: { $0.value == combo })?.key { return "Fenêtres (\(action.title))" }
         return nil
     }
@@ -427,12 +437,19 @@ final class HotkeysModel: AppModule {
 
     /// Adds a target with a free ⌃⌥⌘ + letter already set (changeable), and registers it.
     func add(_ target: HotkeysTarget) {
-        if let existing = bindings.first(where: { $0.target.key == target.key }) {
-            HUD.show("Déjà là : \(existing.combo?.display ?? "sans raccourci")", symbol: "keyboard")
+        let windowCombos = app.map { Array($0.windows.combos.values) } ?? []
+        let taken = Set(bindings.compactMap(\.combo) + [app?.launcher.combo, app?.clipboard.combo, app?.wheel.combo].compactMap { $0 } + windowCombos)
+        if let i = bindings.firstIndex(where: { $0.target.key == target.key }) {
+            // Already there without keys: it takes the free letter now (the most used commands of the Chamois part).
+            if bindings[i].combo == nil, let combo = Self.suggestedCombo(for: target.title, taken: taken) {
+                bindings[i].combo = combo
+                register(bindings[i])
+                HUD.show("\(target.title) : \(combo.display)", symbol: "keyboard")
+            } else {
+                HUD.show("Déjà là : \(bindings[i].combo?.display ?? "sans raccourci")", symbol: "keyboard")
+            }
             return
         }
-        let windowCombos = app.map { Array($0.windows.combos.values) } ?? []
-        let taken = Set(bindings.compactMap(\.combo) + [app?.launcher.combo, app?.clipboard.combo].compactMap { $0 } + windowCombos)
         let b = HotkeysBinding(target: target, combo: Self.suggestedCombo(for: target.title, taken: taken))
         bindings.append(b)
         register(b)
@@ -518,6 +535,20 @@ final class HotkeysModel: AppModule {
     }
 
     // MARK: Suggestions
+
+    /// The launcher's commands with a key of their own among Chamois' keys: never offered a second one.
+    static let ownKeyCommands: Set<String> = ["launcher_open", LauncherModel.filesCommandID, "clip_search", "wheel_finder"]
+
+    /// The commands run most from the launcher (`counts` by id), best first: only those of the catalogue that can
+    /// take a shortcut here (not the shortcuts themselves, the window layouts or the commands with their own key).
+    static func mostUsed(_ counts: [String: Int], catalog: Set<String>, limit: Int = 6) -> [(id: String, count: Int)] {
+        let kept = counts.filter { id, count in
+            count > 0 && catalog.contains(id) && !id.hasPrefix("hk_") && windowAction(id) == nil && !ownKeyCommands.contains(id)
+        }
+        return kept.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }
+            .prefix(limit)
+            .map { (id: $0.key, count: $0.value) }
+    }
 
     /// Common apps found on this Mac that have no shortcut yet.
     var suggestions: [HotkeysTarget] {

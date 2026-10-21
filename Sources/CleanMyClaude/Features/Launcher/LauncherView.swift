@@ -173,11 +173,14 @@ struct LauncherView: View {
         let picking = model.scope == .files
         let picked = model.marked.count
         return HStack(spacing: 14) {
-            // Opens the app on the dashboard (from the file window: on the Lanceur page, where its index is set up).
+            // Opens the app on the dashboard (from the file window: on Raccourcis, where its index is set up).
             Button {
                 model.hide()
-                app.page = model.scope == .files ? .launcher : .dashboard
-                NotificationCenter.default.post(name: .openMainWindow, object: nil)
+                if model.scope == .files {
+                    app.hotkeys.show(.chamois, app: app)
+                } else {
+                    LauncherAppActions.openMain(app, .dashboard)
+                }
             } label: {
                 HStack(spacing: 5) {
                     BrandMark(size: 11)

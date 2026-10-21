@@ -164,7 +164,7 @@ enum RefugePath: String, CaseIterable, Codable {
         switch self {
         case .gardien: return [.protection, .updates]
         case .artiste: return [.wheel, .media]
-        case .guide: return [.launcher, .hotkeys, .clipboard, .toolbox]
+        case .guide: return [.hotkeys, .toolbox]
         case .fee: return [.cleanup, .storage, .apps, .phone, .automation, .performance, .battery]
         }
     }
@@ -202,6 +202,22 @@ struct RefugeTask: Identifiable, Equatable {
     let id: String
     let title: String
     let page: Page?
+}
+
+/// Where it stands on the trail of the round: one step per mission done, in whatever order they were done. The flags
+/// along the trail are steps, not missions.
+struct RefugeRoundProgress: Equatable {
+    var steps: Int
+    var count: Int
+
+    init(_ done: [Bool]) {
+        steps = done.filter { $0 }.count
+        count = done.count
+    }
+
+    var finished: Bool { count > 0 && steps >= count }
+    /// The flag of step `index` (0 for the first) is planted once it is reached.
+    func planted(_ index: Int) -> Bool { index < steps }
 }
 
 enum RefugeStyle {
@@ -332,25 +348,57 @@ enum RefugeStyle {
         case "clean": return RefugeTask(id: id, title: "Faire un nettoyage", page: .cleanup)
         case "update": return RefugeTask(id: id, title: "Mettre une app à jour", page: .updates)
         case "fix": return RefugeTask(id: id, title: "Corriger un point de sécurité", page: .protection)
-        case "tool": return RefugeTask(id: id, title: "Lancer une commande depuis le lanceur", page: .launcher)
+        case "tool": return RefugeTask(id: id, title: "Lancer une commande depuis le lanceur", page: .hotkeys)
         default:
-            if id.hasPrefix("discover:"), let page = Page(rawValue: String(id.dropFirst(9))) {
+            if let page = discoveryPage(id) {
                 return RefugeTask(id: id, title: "Découvrir \(RefugeRules.room(page)?.name ?? page.title) (\(page.title))", page: page)
             }
-            return RefugeTask(id: id, title: id, page: nil)
+            // A mission saved before its page went away: `repairRound` swaps it unless it was already done.
+            return RefugeTask(id: id, title: id.hasPrefix("discover:") ? "Découvrir une nouvelle pièce" : "Une petite mission", page: nil)
         }
+    }
+
+    /// The page a `discover:` mission leads to: a page folded into another (cinema into Multimédia, the launcher into
+    /// Raccourcis…) leads to the one that took it in; a page gone for good (YouTube, the translator…), nowhere.
+    private static func discoveryPage(_ id: String) -> Page? {
+        guard id.hasPrefix("discover:") else { return nil }
+        let key = String(id.dropFirst(9))
+        return Page(rawValue: key) ?? ToolProfileRules.formerKeys.first { $0.value.contains(key) }?.key
+    }
+
+    private static func roundSeed(_ day: String) -> UInt64 {
+        day.unicodeScalars.reduce(UInt64(1469598103934665603)) { ($0 ^ UInt64($1.value)) &* 1099511628211 }
+    }
+
+    private static func draw(_ pool: inout [String], _ seed: inout UInt64) -> String {
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+        return pool.remove(at: Int(seed >> 33) % pool.count)
     }
 
     /// Today's three missions: feeding it, then two drawn (the same all day) from what really makes sense on this Mac.
     static func makeRound(day: String, candidates: [String]) -> RefugeRound {
-        var seed = day.unicodeScalars.reduce(UInt64(1469598103934665603)) { ($0 ^ UInt64($1.value)) &* 1099511628211 }
+        var seed = roundSeed(day)
         var pool = Array(Set(candidates.filter { $0 != "feed" })).sorted()
         var picked: [String] = ["feed"]
-        while picked.count < 3, !pool.isEmpty {
-            seed = seed &* 6364136223846793005 &+ 1442695040888963407
-            picked.append(pool.remove(at: Int(seed >> 33) % pool.count))
-        }
+        while picked.count < 3, !pool.isEmpty { picked.append(draw(&pool, &seed)) }
         return RefugeRound(day: day, tasks: picked)
+    }
+
+    /// A round saved before a page went away: each mission that leads nowhere and is not done yet gives way to another of
+    /// today's candidates (or leaves the round if there is none), so the round can still be finished. Done ones stay.
+    static func repairRound(_ r: RefugeRound, _ s: RefugeState, candidates: [String], now: Date,
+                            calendar: Calendar = .current) -> RefugeRound {
+        let stale = r.tasks.indices.filter { task(r.tasks[$0]).page == nil && !done(r.tasks[$0], s, now: now, calendar: calendar) }
+        guard !r.paid, !stale.isEmpty else { return r }
+        var pool = Array(Set(candidates.filter { $0 != "feed" && task($0).page != nil && !r.tasks.contains($0) })).sorted()
+        var seed = roundSeed(r.day + ":repair")
+        var out = r
+        var dropped: [Int] = []
+        for i in stale {
+            if pool.isEmpty { dropped.append(i) } else { out.tasks[i] = draw(&pool, &seed) }
+        }
+        for i in dropped.reversed() { out.tasks.remove(at: i) }
+        return out
     }
 
     /// Whether a mission is done today.
@@ -365,9 +413,23 @@ enum RefugeStyle {
         case "fix": return paid(.fix)
         case "tool": return paid(.tool)
         default:
-            if id.hasPrefix("discover:") { return s.claimed.contains("page:" + id.dropFirst(9)) }
-            return false
+            guard id.hasPrefix("discover:") else { return false }
+            // Its own room lit, or the room of the page that took it in.
+            return s.claimed.contains("page:" + id.dropFirst(9)) || discoveryPage(id).map { s.claimed.contains("page:" + $0.rawValue) } ?? false
         }
+    }
+
+    /// How far along the trail it is.
+    static func progress(_ r: RefugeRound, _ s: RefugeState, now: Date, calendar: Calendar = .current) -> RefugeRoundProgress {
+        RefugeRoundProgress(r.tasks.map { done($0, s, now: now, calendar: calendar) })
+    }
+
+    /// Pays today's round once all its missions are done, whatever their order: once a day, never twice.
+    static func payRound(_ s: inout RefugeState, now: Date, calendar: Calendar = .current) -> Int {
+        guard s.welcomed, let r = s.round, r.day == RefugeRules.dayKey(now, calendar: calendar), !r.paid,
+              progress(r, s, now: now, calendar: calendar).finished else { return 0 }
+        s.round?.paid = true
+        return RefugeRules.earn(&s, .round, key: "round:" + r.day, now: now, calendar: calendar)
     }
 
     // MARK: Self-test
@@ -440,7 +502,7 @@ enum RefugeStyle {
 
         // Path.
         if suggestedPath(days: [.protection: 5, .wheel: 3]) != .gardien || suggestedPath(days: [:]) != .fee
-            || suggestedPath(days: [.launcher: 2, .cleanup: 2]) != .fee || suggestedPath(days: [.media: 9]) != .artiste {
+            || suggestedPath(days: [.hotkeys: 2, .cleanup: 2]) != .fee || suggestedPath(days: [.media: 9]) != .artiste {
             f.append("Refuge : voie mal choisie")
         }
         let all = RefugePath.allCases.flatMap(\.pages)
@@ -465,6 +527,59 @@ enum RefugeStyle {
         for id in ["feed", "scan", "clean", "update", "fix", "tool", "discover:media"] where task(id).page == nil {
             f.append("Refuge : mission \(id) sans page")
         }
+
+        // The trail moves one step per mission done, whatever their order.
+        var o = RefugeState()
+        RefugeRules.adopt(&o, name: "", known: [.dashboard], returning: false, now: now, calendar: cal)
+        o.round = RefugeRound(day: RefugeRules.dayKey(now, calendar: cal), tasks: ["feed", "scan", "discover:media"])
+        func at(_ s: RefugeState) -> RefugeRoundProgress { progress(s.round!, s, now: now, calendar: cal) }
+        if at(o).steps != 0 || at(o).planted(0) || at(o).finished { f.append("Refuge : la tournée avance sans rien faire") }
+        _ = RefugeRules.earn(&o, .discovery, key: "page:media", now: now, calendar: cal)
+        if at(o).steps != 1 || !at(o).planted(0) || at(o).planted(1) || at(o).planted(2) {
+            f.append("Refuge : la dernière mission faite d'abord n'avance pas d'une étape (\(at(o).steps))")
+        }
+        if payRound(&o, now: now, calendar: cal) != 0 || o.round?.paid == true { f.append("Refuge : tournée payée avant la fin") }
+        _ = RefugeRules.earn(&o, .scan, now: now, calendar: cal)
+        if at(o).steps != 2 || !at(o).planted(1) || at(o).planted(2) || at(o).finished {
+            f.append("Refuge : deux missions faites dans le désordre ne font pas deux étapes")
+        }
+        _ = RefugeRules.feed(&o, 1, now: now, calendar: cal)
+        let basket = o.basket
+        if !at(o).finished || at(o).steps != 3 { f.append("Refuge : tournée finie dans le désordre non reconnue") }
+        if payRound(&o, now: now, calendar: cal) != RefugeSource.round.amount || o.basket != basket + RefugeSource.round.amount || o.round?.paid != true {
+            f.append("Refuge : tournée finie dans le désordre non payée")
+        }
+        if payRound(&o, now: now, calendar: cal) != 0 { f.append("Refuge : tournée payée deux fois") }
+        o.round?.paid = false
+        if payRound(&o, now: now, calendar: cal) != 0 || o.basket != basket + RefugeSource.round.amount { f.append("Refuge : tournée repayée après coup") }
+        if RefugeRoundProgress([]).finished { f.append("Refuge : une tournée vide est finie") }
+
+        // A round saved before the redesign: a page folded into another still leads somewhere; a page gone for good
+        // gives way to another mission, unless it was done.
+        for key in ["cinema", "adblock", "launcher", "clipboard", "windows", "converter", "fillsign"] where task("discover:" + key).page == nil {
+            f.append("Refuge : l'ancienne pièce \(key) ne mène plus nulle part")
+        }
+        var old = RefugeState()
+        RefugeRules.adopt(&old, name: "", known: [.dashboard], returning: false, now: now, calendar: cal)
+        if done("discover:cinema", old, now: now, calendar: cal) { f.append("Refuge : ancienne pièce faite sans y aller") }
+        _ = RefugeRules.earn(&old, .discovery, key: "page:media", now: now, calendar: cal)
+        if !done("discover:cinema", old, now: now, calendar: cal) || task("discover:cinema").page != .media {
+            f.append("Refuge : Multimédia ne fait pas la mission du Ciné-club d'avant")
+        }
+        let day = RefugeRules.dayKey(now, calendar: cal)
+        let stale = RefugeRound(day: day, tasks: ["feed", "discover:youtube", "scan"])
+        let fixed = repairRound(stale, old, candidates: ["scan", "tool", "discover:toolbox"], now: now, calendar: cal)
+        if fixed.tasks.count != 3 || fixed.tasks[0] != "feed" || fixed.tasks[2] != "scan" || Set(fixed.tasks).count != 3
+            || fixed.tasks.contains(where: { task($0).page == nil }) {
+            f.append("Refuge : mission d'une page disparue mal remplacée \(fixed.tasks)")
+        }
+        if repairRound(fixed, old, candidates: ["tool"], now: now, calendar: cal) != fixed { f.append("Refuge : une tournée saine réparée") }
+        if repairRound(stale, old, candidates: ["scan"], now: now, calendar: cal).tasks != ["feed", "scan"] {
+            f.append("Refuge : mission disparue sans remplaçante gardée")
+        }
+        old.claimed.insert("page:youtube")
+        if repairRound(stale, old, candidates: ["tool"], now: now, calendar: cal) != stale { f.append("Refuge : mission disparue mais faite remplacée") }
+        if task("discover:youtube").title.contains("youtube") || task("bidule").title == "bidule" { f.append("Refuge : identifiant brut montré") }
         return f
     }
 }

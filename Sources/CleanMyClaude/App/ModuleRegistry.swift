@@ -54,7 +54,8 @@ struct ModuleEntry {
     let id: String
     let title: String
     /// The sidebar page that shows it, or nil for a module without a page of its own: it lives in the launcher
-    /// (YouTube, Traducteur), the settings (Réseau) or the windows of the Convertisseur (Remplir et signer).
+    /// (YouTube, Traducteur), its own window (Presse-papiers), the settings (Réseau) or the windows of the Convertisseur
+    /// (Remplir et signer). The launcher's settings are on the Raccourcis page.
     let page: Page?
     let module: any AppModule
 }
@@ -74,7 +75,7 @@ enum ModuleRegistry {
         add("performance", Page.performance.title, .performance, app.performance)
         add("battery", Page.battery.title, .battery, app.battery)
         add("phone", Page.phone.title, .phone, app.phone)
-        add("launcher", Page.launcher.title, .launcher, app.launcher)
+        add("launcher", "Lanceur", .hotkeys, app.launcher)
         add("hotkeys", Page.hotkeys.title, .hotkeys, app.hotkeys)
         add("windows", "Fenêtres", .hotkeys, app.windows)
         add("wheel", Page.wheel.title, .wheel, app.wheel)
@@ -86,7 +87,7 @@ enum ModuleRegistry {
         add("adblock", "Bloqueur de pub", .media, app.adblock)
         add("translator", "Traducteur", nil, app.translator)
         add("toolbox", Page.toolbox.title, .toolbox, app.toolbox)
-        add("clipboard", Page.clipboard.title, .clipboard, app.clipboard)
+        add("clipboard", "Presse-papiers", nil, app.clipboard)
         add("updates", Page.updates.title, .updates, app.updates)
         add("network", "Réseau", nil, app.network)
         add("automation", Page.automation.title, .automation, app.automation)

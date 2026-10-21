@@ -106,12 +106,10 @@ struct PageView: View {
         case .storage: StoragePage()
         case .phone: PhonePage()
         case .menubar: MenuBarPage()
-        case .launcher: LauncherPage()
         case .wheel: WheelPage()
         case .media: MediaPage()
         case .hotkeys: HotkeysPage()
         case .toolbox: ToolboxPage()
-        case .clipboard: ClipboardPage()
         case .updates: UpdatesPage()
         case .automation: AutomationPage()
         case .assistant: AssistantPage()
@@ -137,12 +135,10 @@ struct BottomBar: View {
         case .performance: PerformanceBottomBar()
         case .battery: BatteryBottomBar()
         case .phone where !app.phone.selection.isEmpty: PhoneBottomBar()
-        case .launcher: LauncherBottomBar()
         case .wheel: WheelBottomBar()
         case .media: MediaBottomBar()
         case .hotkeys: HotkeysBottomBar()
         case .toolbox: ToolboxBottomBar()
-        case .clipboard: ClipboardBottomBar()
         case .updates: UpdatesBottomBar()
         case .automation: AutomationBottomBar()
         case .assistant: AssistantBottomBar()
@@ -299,6 +295,7 @@ struct Sidebar: View {
         switch p {
         case .cleanup: return app.cleanup.hasResults && app.cleanup.recommendedSize > 0 ? Fmt.bytes(app.cleanup.recommendedSize) : nil
         case .apps: return app.apps.unused.isEmpty ? nil : "\(app.apps.unused.count)"
+        case .hotkeys: return app.hotkeys.sidebarBadge
         default: return ModuleRegistry.module(for: p, app: app)?.sidebarBadge
         }
     }

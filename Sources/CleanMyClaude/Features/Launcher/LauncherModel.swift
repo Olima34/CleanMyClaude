@@ -28,7 +28,7 @@ struct LauncherSection: Identifiable {
 @MainActor
 final class LauncherModel: AppModule {
     static let hotKeyID = "launcher"
-    /// ⌥Espace, like Alfred or Raycast. macOS 27 accepts it; the page lets the user pick another one.
+    /// ⌥Espace, like Alfred or Raycast. macOS 27 accepts it; Raccourcis › Chamois lets the user pick another one.
     static let defaultCombo = KeyCombo(keyCode: KeyCombo.space, modifiers: UInt32(optionKey))
 
     var query = "" {
@@ -165,8 +165,6 @@ final class LauncherModel: AppModule {
     /// Flat list of what is shown, in order (for keyboard navigation).
     var flat: [AppCommand] { sections.flatMap(\.items) }
 
-    var sidebarBadge: String? { combo?.display }
-
     // MARK: Module
 
     func start(app: AppModel) {
@@ -243,6 +241,9 @@ final class LauncherModel: AppModule {
             if parts.count > 1 { app?.youtube.applySnapshotTab(parts[1]) }
             query = YouTubeModel.demoLink
             refresh()
+        case "lanceur":
+            // Raccourcis › Chamois, the instant index being built or off (`lanceur:indexation`, `lanceur:sans-index`).
+            if parts.count > 1 { indexState = parts[1] == "indexation" ? .building : .off }
         case "telechargements":
             // The download list, from its launcher result.
             query = "téléchargements youtube"
@@ -283,7 +284,7 @@ final class LauncherModel: AppModule {
         hotKeyActive = true
         apps = DemoData.apps().map { LauncherApp(name: $0.name, path: $0.path, keywords: []) }
         appsIndexedAt = Date()
-        for (id, n) in [("act_smart_scan", 14), ("open_converter", 9), ("sys_darkmode", 7), ("set_com_apple_wifi_settings_extension", 4)] {
+        for (id, n) in [("act_smart_scan", 14), ("open_wheel", 9), ("sys_darkmode", 7), ("set_com_apple_wifi_settings_extension", 4)] {
             CommandRunner.usage.value[id] = .init(count: n, last: Date().addingTimeInterval(-3600))
         }
         demoFiles = LauncherFileIndex.snapshot(paths: LauncherDemoFiles.paths, home: FS.home)
@@ -1267,7 +1268,7 @@ final class LauncherModel: AppModule {
         let used = shown.filter { CommandRunner.frecency($0.id) > 0 }
             .sorted { CommandRunner.frecency($0.id) > CommandRunner.frecency($1.id) }
             .prefix(6)
-        let picks = ["act_smart_scan", "open_converter", "open_clipboard", "sys_darkmode", "sys_empty_trash", Self.filesCommandID]
+        let picks = ["act_smart_scan", "open_wheel", "clip_search", "sys_darkmode", "sys_empty_trash", Self.filesCommandID]
         let defaults = picks.compactMap { id in shown.first { $0.id == id } }.filter { d in !used.contains { $0.id == d.id } }
         var out: [LauncherSection] = []
         if !favorites.isEmpty { out.append(LauncherSection(id: "favorites", title: "Favoris", items: favorites)) }

@@ -5,8 +5,8 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, refuge, cleanup, protection, performance, battery, updates, apps, storage
-    case phone, wheel, media, toolbox, clipboard
-    case launcher, hotkeys, automation
+    case phone, wheel, media, toolbox
+    case hotkeys, automation
     case assistant, menubar
 
     var id: String { rawValue }
@@ -27,8 +27,6 @@ enum Page: String, CaseIterable, Identifiable {
         case .media: return "Multimédia"
         case .hotkeys: return "Raccourcis"
         case .toolbox: return "Boîte à outils"
-        case .clipboard: return "Presse-papiers"
-        case .launcher: return "Lanceur"
         case .automation: return "Automatisations"
         case .assistant: return "Assistant Claude"
         case .menubar: return "Menu d'état"
@@ -51,8 +49,6 @@ enum Page: String, CaseIterable, Identifiable {
         case .media: return "play.tv"
         case .hotkeys: return "keyboard"
         case .toolbox: return "wrench.and.screwdriver"
-        case .clipboard: return "doc.on.clipboard"
-        case .launcher: return "command"
         case .automation: return "clock.arrow.2.circlepath"
         case .assistant: return "sparkle"
         case .menubar: return "menubar.rectangle"
@@ -75,9 +71,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .wheel: return "Glisse un fichier : une roue pour convertir, recadrer, annoter, remplir ou signer, sans rien ouvrir."
         case .media: return "Films et séries, vidéos sans pub et pubs bloquées pour tout le Mac."
         case .toolbox: return "Couleurs, mots de passe, Caféine et autres petits outils."
-        case .clipboard: return "Retrouve tout ce que tu as copié : texte, liens et images."
-        case .launcher: return "Une barre pour tout faire, d'un raccourci, depuis n'importe où."
-        case .hotkeys: return "Un raccourci pour chaque app, dossier ou site, et tes fenêtres rangées au clavier."
+        case .hotkeys: return "Tes raccourcis, le lanceur et tes fenêtres rangées au clavier."
         case .automation: return "Ton Mac s'entretient tout seul, selon tes règles."
         case .assistant: return "Pose tes questions sur ton Mac, Claude te répond."
         case .menubar: return "Processeur, mémoire et actions express dans la barre des menus."
@@ -88,8 +82,8 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard, .refuge]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage, .phone]),
-        ("Outils", [.wheel, .media, .toolbox, .clipboard]),
-        ("Contrôle", [.launcher, .hotkeys, .automation]),
+        ("Outils", [.wheel, .media, .toolbox]),
+        ("Contrôle", [.hotkeys, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
     ]

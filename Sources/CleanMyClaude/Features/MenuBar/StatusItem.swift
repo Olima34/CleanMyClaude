@@ -195,30 +195,47 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private func show() {
         guard let button = item.button else { return }
         // A fresh view each time, so the panel starts and stops reading processes with its own lifetime.
-        // Its height is its own (fixed size), measured and handed to the popover: never the popover's size fed back
-        // into the panel's layout, which AppKit can turn into an endless resize when the screens change.
-        let panel = MenuBarPanel().environment(app)
-            .fixedSize(horizontal: false, vertical: true)
-            .background(GeometryReader { g in Color.clear.preference(key: StatusItemPanelSize.self, value: g.size) })
-            .onPreferenceChange(StatusItemPanelSize.self) { [weak self] size in
-                MainActor.assumeIsolated { self?.fit(size) }
-            }
-        let host = NSHostingController(rootView: panel)
+        // The panel keeps its own height (in a scroll view) and reports it; the popover follows, up to the room the
+        // screen leaves. Never the popover's size fed back into the panel's layout, which AppKit can turn into an
+        // endless resize when the screens change.
+        let host = NSHostingController(rootView: StatusItemPanelRoot(app: app) { [weak self] height in self?.fit(height) })
         host.sizingOptions = []
         popover.contentViewController = host
-        fit(host.view.fittingSize)
+        // Laid out once before opening, so the panel has reported its height and the popover opens at its size.
+        // (Without sizing options the hosting view's `fittingSize` is 0 × 0: the popover then kept AppKit's 320 × 320,
+        // the panel centered in it and cut at both ends.)
+        host.view.frame = NSRect(x: 0, y: 0, width: MenuBarPanel.width, height: max(popover.contentSize.height, 100))
+        host.view.layoutSubtreeIfNeeded()
         app.monitor.show(.panel, true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
 
-    /// The popover follows the panel's height (rounded up to whole points, only when it really changes).
-    private func fit(_ size: CGSize) {
-        guard size.width > 0, size.height > 0 else { return }
-        let target = NSSize(width: ceil(size.width), height: ceil(size.height))
+    /// The popover follows the panel's height, on the screen of the menu bar item (changed only when it really changes).
+    private func fit(_ height: CGFloat) {
+        guard height > 0 else { return }
+        let target = Self.popoverSize(panelHeight: height, room: Self.room(on: item.button?.window?.screen),
+                                      legacyScroller: NSScroller.preferredScrollerStyle == .legacy)
         if abs(popover.contentSize.height - target.height) >= 1 || abs(popover.contentSize.width - target.width) >= 1 {
             popover.contentSize = target
         }
+    }
+
+    /// The popover for a panel this tall: all of it, or all the room there is (the panel then scrolls, and the popover
+    /// widens by a scroll bar when scroll bars always show). One point more than the panel: laid out before it has a
+    /// window, the panel reports its height rounded to the point, up to half a point short.
+    static func popoverSize(panelHeight: CGFloat, room: CGFloat, legacyScroller: Bool) -> NSSize {
+        let height = ceil(panelHeight) + 1
+        guard height > floor(room) else { return NSSize(width: MenuBarPanel.width, height: height) }
+        let bar = legacyScroller ? NSScroller.scrollerWidth(for: .regular, scrollerStyle: .legacy) : 0
+        return NSSize(width: MenuBarPanel.width + bar, height: floor(room))
+    }
+
+    /// The tallest popover the screen leaves: its visible part (without the menu bar and the Dock), less the popover's
+    /// arrow and edges.
+    static func room(on screen: NSScreen?) -> CGFloat {
+        guard let visible = (screen ?? NSScreen.main)?.visibleFrame.height else { return 600 }
+        return max(200, visible - 40)
     }
 
     func popoverDidClose(_ notification: Notification) {
@@ -229,10 +246,20 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 }
 
-/// The height the menu bar panel wants.
-private struct StatusItemPanelSize: PreferenceKey {
-    static let defaultValue = CGSize.zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
+/// The panel as the popover holds it: at its own height, in a scroll view that only scrolls when the screen is shorter.
+private struct StatusItemPanelRoot: View {
+    let app: AppModel
+    let onHeight: @MainActor (CGFloat) -> Void
+
+    var body: some View {
+        ScrollView(.vertical) {
+            MenuBarPanel()
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { onHeight($0) }
+        }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(Theme.bg)
+        .environment(app)
+    }
 }
 
 /// `--snapshot --page menubar`: the menu bar item while a video downloads, as it looks over a light and a dark bar.
@@ -265,5 +292,125 @@ struct StatusItemPreview: View {
         .padding(.horizontal, 10)
         .frame(height: 24)
         .background(Rectangle().fill(dark ? Color(white: 0.16) : Color(white: 0.93)))
+    }
+}
+
+// MARK: - Check
+
+extension StatusItemController {
+    /// `--menubar-check [dossier]`: the panel in its real popover, opened from a temporary menu bar item the way a click
+    /// opens it, for a few seconds. The popover must show the whole panel: as tall as the panel, or as tall as the
+    /// screen allows with the rest within reach by scrolling. With `--demo`: the longest switches, then the YouTube queue
+    /// arriving while the popover is open. The popover's pictures go into the folder (top, then scrolled to the end).
+    static func check(out: String?) -> Bool {
+        let folder = out.flatMap { $0.hasPrefix("-") ? nil : $0 }
+        NSApplication.shared.setActivationPolicy(.accessory)
+        let app = AppModel(liveMonitor: false)
+        let queue = app.youtube.jobs
+        if DemoData.isEnabled { app.youtube.jobs = [] }
+        let controller = StatusItemController(app: app)
+        defer { NSStatusBar.system.removeStatusItem(controller.item) }
+        func wait(_ seconds: Double) { RunLoop.main.run(until: Date().addingTimeInterval(seconds)) }
+        wait(0.3)
+        var ok = true
+        func verify(_ step: String, picture: String) {
+            let needed = checkPanelHeight(app)
+            let shown = controller.popover.contentSize
+            let window = controller.popover.contentViewController?.view.window
+            let screen = window?.screen ?? NSScreen.main
+            let visible = screen?.visibleFrame ?? .zero
+            print("\(step) : le panneau demande \(Int(needed.rounded(.up))) pt, le popover en montre \(Int(shown.width)) × \(Int(shown.height)) pt"
+                  + " (écran utile : \(Int(visible.height)) pt)")
+            var failures: [String] = []
+            if shown.width < MenuBarPanel.width - 0.5 { failures.append("le popover est plus étroit que le panneau") }
+            // Its arrow may reach into the menu bar, never past the screen; its foot stays above the Dock.
+            if let frame = window?.frame, let screen, frame.minY < visible.minY - 1 || frame.maxY > screen.frame.maxY + 1 {
+                failures.append("le popover sort de l'écran (\(Int(frame.minY)) → \(Int(frame.maxY)) pt)")
+            }
+            if shown.height < needed {
+                // Shorter than the panel: only allowed when the screen is, and then the rest must scroll into view.
+                if shown.height < min(needed, visible.height - 60) - 1 { failures.append("le popover est plus court que l'écran ne le permet") }
+                if let scroll = checkScrollView(in: controller.popover.contentViewController?.view) {
+                    let document = scroll.documentView?.frame.height ?? 0
+                    if document < needed - 1 { failures.append("la zone qui défile ne fait que \(Int(document)) pt") }
+                } else {
+                    failures.append("le panneau est rogné : rien ne défile")
+                }
+            }
+            for f in failures { print("  ✗ \(f)") }
+            if failures.isEmpty { print("  ✓ tout le panneau est visible\(shown.height < needed ? " en défilant" : "")") }
+            ok = ok && failures.isEmpty
+            if let folder, let window { checkCapture(window, to: folder + "/" + picture + ".png") }
+        }
+        controller.show()
+        wait(1.2)
+        verify("À l'ouverture", picture: "menubar-check-1")
+        if DemoData.isEnabled, !queue.isEmpty {
+            app.youtube.jobs = queue
+            wait(1.2)
+            verify("Après l'arrivée de \(queue.count) téléchargements", picture: "menubar-check-2")
+            if let window = controller.popover.contentViewController?.view.window,
+               let scroll = checkScrollView(in: controller.popover.contentViewController?.view), let document = scroll.documentView {
+                document.scroll(NSPoint(x: 0, y: document.isFlipped ? max(0, document.frame.height - scroll.contentView.bounds.height) : 0))
+                wait(0.4)
+                if let folder { checkCapture(window, to: folder + "/menubar-check-3.png") }
+            }
+        }
+        controller.popover.performClose(nil)
+        wait(0.5)
+        print(ok ? "✓ panneau de la barre des menus entier" : "✗ panneau de la barre des menus rogné")
+        return ok
+    }
+
+    /// The height the panel needs at its width, everything shown.
+    private static func checkPanelHeight(_ app: AppModel) -> CGFloat {
+        NSHostingController(rootView: MenuBarPanel().environment(app))
+            .sizeThatFits(in: CGSize(width: MenuBarPanel.width, height: .greatestFiniteMagnitude)).height
+    }
+
+    /// The outermost scroll view (the YouTube list has its own, further in).
+    private static func checkScrollView(in view: NSView?) -> NSScrollView? {
+        var level = view.map { [$0] } ?? []
+        while !level.isEmpty {
+            if let scroll = level.lazy.compactMap({ $0 as? NSScrollView }).first { return scroll }
+            level = level.flatMap(\.subviews)
+        }
+        return nil
+    }
+
+    /// The popover's window as on screen (needs the terminal's screen recording permission).
+    private static func checkCapture(_ window: NSWindow, to path: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        p.arguments = ["-l\(window.windowNumber)", "-o", "-x", path]
+        guard (try? p.run()) != nil else { return }
+        p.waitUntilExit()
+        if FileManager.default.fileExists(atPath: path) { print("  image : \(path)") }
+    }
+
+    /// `--selftest`: the panel's root laid out as `show()` lays it out before opening (no window) must report the
+    /// height the panel really needs, and the popover keeps to the screen.
+    static func selfTest() -> [String] {
+        var failures: [String] = []
+        let app = AppModel(liveMonitor: false)
+        var reported: CGFloat = 0
+        let host = NSHostingController(rootView: StatusItemPanelRoot(app: app) { reported = $0 })
+        host.sizingOptions = []
+        host.view.frame = NSRect(x: 0, y: 0, width: MenuBarPanel.width, height: 100)
+        host.view.layoutSubtreeIfNeeded()
+        let needed = checkPanelHeight(app)
+        if abs(reported - needed) > 1 {
+            failures.append("Panneau de la barre des menus : \(Int(reported)) pt annoncés au popover pour \(Int(needed)) pt de contenu")
+        }
+        let room: CGFloat = 700
+        for (height, expected) in [(450.2, NSSize(width: MenuBarPanel.width, height: 452)), (699, NSSize(width: MenuBarPanel.width, height: 700)),
+                                   (699.5, NSSize(width: MenuBarPanel.width, height: 700)), (946.5, NSSize(width: MenuBarPanel.width, height: 700))] {
+            let size = popoverSize(panelHeight: height, room: room, legacyScroller: false)
+            if size != expected { failures.append("Popover de \(size) pour un panneau de \(height) pt (attendu \(expected))") }
+        }
+        if popoverSize(panelHeight: 946.5, room: room, legacyScroller: true).width <= MenuBarPanel.width {
+            failures.append("Le popover qui défile n'a pas la place de sa barre de défilement")
+        }
+        return failures + MenuPanelItems.selfTest()
     }
 }

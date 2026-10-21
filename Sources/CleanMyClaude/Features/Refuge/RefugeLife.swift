@@ -4,74 +4,80 @@ import SwiftUI
 
 // MARK: - The trail of the daily round
 
-/// A little trail with three flags (today's missions) and a basket of blueberries at the end; the chamois walks along it.
+/// A little trail with a basket of blueberries at the end, and today's missions beside it. The trail counts what is done,
+/// not in which order: one step per mission, its flag planted when reached, the chamois at the last one.
 struct RefugeRoundTrail: View {
     @Environment(AppModel.self) private var app
-    private static let fractions: [CGFloat] = [0.2, 0.47, 0.74]
 
     var body: some View {
         let m = app.refuge
         let tasks = m.roundTasks
-        let done = tasks.filter(\.done).count
-        let finished = !tasks.isEmpty && done == tasks.count
-        VStack(alignment: .leading, spacing: 10) {
-            RefugeSectionTitle(title: "Sa tournée du jour",
-                               subtitle: "Trois petites missions tirées de ton Mac. Toutes faites : +10 myrtilles et une petite danse.") {
-                if finished { Tag(text: "Finie : +10 dans ton panier", symbol: "checkmark", tint: Theme.good, filled: true) }
-                else if !tasks.isEmpty { Text("\(done) sur \(tasks.count)").font(.ui(12, .semibold)).foregroundStyle(Theme.text3) }
+        let progress = RefugeRoundProgress(tasks.map(\.done))
+        VStack(alignment: .leading, spacing: 12) {
+            RefugeSectionTitle(title: "Sa tournée du jour", subtitle: "Trois missions, dans l'ordre que tu veux.") {
+                if progress.finished { Tag(text: "Finie : +10 dans ton panier", symbol: "checkmark", tint: Theme.good, filled: true) }
+                else if !tasks.isEmpty { Text("\(progress.steps) sur \(progress.count)").font(.ui(12, .semibold)).foregroundStyle(Theme.text3) }
             }
             if tasks.isEmpty {
                 Text("Sa tournée arrive avec ton premier passage de la journée.").font(.ui(12.5)).foregroundStyle(Theme.text3)
                     .frame(maxWidth: .infinity, minHeight: 80)
             } else {
-                GeometryReader { geo in
-                    let w = geo.size.width
-                    ZStack(alignment: .topLeading) {
-                        Canvas { ctx, size in drawTrail(ctx, size: size, done: done, finished: finished) }
-                        // The flags.
-                        ForEach(Array(tasks.enumerated()), id: \.offset) { i, t in
-                            let x = w * Self.fractions[i]
-                            Image(systemName: t.done ? "flag.fill" : "flag")
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(t.done ? Theme.good : Theme.text3)
-                                .position(x: x + 8, y: Self.trailY(x / w) - 14)
-                            mission(t.task, done: t.done)
-                                .frame(width: min(230, w * 0.26))
-                                .position(x: x, y: 104)
-                        }
-                        // The basket at the end.
-                        VStack(spacing: 2) {
-                            RefugeBasketIcon(count: finished ? 60 : 12, pixel: 3)
-                            Text(finished ? "+10 reçues" : "+10").font(.ui(12, .bold)).foregroundStyle(finished ? Theme.good : RefugePage.tint)
-                        }
-                        .position(x: w - 40, y: Self.trailY(1) - 6)
-                        // The chamois, on its way to the next flag (or dancing by the basket).
-                        let at: CGFloat = finished ? w - 86 : (done == 0 ? 6 : w * Self.fractions[done - 1] + 22)
-                        RefugeAvatar(look: m.look(), pixel: 2.5)
-                            .offset(y: finished && m.dancing(now: Date()) ? -4 : 0)
-                            .position(x: at + 20, y: Self.trailY(min(1, at / max(1, w))) - 22)
+                HStack(alignment: .center, spacing: 28) {
+                    GeometryReader { geo in trail(progress, width: geo.size.width, m: m) }
+                        .frame(height: 92)
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(tasks, id: \.task.id) { mission($0.task, done: $0.done, m: m) }
                     }
+                    .frame(width: 370)
                 }
-                .frame(height: 136)
             }
         }
     }
 
-    /// The trail's height at a point along it (0…1), in points.
-    private static func trailY(_ f: CGFloat) -> CGFloat { 52 + 9 * sin(f * .pi * 3) }
+    // MARK: The trail
 
-    private func drawTrail(_ ctx: GraphicsContext, size: CGSize, done: Int, finished: Bool) {
+    /// Where the flag of step `index` (0 for the first) of `count` stands along the trail (0…1).
+    private static func flag(_ index: Int, of count: Int) -> CGFloat {
+        count <= 1 ? 0.47 : 0.2 + 0.54 * CGFloat(index) / CGFloat(count - 1)
+    }
+
+    /// The trail's height at a point along it (0…1), in points.
+    private static func trailY(_ f: CGFloat) -> CGFloat { 50 + 9 * sin(f * .pi * 3) }
+
+    private func trail(_ p: RefugeRoundProgress, width w: CGFloat, m: RefugeModel) -> some View {
+        // The chamois: at the start, just past the last flag planted, or by the basket once the round is done.
+        let walker: CGFloat = p.finished ? w - 104 : (p.steps == 0 ? 26 : w * Self.flag(p.steps - 1, of: p.count) + 44)
+        return ZStack(alignment: .topLeading) {
+            Canvas { ctx, size in drawTrail(ctx, size: size, upTo: p.finished ? size.width : (p.steps == 0 ? 0 : walker)) }
+            ForEach(0..<p.count, id: \.self) { i in
+                let x = w * Self.flag(i, of: p.count)
+                let planted = p.planted(i)
+                Image(systemName: planted ? "flag.fill" : "flag")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(planted ? Theme.good : Theme.text3.opacity(0.7))
+                    .position(x: x + 7, y: Self.trailY(x / w) - 13)
+            }
+            VStack(spacing: 1) {
+                RefugeBasketIcon(count: p.finished ? 60 : 12, pixel: 3)
+                Text(p.finished ? "+10 reçues" : "+10").font(.ui(11.5, .bold)).foregroundStyle(p.finished ? Theme.good : RefugePage.tint)
+            }
+            .position(x: w - 40, y: Self.trailY(1) + 4)
+            RefugeAvatar(look: m.look(), pixel: 2.5)
+                .offset(y: p.finished && m.dancing(now: Date()) ? -4 : 0)
+                .position(x: walker, y: Self.trailY(min(1, walker / max(1, w))) - 21)
+        }
+    }
+
+    private func drawTrail(_ ctx: GraphicsContext, size: CGSize, upTo reached: CGFloat) {
         var x: CGFloat = 8
         let end = size.width - 60
         while x < end {
-            let f = x / size.width
-            let reached = finished || f <= (done == 0 ? 0 : Self.fractions[done - 1])
-            ctx.fill(Path(roundedRect: CGRect(x: x, y: Self.trailY(f) + 2, width: 7, height: 4), cornerRadius: 2),
-                     with: .color(reached ? RefugePage.tint.opacity(0.8) : Theme.borderStrong))
+            ctx.fill(Path(roundedRect: CGRect(x: x, y: Self.trailY(x / size.width) + 2, width: 7, height: 4), cornerRadius: 2),
+                     with: .color(x <= reached ? RefugePage.tint.opacity(0.8) : Theme.borderStrong))
             x += 13
         }
         // A few tufts of grass beside the trail.
-        for (i, f) in stride(from: 0.08, to: 0.95, by: 0.11).enumerated() {
+        for (i, f) in stride(from: 0.08, to: 0.9, by: 0.11).enumerated() {
             let gx = size.width * f, gy = Self.trailY(f) + (i % 2 == 0 ? 14 : -10)
             for dx in [-3.0, 0, 3] {
                 ctx.fill(Path(CGRect(x: gx + dx, y: gy - abs(dx), width: 2, height: 5 + abs(dx) / 2)), with: .color(Theme.mascot.leaf.opacity(0.55)))
@@ -79,18 +85,35 @@ struct RefugeRoundTrail: View {
         }
     }
 
-    private func mission(_ task: RefugeTask, done: Bool) -> some View {
-        VStack(spacing: 5) {
-            Text(task.title).font(.ui(12, .semibold)).foregroundStyle(done ? Theme.text3 : Theme.text)
+    // MARK: The missions
+
+    /// A mission ticked off when done, whatever its place in the list; else its way there.
+    private func mission(_ task: RefugeTask, done: Bool, m: RefugeModel) -> some View {
+        HStack(spacing: 10) {
+            ZStack {
+                RoundedRectangle(cornerRadius: Theme.r(4.5)).fill(done ? Theme.good : Color.clear)
+                RoundedRectangle(cornerRadius: Theme.r(4.5)).strokeBorder(done ? Theme.good : Theme.borderStrong, lineWidth: 1.2)
+                if done { Image(systemName: "checkmark").font(.system(size: 9, weight: .heavy)).foregroundStyle(Theme.ink(on: Theme.good)) }
+            }
+            .frame(width: 16, height: 16)
+            Text(task.title).font(.ui(12.5, done ? .regular : .medium)).foregroundStyle(done ? Theme.text3 : Theme.text)
                 .strikethrough(done, color: Theme.text3)
-                .multilineTextAlignment(.center).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            if done {
-                Text("Fait").font(.ui(11, .medium)).foregroundStyle(Theme.good)
-            } else if let page = task.page {
-                Button(page == .refuge ? "Son panier" : "Y aller") { app.page = page }
-                    .buttonStyle(SoftButtonStyle(small: true))
+                .lineLimit(1).truncationMode(.tail)
+            Spacer(minLength: 8)
+            if !done {
+                if task.id == "feed" {
+                    // Feeding happens right here: the button gives it what it can eat, like the basket's.
+                    let left = RefugeRules.appetiteLeft(m.state, now: Date())
+                    Button("Lui en donner \(max(1, min(10, left, m.state.basket)))") { m.feed(10) }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                        .disabled(m.state.basket == 0 || left == 0)
+                } else if let page = task.page {
+                    Button("Y aller") { app.page = page }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                }
             }
         }
+        .frame(minHeight: 28)
     }
 }
 

@@ -100,6 +100,16 @@ enum ClipboardChecks {
                "nom de fichier dangereux accepté")
         expect(ClipboardStorage.isPlainName("6F1C-thumb.png"), "nom de vignette refusé")
 
+        // The window: the activation until the history was turned on once, then the list, the gear its settings.
+        expect(ClipboardWindow.screen(acknowledged: false, forceActivation: false, settings: true) == .activation, "réglages montrés avant l'activation")
+        expect(ClipboardWindow.screen(acknowledged: true, forceActivation: false, settings: false) == .history, "fenêtre : historique attendu")
+        expect(ClipboardWindow.screen(acknowledged: true, forceActivation: false, settings: true) == .settings, "fenêtre : réglages attendus")
+        expect(ClipboardWindowSettings.clearQuestion(unpinned: 1) == "Effacer l'élément non épinglé ?", "question d'effacement au singulier")
+        expect(ClipboardWindowSettings.clearQuestion(unpinned: 9) == "Effacer les 9 éléments non épinglés ?", "question d'effacement au pluriel")
+        let commands = Dictionary(ClipboardLauncher.commands(m).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        expect(commands["clip_settings"]?.urlSafe == true && commands["clip_settings"]?.risk == .safe, "lanceur : réglages de l'historique absents")
+        expect(commands["clip_clear"]?.risk != .safe, "lanceur : effacer l'historique sans demander")
+
         // Demo: nothing is read from or written to the real clipboard.
         if DemoData.isEnabled {
             expect(!m.watching, "le presse-papiers est surveillé en démo")
@@ -113,6 +123,17 @@ enum ClipboardChecks {
             m.window.filter = .pinned
             expect(m.window.list(m).allSatisfy(\.pinned) && !m.window.list(m).isEmpty, "filtre Épinglés de la fenêtre")
             m.window.filter = .all
+            // Ignoring an app in one click: the apps of the history (invented ones), never twice, never one already ignored.
+            let candidates = m.excludeCandidates
+            expect(!candidates.isEmpty && Set(candidates.map(\.bundleID)).count == candidates.count, "apps à ignorer : liste vide ou en double")
+            expect(!candidates.contains { ClipboardFilter.isExcluded($0.bundleID, list: m.settings.excluded) }, "app déjà ignorée proposée")
+            // The snapshot tabs reach the window (the module has no page of its own).
+            m.applySnapshotTab("presse-papiers:effacer")
+            expect(m.window.screen(m) == .settings && m.window.confirmClear, "onglet presse-papiers:effacer")
+            m.window.showSettings = false
+            expect(!m.window.confirmClear, "confirmation d'effacement gardée hors des réglages")
+            m.applySnapshotTab("images")
+            expect(m.window.filter == .all, "onglet d'une autre page appliqué à la fenêtre")
         }
         return f
     }

@@ -196,6 +196,12 @@ enum Entry {
             ProtectionCLI.run(Array(args[(i + 1)...]))
             return
         }
+        if args.contains("--menubar-check") {
+            // The menu bar panel in its real popover for a few seconds: the popover's height against the panel's.
+            let out = value(after: "--menubar-check").flatMap { $0.hasPrefix("--") ? nil : $0 }
+            let ok = MainActor.assumeIsolated { StatusItemController.check(out: out) }
+            exit(ok ? 0 : 1)
+        }
         if args.contains("--dump") {
             MainActor.assumeIsolated { Diagnostics.run() }
             return
@@ -430,11 +436,12 @@ enum Snapshot {
                     .overlay { UpdatesSelfModal() }
             )))
         }
-        if everything || only == .launcher {
+        if everything || only == .hotkeys {
             // The floating panel, as if the user had typed `--query` (default: a calculation).
             // `--tab files` shows the file window instead (`--query ""` for its first screen); `--tab youtube` a pasted
             // YouTube link and its pane (`youtube:outils`, `youtube:audio`…), `--tab telechargements` the download list,
-            // `--tab traducteur` the translator (`traducteur:reglages` its settings).
+            // `--tab traducteur` the translator (`traducteur:reglages` its settings). The launcher's settings are on the
+            // page itself: `--tab lanceur` (Raccourcis › Chamois), `lanceur:indexation`, `lanceur:sans-index`.
             model.launcher.preview(Entry.value(after: "--query") ?? "1250*1,2", app: model)
             shots.append(("launcher-panel", AnyView(LauncherView())))
         }
@@ -462,9 +469,12 @@ enum Snapshot {
                 widths[p.name] = p.width
             }
         }
-        if everything || only == .clipboard {
-            // The history's own window (`--tab fenetre:lumiere` with a search typed, `--tab images` filtered).
+        if everything || only == .hotkeys {
+            // The history's own window, read here since the module has no page: `--tab presse-papiers` as it opens,
+            // `presse-papiers:reglages` its settings (`:effacer` the clearing asked, `:apps` the ignored apps unfolded),
+            // `presse-papiers:activer` before the first activation, `:images` (any filter) filtered, `:cherche:lumiere` a search typed.
             shots.append(("clipboard-window-panel", AnyView(ClipboardWindowView())))
+            if only == .hotkeys, let tab = Entry.value(after: "--tab") { model.clipboard.applySnapshotTab(tab) }
         }
         if let tab = Entry.value(after: "--tab") {
             model.protection.tab = ProtectionTab(rawValue: tab) ?? model.protection.tab
@@ -609,7 +619,7 @@ enum SelfTest {
             ok = false
         }
         // Module checks (calculator, conversions, command ids…).
-        let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() }
+        let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() + StatusItemController.selfTest() }
         for f in moduleFailures + ThemeChecks.run() + ToolProfileRules.selfTest().map({ "[Profils] \($0)" }) + MascotActivity.selfTest() + MascotFigure.selfTest() + Shell.selfTest() + LoginItem.selfTest() + RetiredDarkMode.selfTest() + MainWatchdog.selfTest() + DeviceActivity.selfTest() + thirdPartyTools() {
             print("✗ \(f)")
             ok = false

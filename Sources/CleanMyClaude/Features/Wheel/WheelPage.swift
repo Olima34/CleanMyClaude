@@ -125,6 +125,8 @@ struct WheelDesigner: View {
         }
         .frame(width: s + 16, height: s + 16)
         .clipShape(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous))
+        // A clip only cuts the drawing: without this, what overflows the frame still takes the clicks around it.
+        .contentShape(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous))
     }
 
     /// What the action pointed at (or picked) does, in one line.
@@ -163,6 +165,8 @@ struct WheelWallpaper: View {
             Circle().fill(Theme.palette[2].opacity(0.55)).frame(width: 260).blur(radius: 60).offset(x: -170, y: -90)
             Circle().fill(Theme.palette[4].opacity(0.5)).frame(width: 220).blur(radius: 60).offset(x: 190, y: 110)
         }
+        // Its blurred circles reach past the frame (over the kinds of file above it): they are only a picture.
+        .allowsHitTesting(false)
     }
 }
 

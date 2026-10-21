@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// Chamois' own keys in one list. Each one stays saved by its module, through that module's own setter
-/// (lanceur, presse-papiers, roue), or as a shortcut of this page for the actions (fenêtre Fichiers, Vidéo seule).
+/// Chamois' own keys in one list, then what the launcher finds (`HotkeysLauncherSection`). Each key stays saved by
+/// its module, through that module's own setter (lanceur, presse-papiers, roue), or as a shortcut of this page for the
+/// actions (fenêtre Fichiers, Vidéo seule).
 struct HotkeysChamoisSection: View {
     @Environment(AppModel.self) private var app
     /// Why a key was refused, by row (the launcher keeps its own).
@@ -11,25 +12,32 @@ struct HotkeysChamoisSection: View {
 
     var body: some View {
         let launcher = app.launcher
+        VStack(alignment: .leading, spacing: 12) {
+            keys(launcher)
+            HotkeysLauncherSection()
+        }
+    }
+
+    private func keys(_ launcher: LauncherModel) -> some View {
         Card(padding: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HotkeysChamoisRow(symbol: "command", tint: Theme.brand, title: "Ouvrir le lanceur",
                                   detail: "Chercher une app, un fichier, calculer, traduire…",
                                   warning: launcher.comboRefusal ?? launcherRefused,
                                   combo: launcher.combo, set: { launcher.setCombo($0) },
-                                  openTitle: "Réglages du lanceur") { app.page = .launcher }
+                                  openTitle: "Ouvrir le lanceur", tip: HotkeysLauncherSection.tip) { launcher.show() }
                 HotkeysChamoisRow(symbol: "doc.text.magnifyingglass", tint: Theme.accent, title: "Rechercher des fichiers",
                                   detail: "La fenêtre Fichiers du lanceur",
                                   warning: warnings["files"],
                                   combo: app.hotkeys.binding(for: LauncherModel.filesHotkeyTarget)?.combo,
                                   set: { bind(LauncherModel.filesHotkeyTarget, $0, row: "files") },
-                                  openTitle: "Réglages du lanceur") { app.page = .launcher }
+                                  openTitle: "Ouvrir la fenêtre Fichiers") { launcher.showFiles() }
                 HotkeysChamoisRow(symbol: "doc.on.clipboard", tint: Theme.palette[2], title: "Historique du presse-papiers",
                                   detail: "Tout ce que tu as copié, prêt à recoller",
                                   warning: nil,
                                   combo: app.clipboard.combo, set: { app.clipboard.setCombo($0) },
-                                  openTitle: "Ouvrir Presse-papiers") { app.page = .clipboard }
-                HotkeysChamoisRow(symbol: "dial.medium", tint: Theme.palette[3], title: "Roue des fichiers",
+                                  openTitle: "Ouvrir l'historique") { app.clipboard.window.show() }
+                HotkeysChamoisRow(symbol: "dial.medium", tint: Theme.palette[3], title: "Roue du Convertisseur",
                                   detail: "Sur les fichiers choisis dans le Finder",
                                   warning: nil,
                                   combo: app.wheel.combo, set: { app.wheel.setCombo($0) },
@@ -74,6 +82,8 @@ private struct HotkeysChamoisRow: View {
     var combo: KeyCombo?
     var set: (KeyCombo?) -> Void
     var openTitle: String
+    /// What is worth knowing once about it: its « ? » sits next to the title.
+    var tip: HelpTip?
     var open: () -> Void
 
     var body: some View {
@@ -81,7 +91,10 @@ private struct HotkeysChamoisRow: View {
             HStack(spacing: 10) {
                 IconBadge(symbol: symbol, tint: tint, size: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                        if let tip { HelpTipButton(tip: tip, size: 11.5) }
+                    }
                     Text(warning ?? detail)
                         .font(.ui(11))
                         .foregroundStyle(warning == nil ? Theme.text3 : Theme.warn)

@@ -399,6 +399,8 @@ enum URLActions {
         case "cinema": app.media.show(.watch, app: app)
         case "adblock": app.media.show(.blocker, app: app)
         case "windows": app.hotkeys.show(.windows, app: app)
+        case "launcher": app.hotkeys.show(.chamois, app: app)
+        case "clipboard": app.clipboard.window.show()
         default: break
         }
     }

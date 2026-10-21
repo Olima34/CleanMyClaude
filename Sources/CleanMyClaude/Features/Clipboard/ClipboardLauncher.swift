@@ -14,17 +14,25 @@ enum ClipboardLauncher {
                        keywords: words + ["cb", "rechercher", "fenêtre"], icon: .symbol("doc.on.clipboard", tint), group: .clipboard,
                        assistantSafe: true, urlSafe: true, hint: "Ouvrir", staysInLauncher: true) { _ in
                 // Its window replaces the launcher (which closes itself): `staysInLauncher` keeps the launcher from closing first.
-                m.window.show()
+                m.openWindow()
+                return .done
+            },
+            AppCommand(id: "clip_settings", title: "Réglages de l'historique du presse-papiers", subtitle: "Ce qui est gardé, apps ignorées, pause",
+                       keywords: words + ["réglages", "apps ignorées", "ignorer", "pause", "effacer", "images", "secrets"],
+                       icon: .symbol("gearshape", tint), group: .clipboard, assistantSafe: true, urlSafe: true, hint: "Ouvrir",
+                       staysInLauncher: true) { _ in
+                // Before the first activation, the window shows the activation instead.
+                m.openWindow(settings: true)
                 return .done
             },
             AppCommand(id: "clip_toggle", title: m.isActive ? "Mettre en pause l'historique du presse-papiers" : "Activer l'historique du presse-papiers",
-                       subtitle: m.settings.acknowledged ? nil : "Ouvre la page qui explique ce qui est enregistré",
+                       subtitle: m.settings.acknowledged ? nil : "Ouvre la fenêtre qui explique ce qui est enregistré",
                        keywords: words + ["pause", "activer", "désactiver"], icon: .symbol(m.isActive ? "pause.circle" : "play.circle", tint),
                        group: .clipboard, assistantSafe: true) { _ in
                 if m.settings.acknowledged {
                     m.setEnabled(!m.settings.enabled)
                 } else {
-                    m.openPage()
+                    m.openWindow()
                 }
                 return .done
             },

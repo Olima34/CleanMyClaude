@@ -300,8 +300,6 @@ struct ToolsOverview: View {
     @ViewBuilder
     private func tile(_ page: Page) -> some View {
         switch page {
-        case .launcher:
-            tile(page, tint: Theme.brand, value: app.launcher.combo?.display ?? "—", detail: indexDetail)
         case .hotkeys:
             tile(page, tint: Theme.brand, value: "\(app.hotkeys.bindings.filter { $0.combo != nil }.count)",
                  detail: app.hotkeys.bindings.isEmpty ? "Tes apps et fenêtres au clavier" : "raccourcis actifs")
@@ -318,10 +316,6 @@ struct ToolsOverview: View {
                  detail: app.updates.hasChecked
                     ? (app.updates.totalAvailable == 0 ? "Tout est à jour" : "mises à jour disponibles")
                     : "Pas encore vérifié")
-        case .clipboard:
-            tile(page, tint: Theme.palette[2],
-                 value: app.clipboard.isActive ? Fmt.int(app.clipboard.items.count) : "En pause",
-                 detail: app.clipboard.isActive ? "éléments dans l'historique" : "Historique désactivé")
         case .toolbox:
             tile(page, tint: Theme.warn, value: app.toolbox.sidebarBadge ?? "Caféine",
                  detail: "Couleurs, mots de passe, JSON…")

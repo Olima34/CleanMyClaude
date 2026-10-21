@@ -20,7 +20,7 @@ struct RefugeChalet: View {
             (.storage, CGRect(x: 176, y: 136, width: 76, height: 42)),
             (.media, CGRect(x: 288, y: 136, width: 76, height: 42)),
         ]
-        let floor2: [Page] = [.launcher, .hotkeys, .clipboard, .toolbox]
+        let floor2: [Page] = [.hotkeys, .toolbox]
         let floor1: [Page] = [.dashboard, .assistant, .performance, .protection]
         // Four windows a floor, centred where six used to be.
         for (i, p) in floor2.enumerated() { out.append((p, CGRect(x: 147 + CGFloat(i) * 63, y: 196, width: 54, height: 44))) }

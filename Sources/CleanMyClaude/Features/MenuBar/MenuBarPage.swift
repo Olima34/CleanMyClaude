@@ -7,6 +7,7 @@ struct MenuBarPage: View {
     @AppStorage(Preferences.menuMetricKey) private var metric: MenuMetric = .cpuMemory
     @AppStorage(Preferences.alertsKey) private var alerts = false
     @AppStorage(Preferences.refreshKey) private var refresh: Double = 2
+    @AppStorage(MenuPanelItems.key) private var hiddenRaw = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -38,6 +39,24 @@ struct MenuBarPage: View {
                                 }
                                 .buttonStyle(.plain)
                             }
+                        }
+                    }
+                    Panel(title: "Dans le panneau", symbol: "checklist") {
+                        if !hiddenRaw.isEmpty {
+                            Button("Tout remettre") { hiddenRaw = "" }
+                                .buttonStyle(SoftButtonStyle(small: true))
+                        }
+                    } content: {
+                        VStack(alignment: .leading, spacing: 12) {
+                            let battery = app.monitor.battery != nil
+                            chips("Jauges", MenuPanelItems.gauges.map {
+                                $0.id == "gauge.battery" && !battery ? MenuPanelItems.Item(id: $0.id, title: "Échange") : $0
+                            })
+                            chips("Parties", MenuPanelItems.sections)
+                            let toggles = ModuleRegistry.quickToggles(app).map { MenuPanelItems.Item(id: MenuPanelItems.toggleID($0.id),
+                                                                                         title: $0.title.components(separatedBy: " · ")[0]) }
+                            if !toggles.isEmpty { chips("Bascules", toggles) }
+                            chips("Actions express", MenuPanelItems.actions)
                         }
                     }
                     Panel(title: "Réglages", symbol: "slider.horizontal.3") {
@@ -81,6 +100,32 @@ struct MenuBarPage: View {
     static let tip = HelpTip(
         id: "menubar.page", title: "Le menu d'état",
         text: "Clique sur la mascotte de la barre des menus : processeur, mémoire, disque, réseau, batterie, les apps les plus gourmandes et quatre actions express. Les mesures viennent directement du noyau, seulement quand quelque chose les affiche, pour rester léger.")
+
+    /// A group of the panel's parts: lit when shown, a click takes it off or puts it back (the preview follows).
+    private func chips(_ title: String, _ items: [MenuPanelItems.Item]) -> some View {
+        let hidden = MenuPanelItems.hidden(hiddenRaw)
+        return VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.ui(11, .semibold)).foregroundStyle(Theme.text3)
+            FlowLayout(spacing: 6, lineSpacing: 6) {
+                ForEach(items) { item in
+                    let shown = !hidden.contains(item.id)
+                    Button { hiddenRaw = MenuPanelItems.toggled(item.id, in: hiddenRaw) } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: shown ? "checkmark" : "plus").font(.ui(9.5, .bold))
+                            Text(item.title).font(.ui(11.5, .medium))
+                        }
+                        .foregroundStyle(shown ? Theme.onAccent : Theme.text2)
+                        .padding(.horizontal, 9).padding(.vertical, 5)
+                        .background(PillShape().fill(shown ? Theme.accent : Theme.card))
+                        .overlay(PillShape().strokeBorder(shown ? Color.clear : Theme.border, lineWidth: Theme.line))
+                        .contentShape(PillShape())
+                    }
+                    .buttonStyle(.plain)
+                    .help(shown ? "Dans le panneau : clique pour l'enlever" : "Pas dans le panneau : clique pour l'ajouter")
+                }
+            }
+        }
+    }
 
     /// The refresh picker drawn by hand, for snapshots.
     private var refreshSegments: some View {
@@ -131,7 +176,7 @@ struct LaunchAtLoginToggle: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Toggle("Ouvrir à l'ouverture de session", isOn: Binding(get: { on }, set: { v in
+            Toggle("Lancer à l'ouverture de session", isOn: Binding(get: { on }, set: { v in
                 error = LoginItem.set(v)
                 if error == nil { on = v }
             }))
