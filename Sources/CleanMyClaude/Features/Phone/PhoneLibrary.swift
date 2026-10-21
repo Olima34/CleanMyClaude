@@ -486,6 +486,9 @@ final class PhoneLibrary {
         // Only what really left the listing counts.
         let still = Set((c.mediaFiles ?? []).map { ObjectIdentifier($0) })
         gone = gone.filter { id in files[id].map { !still.contains(ObjectIdentifier($0)) } ?? true }
+        for id in gone {
+            if let f = files[id] { ActionLog.write("SUPPRIMÉ DE L'IPHONE \(f.name ?? id) \(Fmt.bytes(f.fileSize)) (\(f.parentFolder?.name ?? "?"))") }
+        }
         forget(gone)
         return gone
     }
