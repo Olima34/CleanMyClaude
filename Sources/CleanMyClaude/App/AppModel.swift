@@ -5,7 +5,7 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, refuge, cleanup, protection, performance, battery, updates, apps, storage
-    case converter, wheel, fillsign, youtube, cinema, translator, toolbox, clipboard, network, adblock, darkmode
+    case phone, converter, wheel, fillsign, youtube, cinema, translator, toolbox, clipboard, network, adblock, darkmode
     case launcher, hotkeys, windows, automation
     case assistant, menubar
 
@@ -22,6 +22,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .updates: return "Mises à jour"
         case .apps: return "Applications"
         case .storage: return "Espace de stockage"
+        case .phone: return "iPhone"
         case .converter: return "Convertisseur"
         case .wheel: return "Roue des fichiers"
         case .fillsign: return "Remplir et signer"
@@ -53,6 +54,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .updates: return "arrow.down.circle"
         case .apps: return "square.grid.2x2"
         case .storage: return "chart.pie"
+        case .phone: return "iphone"
         case .converter: return "arrow.left.arrow.right.square"
         case .wheel: return "dial.medium"
         case .fillsign: return "signature"
@@ -85,6 +87,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .updates: return "Homebrew, tes apps et macOS à jour, au même endroit."
         case .apps: return "Les apps que tu n'ouvres plus, désinstallées sans rien oublier."
         case .storage: return "La carte de ton disque, les gros fichiers et les doublons."
+        case .phone: return "Branche ton iPhone : sa santé, et ses photos et vidéos triées."
         case .converter: return "Images, vidéos, audio, PDF et documents : dépose, c'est converti."
         case .wheel: return "Glisse un fichier : une roue pour recadrer, convertir, annoter sans rien ouvrir."
         case .fillsign: return "Remplis un formulaire PDF, signe et paraphe en quelques clics."
@@ -108,7 +111,7 @@ enum Page: String, CaseIterable, Identifiable {
     static let groups: [(String, [Page])] = [
         ("Accueil", [.dashboard, .refuge]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
-        ("Espace", [.apps, .storage]),
+        ("Espace", [.apps, .storage, .phone]),
         ("Outils", [.converter, .wheel, .fillsign, .youtube, .cinema, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
         ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
         ("Claude", [.assistant]),
@@ -176,6 +179,7 @@ final class AppModel {
     let battery = BatteryModel()
     let adblock = AdBlockModel()
     let darkmode = DarkModeModel()
+    let phone = PhoneModel()
     /// The chamois and its Refuge: blueberries, stages, notebook, badges, moods.
     let refuge = RefugeModel()
     /// The profile: which tools the sidebar and the dashboard put forward.

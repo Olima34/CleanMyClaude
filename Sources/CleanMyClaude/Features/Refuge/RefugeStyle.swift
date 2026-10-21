@@ -165,7 +165,7 @@ enum RefugePath: String, CaseIterable, Codable {
         case .gardien: return [.protection, .updates, .network, .adblock]
         case .artiste: return [.converter, .wheel, .fillsign, .translator, .youtube, .cinema, .darkmode]
         case .guide: return [.launcher, .hotkeys, .windows, .clipboard, .toolbox]
-        case .fee: return [.cleanup, .storage, .apps, .automation, .performance, .battery]
+        case .fee: return [.cleanup, .storage, .apps, .phone, .automation, .performance, .battery]
         }
     }
 

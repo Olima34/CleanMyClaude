@@ -98,6 +98,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSDesktopFolderUsageDescription</key><string>Pour mesurer, ranger ou convertir les fichiers de ton Bureau, à ta demande.</string>
   <key>NSDocumentsFolderUsageDescription</key><string>Pour mesurer, ranger ou convertir tes documents, à ta demande.</string>
   <key>NSDownloadsFolderUsageDescription</key><string>Pour repérer les installeurs oubliés et ranger tes téléchargements, à ta demande.</string>
+  <key>NSPhotoLibraryUsageDescription</key><string>$DISPLAY_NAME supprime de ta photothèque les photos et vidéos de ton iPhone que tu as triées, seulement à ta demande. macOS te demande de confirmer chaque suppression.</string>
   <key>NSServices</key>
   <array>
     <dict>
@@ -158,6 +159,7 @@ cat > "$ENTITLEMENTS" <<'ENT'
 <plist version="1.0">
 <dict>
   <key>com.apple.security.automation.apple-events</key><true/>
+  <key>com.apple.security.personal-information.photos-library</key><true/>
 </dict>
 </plist>
 ENT

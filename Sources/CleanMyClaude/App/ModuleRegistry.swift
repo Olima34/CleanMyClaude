@@ -58,6 +58,7 @@ enum ModuleRegistry {
         var list: [(page: Page, module: any AppModule)] = []
         list.append((.performance, app.performance))
         list.append((.battery, app.battery))
+        list.append((.phone, app.phone))
         list.append((.launcher, app.launcher))
         list.append((.hotkeys, app.hotkeys))
         list.append((.converter, app.converter))

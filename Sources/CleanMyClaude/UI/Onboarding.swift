@@ -687,6 +687,7 @@ struct OnboardingPermissionsCard: View {
         case .systemEvents: return "Mode sombre, redémarrer… depuis la barre"
         case .safari: return "Détacher la vidéo que tu regardes"
         case .localNetwork: return "Mesurer la latence de ta box"
+        case .photos: return "Supprimer les photos de l'iPhone triées, avec Photos iCloud"
         }
     }
 }

@@ -349,6 +349,12 @@ struct ToolsOverview: View {
         case .storage:
             tile(page, tint: Theme.palette[3], value: Fmt.bytes(app.monitor.diskFree),
                  detail: "libres · la carte du disque, les gros fichiers et les doublons")
+        case .phone:
+            let phone = app.phone
+            tile(page, tint: PhonePage.tint,
+                 value: phone.info?.storage.map { Fmt.bytes($0.free) } ?? (phone.link == .untrusted ? "À autoriser" : "À brancher"),
+                 detail: phone.info.map { "libres sur \($0.name) · son bilan et ses photos à trier" }
+                    ?? "Branche-le : sa santé, et ses photos et vidéos triées pour libérer de la place")
         case .adblock:
             tile(page, tint: Theme.good, value: app.adblock.state.isOn ? "Actif" : (app.adblock.installed ? "Inactif" : "À installer"),
                  detail: "Pubs, pisteurs et sites piégés bloqués pour tout le Mac")

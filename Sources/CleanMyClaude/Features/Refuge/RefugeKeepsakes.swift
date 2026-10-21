@@ -28,6 +28,7 @@ struct RefugeChalet: View {
         for (i, p) in floor1.enumerated() { out.append((p, CGRect(x: 84 + CGFloat(i) * 63, y: 262, width: 54, height: 44))) }
         out += [
             (.cleanup, CGRect(x: 92, y: 330, width: 64, height: 46)),
+            (.phone, CGRect(x: 170, y: 330, width: 56, height: 46)),
             (.updates, CGRect(x: 318, y: 346, width: 30, height: 26)),
             (.windows, CGRect(x: 14, y: 312, width: 50, height: 66)),
             (.automation, CGRect(x: 478, y: 344, width: 52, height: 40)),

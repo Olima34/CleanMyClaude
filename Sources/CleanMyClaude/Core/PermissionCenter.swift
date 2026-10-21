@@ -4,11 +4,12 @@ import CoreLocation
 import Security
 import UserNotifications
 import Network
+import Photos
 
 /// Every macOS permission the app may use, with its state and a way to ask for all of them in one go
 /// (Réglages › Autorisations › « Tout autoriser »). Nothing is asked without that click.
 enum PermissionKind: String, CaseIterable, Identifiable {
-    case notifications, location, finder, systemEvents, safari, folders, localNetwork, accessibility, fullDiskAccess
+    case notifications, location, finder, systemEvents, safari, folders, localNetwork, photos, accessibility, fullDiskAccess
 
     var id: String { rawValue }
 
@@ -21,6 +22,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .safari: return "Piloter Safari"
         case .folders: return "Bureau, Documents et Téléchargements"
         case .localNetwork: return "Réseau local"
+        case .photos: return "Photos"
         case .accessibility: return "Accessibilité"
         case .fullDiskAccess: return "Accès complet au disque"
         }
@@ -35,6 +37,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .safari: return "Détacher la vidéo ou le direct que tu regardes dans sa propre petite fenêtre"
         case .folders: return "Index des fichiers du lanceur, rangement de Téléchargements, conversions et copies de la roue des fichiers"
         case .localNetwork: return "Mesurer la latence de ta box et des appareils de ton réseau"
+        case .photos: return "Supprimer de ta photothèque iCloud les photos de l'iPhone que tu as triées"
         case .accessibility: return "Ranger les fenêtres au clavier, coller depuis l'historique du presse-papiers"
         case .fullDiskAccess: return "Voir la Corbeille, Mail, Safari et les autorisations des autres apps"
         }
@@ -49,6 +52,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .safari: return "safari"
         case .folders: return "folder"
         case .localNetwork: return "wifi"
+        case .photos: return "photo.on.rectangle"
         case .accessibility: return "accessibility"
         case .fullDiskAccess: return "externaldrive.badge.checkmark"
         }
@@ -64,6 +68,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .finder, .systemEvents, .safari: return "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
         case .folders: return "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
         case .localNetwork: return "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork"
+        case .photos: return "x-apple.systempreferences:com.apple.preference.security?Privacy_Photos"
         case .accessibility: return "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
         case .fullDiskAccess: return Permissions.fullDiskAccessURL
         }
@@ -145,6 +150,7 @@ final class PermissionCenter {
         } else {
             s[.systemEvents] = events
         }
+        s[.photos] = PhonePhotoLibrary.access
         // Safari too, and it is not always open.
         let safari = await Self.automation(Self.safari)
         if safari == .notAsked, asked.contains(PermissionKind.safari.rawValue) {
@@ -267,6 +273,8 @@ final class PermissionCenter {
             lastNetworkCheck = Date()
             // A connection from the app itself to the box: macOS asks, and the outcome says whether it is allowed.
             remembered[.localNetwork] = await Self.localNetwork(wait: 40)
+        case .photos:
+            _ = await PhonePhotoLibrary.requestAccess()
         case .accessibility:
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             if !AXIsProcessTrustedWithOptions(options) {

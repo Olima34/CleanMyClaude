@@ -56,10 +56,10 @@ enum ToolProfileKind: String, Codable, CaseIterable, Identifiable {
     /// The tools it puts forward, on top of the upkeep pages.
     var pages: Set<Page> {
         switch self {
-        case .essentials: return [.storage, .apps, .fillsign, .adblock]
+        case .essentials: return [.storage, .apps, .phone, .fillsign, .adblock]
         case .studies: return [.converter, .wheel, .fillsign, .youtube, .translator, .clipboard, .adblock, .launcher]
         case .work: return [.converter, .fillsign, .translator, .clipboard, .launcher, .hotkeys, .windows, .network, .toolbox]
-        case .creation: return [.storage, .apps, .converter, .wheel, .youtube, .toolbox, .windows, .clipboard]
+        case .creation: return [.storage, .apps, .phone, .converter, .wheel, .youtube, .toolbox, .windows, .clipboard]
         case .leisure: return [.youtube, .cinema, .adblock, .darkmode, .network, .translator]
         case .everything: return Set(Page.allCases)
         }
