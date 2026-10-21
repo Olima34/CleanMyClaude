@@ -482,6 +482,10 @@ enum WheelDestination: String, Codable, CaseIterable, Identifiable, Sendable {
 /// Saved choices (wheel.json).
 struct WheelSettings: Codable, Equatable {
     var enabled = true
+    /// The wheel opens as soon as a file starts moving (else only after one of the gestures below).
+    var instant = true
+    /// Past this distance from the wheel's edge, in centimetres on the screen, the wheel goes: the file is only being moved.
+    var leaveDistance = 3.5
     /// Press, hold still a moment, then move: the wheel opens as the drag starts.
     var hold = true
     var holdDelay = 0.45
@@ -501,6 +505,8 @@ struct WheelSettings: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = WheelSettings()
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? d.enabled
+        instant = try c.decodeIfPresent(Bool.self, forKey: .instant) ?? d.instant
+        leaveDistance = try c.decodeIfPresent(Double.self, forKey: .leaveDistance) ?? d.leaveDistance
         hold = try c.decodeIfPresent(Bool.self, forKey: .hold) ?? d.hold
         holdDelay = try c.decodeIfPresent(Double.self, forKey: .holdDelay) ?? d.holdDelay
         shake = try c.decodeIfPresent(Bool.self, forKey: .shake) ?? d.shake
@@ -515,6 +521,8 @@ struct WheelSettings: Codable, Equatable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(enabled, forKey: .enabled)
+        try c.encode(instant, forKey: .instant)
+        try c.encode(leaveDistance, forKey: .leaveDistance)
         try c.encode(hold, forKey: .hold)
         try c.encode(holdDelay, forKey: .holdDelay)
         try c.encode(shake, forKey: .shake)
@@ -525,11 +533,11 @@ struct WheelSettings: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case enabled, hold, holdDelay, shake, shift, destination, layouts, opened
+        case enabled, instant, leaveDistance, hold, holdDelay, shake, shift, destination, layouts, opened
     }
 
     /// At least one way to open it.
-    var hasGesture: Bool { hold || shake || shift }
+    var canOpen: Bool { instant || hold || shake || shift }
 
     /// The family's wheel: what the user chose, or the default.
     func actions(_ family: WheelFamily) -> [WheelAction] {

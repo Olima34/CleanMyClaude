@@ -37,6 +37,13 @@ enum WheelChecks {
         let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
         let corner = WheelGeometry.panelFrame(center: CGPoint(x: 5, y: 5), visible: screen)
         if corner.minX + WheelGeometry.margin < 0 || corner.minY + WheelGeometry.margin < 0 { f.append("La roue sort de l'écran dans un coin") }
+        // Moving away: whole on the wheel, fading around it, gone past the distance.
+        if WheelGeometry.fade(beyond: -40, limit: 170) != 1 || WheelGeometry.fade(beyond: 5, limit: 170) != 1 { f.append("La roue s'estompe sous le pointeur") }
+        if let a = WheelGeometry.fade(beyond: 90, limit: 170), !(a > 0.25 && a < 1) { f.append("La roue ne s'estompe pas quand on s'éloigne (\(a))") }
+        if WheelGeometry.fade(beyond: 171, limit: 170) != nil { f.append("La roue reste quand on s'en éloigne de plus de la distance") }
+        if let a = WheelGeometry.fade(beyond: 40, limit: 170), let b = WheelGeometry.fade(beyond: 120, limit: 170), b >= a {
+            f.append("La roue ne pâlit pas à mesure qu'on s'éloigne")
+        }
         let middle = WheelGeometry.panelFrame(center: CGPoint(x: 700, y: 450), visible: screen)
         if middle.midX != 700 || middle.midY != 450 { f.append("Au milieu de l'écran, la roue n'est pas centrée sous le pointeur") }
         return f
@@ -120,7 +127,9 @@ enum WheelChecks {
         var f: [String] = []
         let json = #"{"enabled": false, "layouts": {"image": ["crop", "disparue", "png"]}}"#
         guard let s = try? JSONDecoder().decode(WheelSettings.self, from: Data(json.utf8)) else { return ["Réglages anciens illisibles"] }
-        if s.enabled || !s.hold || !s.shake || s.destination != .beside { f.append("Un réglage absent ne prend pas sa valeur par défaut") }
+        if s.enabled || !s.hold || !s.shake || s.destination != .beside || !s.instant || s.leaveDistance != 3.5 {
+            f.append("Un réglage absent ne prend pas sa valeur par défaut")
+        }
         if s.layouts["image"] != [.crop, .png] { f.append("Une action inconnue efface toute la roue choisie") }
         if let back = try? JSONDecoder().decode(WheelSettings.self, from: JSONEncoder().encode(s)), back != s { f.append("Les réglages ne se relisent pas") }
         let record = #"[{"id": "6E2C1C0A-0000-4000-8000-000000000001", "date": "2026-10-21T10:00:00Z", "action": "disparue", "source": "a.jpg", "outputs": []}]"#

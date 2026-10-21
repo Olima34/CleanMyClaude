@@ -3,7 +3,8 @@ import SwiftUI
 import Carbon.HIToolbox
 
 /// The wheel's window: a disc of glass centered on the pointer, above every app. During a drag it is a drop target
-/// (the segment under the pointer lights up, the drop runs it); leaving it lets the drag go on as if nothing happened.
+/// (the segment under the pointer lights up, the drop runs it); moving away fades it, and past `leaveDistance` from its
+/// edge it goes and the drag goes on as if nothing happened (the file is only being moved).
 /// Opened by a click or a shortcut, the mouse (or the arrows and ↩) picks, Esc or a click elsewhere closes it.
 @MainActor
 final class WheelOverlay {
@@ -20,9 +21,12 @@ final class WheelOverlay {
     /// A drop was taken: the release that comes with it does not close the wheel before the action starts.
     private var dropped = false
     private(set) var center: NSPoint = .zero
+    /// Past this distance from the wheel's edge (screen points), the wheel goes.
+    var leaveDistance: CGFloat = 170
 
     func open(_ files: [WheelFile], menu: WheelMenu, at point: NSPoint, clicking: Bool, hint: Bool) {
         closeWork?.cancel()
+        closeWork = nil
         let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? CGRect(origin: .zero, size: CGSize(width: 1440, height: 900))
         let frame = WheelGeometry.panelFrame(center: point, visible: visible)
@@ -36,6 +40,9 @@ final class WheelOverlay {
         state.chosen = nil
         state.clicking = clicking
         state.hint = hint
+        // Opened by a shortcut the hub can be clicked at once; during a drag, only once the pointer has been on a
+        // segment (a drag that ends where it started is dropped on nothing).
+        state.hubArmed = clicking
         state.shown = false
         (p.contentView as? WheelSurface)?.clicking = clicking
         isOpen = true
@@ -69,7 +76,7 @@ final class WheelOverlay {
             MainActor.assumeIsolated {
                 guard let self else { return }
                 if !self.isOpen || self.state.clicking { self.buttonPoll?.invalidate(); self.buttonPoll = nil; return }
-                if NSEvent.pressedMouseButtons & 1 == 0 { self.released() }
+                if NSEvent.pressedMouseButtons & 1 == 0 { self.released() } else { self.track(NSEvent.mouseLocation) }
             }
         }
         t.tolerance = 0.1
@@ -79,32 +86,27 @@ final class WheelOverlay {
 
     func hover(_ hit: WheelGeometry.Hit?) {
         guard isOpen, state.hovered != hit else { return }
+        if case .format = hit { state.hubArmed = true }
+        if case .tool = hit { state.hubArmed = true }
         state.hovered = hit
     }
 
-    /// The pointer left the wheel during a drag: it closes a moment later, unless the pointer comes back.
-    func pointerLeft() {
-        guard isOpen, !state.clicking, closeWork == nil else { return }
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            self.closeWork = nil
-            let dragging = NSEvent.pressedMouseButtons & 1 != 0 && !self.dropped
-            self.close()
-            if dragging { self.onLeft?() }
+    /// Where the pointer is during a drag (screen, y up): out of the wheel it fades, and too far it goes.
+    func track(_ point: NSPoint) {
+        guard isOpen, !state.clicking, !dropped, let p = panel else { return }
+        let beyond = hypot(point.x - center.x, point.y - center.y) - WheelGeometry.radius
+        guard let alpha = WheelGeometry.fade(beyond: beyond, limit: leaveDistance) else {
+            close()
+            onLeft?()
+            return
         }
-        closeWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: work)
-    }
-
-    func pointerBack() {
-        closeWork?.cancel()
-        closeWork = nil
+        if abs(p.alphaValue - alpha) > 0.02 { p.alphaValue = alpha }
     }
 
     /// The button went up after a drag: dropped elsewhere, the wheel goes (a drop on it is handled by `chose`).
     func released() {
-        guard isOpen, !state.clicking, !dropped else { return }
-        pointerBack()
+        // Once: the button poll sees the same release again a quarter of a second later, and must not put it off.
+        guard isOpen, !state.clicking, !dropped, closeWork == nil else { return }
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.dropped else { return }
             self.close()
@@ -118,7 +120,9 @@ final class WheelOverlay {
     func chose(_ hit: WheelGeometry.Hit, urls: [URL]) {
         guard isOpen, !dropped else { return }
         dropped = true
-        pointerBack()
+        closeWork?.cancel()
+        closeWork = nil
+        panel?.alphaValue = 1
         let action = state.action(at: hit)
         if hit != .hub && action == nil {
             close()
@@ -252,11 +256,11 @@ final class WheelSurface: NSView {
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
         overlay?.hover(nil)
-        overlay?.pointerLeft()
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        overlay?.state.hovered != nil && Self.operation(sender) != []
+        guard let state = overlay?.state, let hit = state.hovered else { return false }
+        return (hit != .hub || state.hubArmed) && Self.operation(sender) != []
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
@@ -270,12 +274,9 @@ final class WheelSurface: NSView {
     private func update(_ sender: NSDraggingInfo) -> NSDragOperation {
         let hit = hit(sender.draggingLocation)
         overlay?.hover(hit)
-        guard let hit else {
-            overlay?.pointerLeft()
-            return []
-        }
-        overlay?.pointerBack()
-        if hit != .hub && overlay?.state.action(at: hit) == nil { return [] }
+        guard let hit, let state = overlay?.state else { return [] }
+        if hit == .hub && !state.hubArmed { return [] }
+        if hit != .hub && state.action(at: hit) == nil { return [] }
         return Self.operation(sender)
     }
 

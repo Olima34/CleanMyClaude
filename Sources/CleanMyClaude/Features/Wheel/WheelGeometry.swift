@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// Where things are on the wheel, in points from its center, y going down (as in SwiftUI). Pure: `selfTest` checks it.
 /// The hub sits in the middle, the formats on an inner ring, the tools on the outer one; with only one of the two,
@@ -108,6 +109,25 @@ struct WheelGeometry: Equatable {
         frame.origin.x = min(max(frame.minX, room.minX), room.maxX - side)
         frame.origin.y = min(max(frame.minY, room.minY), room.maxY - side)
         return frame
+    }
+}
+
+extension WheelGeometry {
+    /// How visible the wheel stays when the pointer is `beyond` points out of its edge: whole inside, then fading
+    /// toward a quarter, and nil past `limit` (it goes).
+    static func fade(beyond: CGFloat, limit: CGFloat) -> CGFloat? {
+        if beyond <= slack { return 1 }
+        if beyond > limit { return nil }
+        return 1 - 0.75 * min(1, (beyond - slack) / max(1, limit - slack))
+    }
+
+    /// Screen points in a centimetre on this screen (its physical size from macOS; 96 dpi when unknown).
+    @MainActor
+    static func pointsPerCentimetre(_ screen: NSScreen?) -> CGFloat {
+        guard let screen, let id = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return 37.8 }
+        let mm = CGDisplayScreenSize(id)
+        guard mm.width > 10 else { return 37.8 }
+        return screen.frame.width / CGFloat(mm.width / 10)
     }
 }
 

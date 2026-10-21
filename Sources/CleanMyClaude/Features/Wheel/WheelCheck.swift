@@ -20,14 +20,23 @@ enum WheelCheck {
             let menu = WheelMenu.make(files, chosen: nil, capabilities: capabilities)
             print("roue ouverte (\(gesture.rawValue)) en \(Int(point.x)),\(Int(point.y)) pour \(files.map(\.name).joined(separator: ", "))")
             print("  formats : \(menu.formats.map(\.label).joined(separator: " ")) · outils : \(menu.tools.map(\.label).joined(separator: " "))")
+            let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
+            overlay.leaveDistance = CGFloat(WheelSettings().leaveDistance) * WheelGeometry.pointsPerCentimetre(screen)
             overlay.open(files, menu: menu, at: point, clicking: false, hint: true)
+        }
+        var faded = false
+        watcher.onMove = { point in
+            overlay.track(point)
+            let alpha = overlay.isOpen ? (NSApp.windows.first { $0 is WheelPanel }?.alphaValue ?? 1) : 1
+            if alpha < 0.99 && !faded { print("  la roue s'estompe (pointeur hors de la roue)") }
+            faded = alpha < 0.99
         }
         watcher.onRelease = {
             print("bouton relâché")
             overlay.released()
         }
         overlay.onLeft = {
-            print("roue quittée pendant le glisser")
+            print("roue effacée : pointeur à plus de \(Fmt.dec(WheelSettings().leaveDistance)) cm de la roue")
             watcher.rearm()
         }
         overlay.onChoose = { action, files, point in

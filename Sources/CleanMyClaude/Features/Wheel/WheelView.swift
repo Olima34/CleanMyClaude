@@ -15,6 +15,9 @@ final class WheelOverlayState {
     var hint = false
     /// Opened by a shortcut or a click (not during a drag): the hub says "click" rather than "drop".
     var clicking = false
+    /// The hub takes a drop (every action in a list) once the pointer has been on a segment: a drag that only started
+    /// is dropped on nothing.
+    var hubArmed = false
 
     var geometry: WheelGeometry { WheelGeometry(formats: menu.formats.count, tools: menu.tools.count) }
 
@@ -144,7 +147,7 @@ private struct WheelHub: View {
     var body: some View {
         let r = WheelGeometry.hub
         let action = state.action(at: state.hovered ?? state.chosen)
-        let onHub = state.hovered == .hub
+        let onHub = state.hovered == .hub && state.hubArmed
         ZStack {
             Circle().fill(onHub ? Theme.accent.opacity(0.9) : Theme.card.opacity(0.82))
             Circle().strokeBorder(Color.white.opacity(0.3), lineWidth: 0.75)
@@ -169,7 +172,7 @@ private struct WheelHub: View {
                         .lineLimit(2)
                         .truncationMode(.middle)
                     if state.hint || state.menu.isEmpty {
-                        Text(state.menu.isEmpty ? "rien à proposer" : (state.clicking ? "clique une action" : "lâche sur une action"))
+                        Text(state.menu.isEmpty ? "rien à proposer" : (state.clicking ? "clique une action" : "lâche sur une action, ou éloigne-toi"))
                             .font(.ui(9))
                             .foregroundStyle(Theme.text3)
                             .multilineTextAlignment(.center)

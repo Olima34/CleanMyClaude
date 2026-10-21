@@ -8,7 +8,7 @@ struct WheelPage: View {
         let m = app.wheel
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: Page.wheel.symbol, title: "Roue des fichiers",
-                     subtitle: "Glisse un fichier en marquant une petite pause, ou secoue-le : une roue d'actions s'ouvre sous ton pointeur. Lâche-le sur une action, la copie apparaît à côté de l'original, qui ne bouge pas.",
+                     subtitle: "Dès que tu glisses un fichier, une roue d'actions s'ouvre sous ton pointeur. Lâche-le sur une action : la copie apparaît à côté de l'original, qui ne bouge pas. Éloigne-toi de la roue pour simplement déplacer ton fichier.",
                      tint: Theme.brand, seed: 53) {
                 WheelStatePill()
             }
@@ -212,22 +212,37 @@ struct WheelGesturesPanel: View {
 
     var body: some View {
         let m = app.wheel
-        Panel(title: "Pour l'ouvrir", subtitle: "Pendant que tu glisses un ou plusieurs fichiers, depuis le Finder ou une autre app.",
+        let instant = m.settings.instant
+        Panel(title: "Quand elle s'ouvre", subtitle: "Pendant que tu glisses un ou plusieurs fichiers, depuis le Finder ou une autre app.",
               symbol: "hand.draw", tint: Theme.brand) {
             VStack(alignment: .leading, spacing: 12) {
-                gesture("Maintenir puis glisser", "Appuie sur le fichier, garde-le immobile un instant, puis glisse-le.",
-                        isOn: Binding(get: { m.settings.hold }, set: { m.settings.hold = $0 }))
-                if m.settings.hold {
-                    HStack(spacing: 8) {
-                        Text("Pause").font(.ui(11)).foregroundStyle(Theme.text3)
-                        WheelChips(options: [0.3, 0.45, 0.7], selection: Binding(get: { m.settings.holdDelay }, set: { m.settings.holdDelay = $0 }),
-                                   label: { String(format: "%g s", $0).replacingOccurrences(of: ".", with: ",") })
+                WheelChips(options: [true, false], selection: Binding(get: { m.settings.instant }, set: { m.settings.instant = $0 }),
+                           label: { $0 ? "Dès que le fichier bouge" : "Avec un geste" })
+                if instant {
+                    Text("Elle apparaît sous ton pointeur au premier mouvement. Pour simplement déplacer le fichier, éloigne-toi : elle s'estompe puis disparaît.")
+                        .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                } else {
+                    gesture("Maintenir puis glisser", "Appuie sur le fichier, garde-le immobile un instant, puis glisse-le.",
+                            isOn: Binding(get: { m.settings.hold }, set: { m.settings.hold = $0 }))
+                    if m.settings.hold {
+                        HStack(spacing: 8) {
+                            Text("Pause").font(.ui(11)).foregroundStyle(Theme.text3)
+                            WheelChips(options: [0.3, 0.45, 0.7], selection: Binding(get: { m.settings.holdDelay }, set: { m.settings.holdDelay = $0 }),
+                                       label: { String(format: "%g s", $0).replacingOccurrences(of: ".", with: ",") })
+                        }
+                        .padding(.leading, 2)
                     }
-                    .padding(.leading, 2)
                 }
-                gesture("Secouer le fichier", "Deux ou trois petits allers-retours de côté pendant le glisser.",
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Elle disparaît à").font(.ui(12, .medium)).foregroundStyle(Theme.text)
+                    WheelChips(options: [2.0, 3.5, 5.0], selection: Binding(get: { m.settings.leaveDistance }, set: { m.settings.leaveDistance = $0 }),
+                               label: { "\(String(format: "%g", $0).replacingOccurrences(of: ".", with: ",")) cm" })
+                    Text("de son bord : au-delà, ton fichier se déplace comme d'habitude.")
+                        .font(.ui(11)).foregroundStyle(Theme.text3)
+                }
+                gesture(instant ? "La faire revenir en secouant" : "Secouer le fichier", "Deux ou trois petits allers-retours de côté pendant le glisser.",
                         isOn: Binding(get: { m.settings.shake }, set: { m.settings.shake = $0 }))
-                gesture("Glisser avec ⇧", "Appuie sur Maj pendant que tu glisses.",
+                gesture(instant ? "La faire revenir avec ⇧" : "Glisser avec ⇧", "Appuie sur Maj pendant que tu glisses.",
                         isOn: Binding(get: { m.settings.shift }, set: { m.settings.shift = $0 }))
                 Divider().overlay(Theme.border)
                 VStack(alignment: .leading, spacing: 6) {
@@ -334,7 +349,8 @@ struct WheelBottomBar: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(m.isActive ? "Roue active" : "Roue en pause").font(.serif(17)).foregroundStyle(Theme.text)
                 Text(running > 0 ? "\(Fmt.plural(running, "action en cours", "actions en cours"))"
-                     : (m.isActive ? "Glisse un fichier en marquant une pause, ou secoue-le" : "Les fichiers que tu glisses ne l'ouvrent plus"))
+                     : (m.isActive ? (m.settings.instant ? "Elle s'ouvre dès que tu glisses un fichier" : "Glisse un fichier en marquant une pause, ou secoue-le")
+                        : "Les fichiers que tu glisses ne l'ouvrent plus"))
                     .font(.ui(11)).foregroundStyle(Theme.text3)
             }
             Spacer()

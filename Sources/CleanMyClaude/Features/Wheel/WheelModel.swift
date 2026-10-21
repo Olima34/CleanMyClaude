@@ -1,8 +1,8 @@
 import SwiftUI
 import AppKit
 
-/// La roue des fichiers: hold a file still before dragging it, shake it, or press ⇧ while dragging, and a wheel of
-/// actions opens under the pointer, made for that kind of file. Drop the file on an action: a copy is made at once, or a
+/// La roue des fichiers: as soon as a file is dragged (or after a gesture: held still, shaken, ⇧), a wheel of actions
+/// opens under the pointer, made for that kind of file; moving far from it means the file is only being moved, and it goes. Drop the file on an action: a copy is made at once, or a
 /// small window opens first (crop, background, marks…). The original never changes, and the big window never opens.
 @Observable
 @MainActor
@@ -43,12 +43,13 @@ final class WheelModel: AppModule {
         watcher.settings = settings
         watcher.onOpen = { [weak self] point, urls, _ in self?.openWheel(urls, at: point, clicking: false) }
         watcher.onRelease = { [weak self] in self?.overlay.released() }
+        watcher.onMove = { [weak self] point in self?.overlay.track(point) }
         overlay.onLeft = { [weak self] in self?.watcher.rearm() }
         overlay.onChoose = { [weak self] action, files, point in self?.choose(action, files: files, at: point) }
         runner.onDone = { [weak self] task in self?.record(task) }
     }
 
-    var isActive: Bool { settings.enabled && settings.hasGesture }
+    var isActive: Bool { settings.enabled && settings.canOpen }
 
     /// Used in the last 30 days: the tool stays in the sidebar.
     var recentlyUsed: Bool {
@@ -119,6 +120,8 @@ final class WheelModel: AppModule {
         guard !files.isEmpty else { return }
         if app?.launcher.isOpen == true { app?.launcher.hide() }
         let menu = menu(for: Array(files))
+        let screen = NSScreen.screens.first { NSMouseInRect(point, $0.frame, false) } ?? NSScreen.main
+        overlay.leaveDistance = CGFloat(settings.leaveDistance) * WheelGeometry.pointsPerCentimetre(screen)
         overlay.open(Array(files), menu: menu, at: point, clicking: clicking, hint: settings.opened < 5)
         if settings.opened < 5 { settings.opened += 1 }
     }
@@ -280,7 +283,7 @@ final class WheelModel: AppModule {
                 return .done
             },
             AppCommand(id: "wheel_toggle", title: settings.enabled ? "Mettre en pause la roue des fichiers" : "Activer la roue des fichiers",
-                       subtitle: "Maintiens ou secoue un fichier pendant que tu le glisses", keywords: ["roue", "geste", "glisser"],
+                       subtitle: "La roue d'actions qui s'ouvre quand tu glisses un fichier", keywords: ["roue", "geste", "glisser"],
                        icon: .symbol(settings.enabled ? "pause.circle" : "dial.medium", Theme.brand), group: .tools, assistantSafe: true,
                        hint: settings.enabled ? "Pause" : "Activer") { ctx in
                 ctx.app.wheel.setEnabled(!ctx.app.wheel.settings.enabled)
@@ -303,7 +306,7 @@ final class WheelModel: AppModule {
     }
 
     func dump() -> [String] {
-        var lines = ["Roue : \(settings.enabled ? "active" : "en pause") · gestes : " +
+        var lines = ["Roue : \(settings.enabled ? "active" : "en pause") · \(settings.instant ? "dès le glisser" : "avec un geste"), disparaît à \(Fmt.dec(settings.leaveDistance)) cm · gestes : " +
                      [settings.hold ? "maintenir (\(Fmt.dec(settings.holdDelay)) s)" : nil, settings.shake ? "secouer" : nil, settings.shift ? "⇧" : nil]
                         .compactMap { $0 }.joined(separator: ", ")]
         lines.append("Copies : \(settings.destination.title) · ffmpeg : \(Shell.which("ffmpeg") ?? "absent")")

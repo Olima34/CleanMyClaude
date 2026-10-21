@@ -1,12 +1,15 @@
 import AppKit
 
-/// Watches file drags in every app and asks for the wheel when one of the gestures is made: held still before moving,
-/// a quick shake, or ⇧. Mouse events reach a global monitor without any permission (only keys need one).
-/// Costs nothing at rest: only presses and drags wake it, a drag that is not of files is dropped after one look at the
+/// Watches file drags in every app and asks for the wheel as soon as a file starts moving (or, if the user prefers, only
+/// after a gesture: held still before moving, a quick shake, or ⇧), then follows the pointer while the wheel is open.
+/// Mouse events reach a global monitor without any permission (only keys need one).
+/// Costs nothing at rest: only presses and drags wake it, a drag that is not of files is dropped after a look at the
 /// drag pasteboard's types (its content is read once, when the wheel opens), and the ⇧ poll runs only during a file drag.
 @MainActor
 final class WheelWatcher {
     enum Gesture: String {
+        /// The file just started moving.
+        case drag
         case hold, shake, shift
     }
 
@@ -15,13 +18,14 @@ final class WheelWatcher {
     var onOpen: ((NSPoint, [URL], Gesture) -> Void)?
     /// The button went up after the wheel opened (dropped on it, or anywhere else).
     var onRelease: (() -> Void)?
+    /// Where the pointer is while the wheel is open (screen, y up): over it, around it, or far away.
+    var onMove: ((NSPoint) -> Void)?
 
     private var monitors: [Any] = []
     private var down: (time: TimeInterval, point: NSPoint, change: Int)?
     private var movedAt: TimeInterval?
     /// nil until the drag pasteboard was looked at: true for files, false for anything else (text, a window…).
     private var fileDrag: Bool?
-    private var lastLook: TimeInterval = 0
     private var shake = WheelShake()
     private var opened = false
     /// ⇧ opens the wheel when it goes down: held on after the wheel was left, it waits to be pressed again.
@@ -69,7 +73,7 @@ final class WheelWatcher {
         poll = nil
     }
 
-    /// The wheel was left during the drag: another shake (or ⇧ pressed again) brings it back.
+    /// The wheel was left during the drag (the pointer went far): another shake (or ⇧ pressed again) brings it back.
     func rearm() {
         guard down != nil, opened else { return }
         opened = false
@@ -82,19 +86,21 @@ final class WheelWatcher {
 
     private func pressed(_ event: NSEvent) {
         reset()
-        guard settings.enabled, settings.hasGesture else { return }
+        guard settings.enabled, settings.canOpen else { return }
         // The drag pasteboard's counter moves when a drag starts: compared at each move until it does.
         down = (event.timestamp, NSEvent.mouseLocation, NSPasteboard(name: .drag).changeCount)
     }
 
     private func dragged(_ event: NSEvent) {
-        guard let d = down, !opened, fileDrag != false else { return }
+        guard let d = down, fileDrag != false else { return }
         let p = NSEvent.mouseLocation
+        if opened {
+            onMove?(p)
+            return
+        }
         if movedAt == nil, WheelGestureRules.moved(from: d.point, to: p) { movedAt = event.timestamp }
         if fileDrag == nil {
-            // One look every 30 ms at most until the drag starts (a few pixels after the press).
-            guard event.timestamp - lastLook >= 0.03 else { return }
-            lastLook = event.timestamp
+            // A look at each move until the drag starts, a few pixels after the press: the wheel comes with it.
             let pasteboard = NSPasteboard(name: .drag)
             guard pasteboard.changeCount != d.change else {
                 // Well on its way and still no drag: a text selection, a window, a slider. Left alone from now on.
@@ -104,10 +110,14 @@ final class WheelWatcher {
             // Only the list of types: it reads nothing of the content and makes macOS ask nothing.
             fileDrag = (pasteboard.types ?? []).contains(.fileURL)
             guard fileDrag == true else { return }
+            if settings.instant {
+                open(.drag)
+                return
+            }
             startPoll()
         }
         // The drag may start a pixel or two before the pointer counts as moving, or the other way round.
-        if settings.hold, !holdJudged, let moved = movedAt {
+        if settings.hold && !settings.instant, !holdJudged, let moved = movedAt {
             holdJudged = true
             if WheelGestureRules.held(downAt: d.time, movedAt: moved, delay: settings.holdDelay) {
                 open(.hold)

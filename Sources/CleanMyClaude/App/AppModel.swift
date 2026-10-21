@@ -86,7 +86,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "Les apps que tu n'ouvres plus, désinstallées sans rien oublier."
         case .storage: return "La carte de ton disque, les gros fichiers et les doublons."
         case .converter: return "Images, vidéos, audio, PDF et documents : dépose, c'est converti."
-        case .wheel: return "Secoue un fichier que tu glisses : recadre, convertis, annote sans rien ouvrir."
+        case .wheel: return "Glisse un fichier : une roue pour recadrer, convertir, annoter sans rien ouvrir."
         case .fillsign: return "Remplis un formulaire PDF, signe et paraphe en quelques clics."
         case .youtube: return "Colle un lien : la vidéo en MP4 ou le son en MP3."
         case .cinema: return "Un film ou une série : sa fiche et où le regarder."
