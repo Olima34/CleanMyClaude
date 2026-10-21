@@ -60,6 +60,33 @@ enum Entry {
             }
             return
         }
+        if args.contains("--watchdog-check") {
+            // The main thread frozen on purpose: what the watchdog notes, and what it would do.
+            let failures = MainActor.assumeIsolated { MainWatchdog.rehearse() }
+            for f in failures { print("✗ \(f)") }
+            print(failures.isEmpty ? "✓ vigie du fil principal OK" : "✗ \(failures.count) échec(s)")
+            exit(failures.isEmpty ? 0 : 1)
+        }
+        if args.contains("--devices-check") {
+            // The shared watch of the microphone, the sound and the cameras, for a while: what reaches the main thread.
+            let seconds = Double(value(after: "--devices-check") ?? "") ?? 20
+            let watch = DeviceActivity.shared
+            var changes = 0
+            let cpu0 = ProcessInfo.processInfo.systemUptime
+            let usage0 = Entry.processCPU()
+            let id = MainActor.assumeIsolated {
+                watch.watch { s in
+                    changes += 1
+                    print("état \(changes) : \(s.sounding.count) processus font du son, micro \(s.microphoneOn ? "allumé" : "éteint"), caméra \(s.cameraOn ? "allumée" : "éteinte")")
+                }
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+            watch.unwatch(id)
+            let used = Entry.processCPU() - usage0
+            let span = ProcessInfo.processInfo.systemUptime - cpu0
+            print("\(watch.readingCount) lectures, \(changes) états transmis au fil principal, processeur \(String(format: "%.2f", used)) s en \(Int(span)) s")
+            return
+        }
         if args.contains("--preview-check") {
             final class Done: @unchecked Sendable { var value = false }
             let done = Done()
@@ -157,6 +184,13 @@ enum Entry {
             return
         }
         CleanMyClaudeApp.main()
+    }
+
+    /// The processor time this process has used so far, in seconds.
+    static func processCPU() -> Double {
+        var u = rusage()
+        getrusage(RUSAGE_SELF, &u)
+        return Double(u.ru_utime.tv_sec + u.ru_stime.tv_sec) + Double(u.ru_utime.tv_usec + u.ru_stime.tv_usec) / 1e6
     }
 
     static func value(after flag: String) -> String? {
@@ -522,7 +556,7 @@ enum SelfTest {
         }
         // Module checks (calculator, conversions, command ids…).
         let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() }
-        for f in moduleFailures + ThemeChecks.run() + ToolProfileRules.selfTest().map({ "[Profils] \($0)" }) + MascotActivity.selfTest() + MascotFigure.selfTest() + Shell.selfTest() + LoginItem.selfTest() + thirdPartyTools() {
+        for f in moduleFailures + ThemeChecks.run() + ToolProfileRules.selfTest().map({ "[Profils] \($0)" }) + MascotActivity.selfTest() + MascotFigure.selfTest() + Shell.selfTest() + LoginItem.selfTest() + MainWatchdog.selfTest() + DeviceActivity.selfTest() + thirdPartyTools() {
             print("✗ \(f)")
             ok = false
         }

@@ -287,6 +287,13 @@ enum ActionLog {
             }
         }
     }
+
+    /// Waits for the lines written so far (a second at most): the app is about to end on its own.
+    static func flush() {
+        let written = DispatchGroup()
+        queue.async(group: written) {}
+        _ = written.wait(timeout: .now() + 1)
+    }
 }
 
 /// User settings shared by the UI (@AppStorage) and the background code.

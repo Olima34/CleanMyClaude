@@ -409,18 +409,53 @@ final class SystemMonitor {
             menuFigures.diskFree = diskFree
             return
         }
-        let readImportant = important || Date().timeIntervalSince(importantRead) > 600
-        var keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]
-        if readImportant { keys.insert(.volumeAvailableCapacityForImportantUsageKey) }
-        guard let v = try? URL(fileURLWithPath: FS.home).resourceValues(forKeys: keys) else { return }
+        guard let v = try? URL(fileURLWithPath: FS.home).resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]) else { return }
         let strict = Int64(v.volumeAvailableCapacity ?? 0)
-        if readImportant { importantRead = Date() }
-        // Without a new reading, the last one stands (never less than the really empty space).
-        menuFigures.diskFree = readImportant ? v.volumeAvailableCapacityForImportantUsage ?? strict : max(menuFigures.diskFree, strict)
-        guard publish else { return }
-        assign(\.diskTotal, Int64(v.volumeTotalCapacity ?? 0))
-        assign(\.diskFreeStrict, strict)
-        assign(\.diskFree, menuFigures.diskFree)
+        // Until a new reading for important usage comes, the last one stands (never less than the really empty space).
+        menuFigures.diskFree = max(menuFigures.diskFree, strict)
+        if publish {
+            assign(\.diskTotal, Int64(v.volumeTotalCapacity ?? 0))
+            assign(\.diskFreeStrict, strict)
+            assign(\.diskFree, menuFigures.diskFree)
+        }
+        if important || Date().timeIntervalSince(importantRead) > 600 { readImportant(publish: publish) }
+    }
+
+    @ObservationIgnored private var importantPending = false
+    /// Asked again while a reading was under way (a cleanup just freed space): one more reading follows it.
+    @ObservationIgnored private var importantAgain: Bool?
+
+    /// The free space for important usage is asked of CacheDelete, another process that can take seconds to answer
+    /// (right after waking up above all): read away from the main thread, one reading at a time, applied when it comes.
+    private func readImportant(publish: Bool) {
+        guard !importantPending else {
+            importantAgain = (importantAgain ?? false) || publish
+            return
+        }
+        importantPending = true
+        importantRead = Date()
+        let home = FS.home
+        Task.detached(priority: .utility) { [weak self] in
+            let keys: Set<URLResourceKey> = [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey]
+            let v = try? URL(fileURLWithPath: home).resourceValues(forKeys: keys)
+            let important = v?.volumeAvailableCapacityForImportantUsage
+            let strict = v.flatMap { $0.volumeAvailableCapacity }.map(Int64.init)
+            await self?.importantCame(important ?? strict, strict: strict, publish: publish)
+        }
+    }
+
+    private func importantCame(_ free: Int64?, strict: Int64?, publish: Bool) {
+        importantPending = false
+        if let free {
+            // Never less than the really empty space, which may have grown since the reading began.
+            let value = max(free, strict ?? 0, diskFreeStrict)
+            menuFigures.diskFree = value
+            if publish || pace == .full { assign(\.diskFree, value) }
+        }
+        if let again = importantAgain {
+            importantAgain = nil
+            readImportant(publish: again)
+        }
     }
 
     // MARK: Network

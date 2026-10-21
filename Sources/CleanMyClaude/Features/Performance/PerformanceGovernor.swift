@@ -221,66 +221,6 @@ enum PerformanceAudio {
     }
 }
 
-/// Watches CoreAudio so that an app slowed in the background gets its priority back as soon as it plays sound
-/// (a media key starts the music without bringing the app to the front). Event driven: nothing runs while all is quiet.
-@MainActor
-final class PerformanceAudioWatch {
-    private var listeners: [(AudioObjectID, AudioObjectPropertyAddress, AudioObjectPropertyListenerBlock)] = []
-    private let onChange: @MainActor () -> Void
-
-    init(onChange: @escaping @MainActor () -> Void) {
-        self.onChange = onChange
-    }
-
-    func start() {
-        guard listeners.isEmpty, !DemoData.isEnabled else { return }
-        listen(AudioObjectID(kAudioObjectSystemObject), kAudioHardwarePropertyProcessObjectList) { [weak self] in
-            self?.rewatchProcesses()
-            self?.onChange()
-        }
-        rewatchProcesses()
-    }
-
-    func stop() {
-        for (id, address, block) in listeners {
-            var a = address
-            AudioObjectRemovePropertyListenerBlock(id, &a, DispatchQueue.main, block)
-        }
-        listeners.removeAll()
-    }
-
-    /// One listener on the list of audio processes, and one per process on "is playing" and "is recording".
-    private func rewatchProcesses() {
-        let system = AudioObjectID(kAudioObjectSystemObject)
-        let kept = listeners.filter { $0.0 == system }
-        for (id, address, block) in listeners where id != system {
-            var a = address
-            AudioObjectRemovePropertyListenerBlock(id, &a, DispatchQueue.main, block)
-        }
-        listeners = kept
-        var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
-                                                 mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        var size: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(system, &address, 0, nil, &size) == noErr, size > 0 else { return }
-        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
-        guard AudioObjectGetPropertyData(system, &address, 0, nil, &size, &ids) == noErr else { return }
-        for id in ids {
-            listen(id, kAudioProcessPropertyIsRunningOutput) { [weak self] in self?.onChange() }
-            listen(id, kAudioProcessPropertyIsRunningInput) { [weak self] in self?.onChange() }
-        }
-    }
-
-    private func listen(_ id: AudioObjectID, _ selector: AudioObjectPropertySelector, _ action: @escaping @MainActor () -> Void) {
-        var address = AudioObjectPropertyAddress(mSelector: selector, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
-        let block: AudioObjectPropertyListenerBlock = { _, _ in
-            MainActor.assumeIsolated { action() }
-        }
-        if AudioObjectAddPropertyListenerBlock(id, &address, DispatchQueue.main, block) == noErr {
-            listeners.append((id, address, block))
-        }
-    }
-}
-
 // MARK: - Planning (pure)
 
 enum PerformanceGroupKind: String, Sendable {
@@ -656,7 +596,8 @@ final class PerformanceGovernorEngine: @unchecked Sendable {
     private func runSweep(_ ctx: PerformanceSweepContext) -> PerformanceSweepResult {
         let now = Date()
         let procs = PerformanceProcScan.current()
-        let audio = PerformanceAudio.activePIDs()
+        // Who plays sound: the shared watch's latest reading while it runs (no CoreAudio call from this queue then).
+        let audio = DeviceActivity.shared.isWatching ? DeviceActivity.shared.state.sounding : PerformanceAudio.activePIDs()
         let taps = PerformanceAudio.eventTapPIDs()
         var groups = PerformancePlanner.groups(procs, apps: ctx.apps, audio: audio, taps: taps, frontPID: ctx.frontPID)
         let frontKey = ctx.frontPID.flatMap { pid in procs.first { $0.id.pid == pid } }.map { ProcessList.identity(of: $0.path).key }

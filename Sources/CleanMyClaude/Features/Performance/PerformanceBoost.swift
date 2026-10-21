@@ -189,7 +189,9 @@ final class PerformanceBoost {
     @ObservationIgnored private let rulesStore: JSONStore<PerformanceRules>
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
-    @ObservationIgnored private var audioWatch: PerformanceAudioWatch?
+    /// The shared watch of who plays sound (`DeviceActivity`): an app that starts playing gets its speed back.
+    @ObservationIgnored private var audioWatch: UUID?
+    @ObservationIgnored private var sounding: Set<pid_t> = []
     @ObservationIgnored private var pendingSweep: DispatchWorkItem?
     @ObservationIgnored private var sweeping = false
     @ObservationIgnored private var sweepAgain = false
@@ -282,9 +284,11 @@ final class PerformanceBoost {
             MainActor.assumeIsolated { self?.thermalChanged() }
         })
         thermalChanged()
-        let watch = PerformanceAudioWatch { [weak self] in self?.sweepSoon(0.2) }
-        watch.start()
-        audioWatch = watch
+        audioWatch = DeviceActivity.shared.watch { [weak self] state in
+            guard let self, self.active, state.sounding != self.sounding else { return }
+            self.sounding = state.sounding
+            self.sweepSoon(0.2)
+        }
         let t = Timer(timeInterval: Self.sweepInterval, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.sweepSoon(0) }
         }
@@ -307,8 +311,9 @@ final class PerformanceBoost {
         }
         observers.removeAll()
         hotNow = false
-        audioWatch?.stop()
+        if let audioWatch { DeviceActivity.shared.unwatch(audioWatch) }
         audioWatch = nil
+        sounding = []
         engine.restoreAllNow()
         MainWatchdog.shared.disarm("boost")
         demotions = []

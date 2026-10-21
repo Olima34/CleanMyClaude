@@ -294,9 +294,11 @@ final class PermissionCenter {
         waitingSince = nil
     }
 
+    /// A cancelled task stops waiting at once: `Task.sleep` would throw right away and the loop would spin on the main
+    /// thread until `end`.
     private func wait(seconds: Double, until done: @escaping @MainActor () -> Bool) async {
         let end = Date().addingTimeInterval(seconds)
-        while Date() < end, !done() {
+        while Date() < end, !done(), !Task.isCancelled {
             try? await Task.sleep(nanoseconds: 500_000_000)
         }
     }
@@ -321,7 +323,7 @@ final class PermissionCenter {
             last = await connect(gateway, timeout: 3)
             if last == .granted { return .granted }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
-        } while Date() < end
+        } while Date() < end && !Task.isCancelled
         return last
     }
 

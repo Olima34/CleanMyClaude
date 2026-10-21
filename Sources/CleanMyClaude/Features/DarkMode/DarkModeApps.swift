@@ -300,7 +300,7 @@ enum DarkModeRelaunch {
         guard !running.isEmpty else { return true }
         for app in running { app.terminate() }
         let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
+        while Date() < deadline, !Task.isCancelled {
             if running.allSatisfy(\.isTerminated) { return true }
             try? await Task.sleep(nanoseconds: 300_000_000)
         }

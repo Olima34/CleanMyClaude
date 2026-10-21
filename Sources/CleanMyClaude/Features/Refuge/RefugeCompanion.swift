@@ -71,6 +71,10 @@ final class RefugeCompanion {
     private var following = false
     /// The screens are off or the session is not in front: it rests, nothing runs.
     private var observers: [NSObjectProtocol] = []
+    /// The windows and the Dock are read on a queue of their own (the window server and the Dock can be slow to answer,
+    /// right after waking up above all): one reading at a time, the frames use the latest one.
+    private var reading = false
+    private static let readQueue = DispatchQueue(label: "cleanmyclaude.refuge.surfaces", qos: .utility)
 
     private enum Mode: Equatable {
         case walk, sit, sleep, jumping, falling, leaving
@@ -94,7 +98,7 @@ final class RefugeCompanion {
     static let pixel: CGFloat = 3
     static let size = NSSize(width: 96, height: 86)
     /// Half the width of its feet: how close to the end of an edge it may walk.
-    static let reach: CGFloat = 28
+    nonisolated static let reach: CGFloat = 28
     /// The chamois' square in the panel: centred, at the bottom.
     private static var figure: CGRect {
         let side = CGFloat(RefugeFigure.cols) * pixel
@@ -118,9 +122,12 @@ final class RefugeCompanion {
         p.hidesOnDeactivate = false
         p.isReleasedWhenClosed = false
         p.ignoresMouseEvents = true
-        p.contentView = RefugeCompanionHost(rootView: RefugeCompanionView(state: state, tap: { [weak self] in self?.tapped() }))
-        // It comes in from the right, walking along the bottom of the screen.
-        surfaces = Self.currentSurfaces(in: f)
+        let host = RefugeCompanionHost(rootView: RefugeCompanionView(state: state, tap: { [weak self] in self?.tapped() }))
+        // The panel keeps its size: the view never resizes it.
+        host.sizingOptions = []
+        p.contentView = host
+        // It comes in from the right, walking along the bottom of the screen (the windows come with the first reading).
+        surfaces = Self.surfaces(windows: [], full: (NSScreen.main ?? NSScreen.screens.first)?.frame ?? f, visible: f, dock: nil)
         surface = surfaces.filter { $0.id <= 0 }.max { $0.maxX < $1.maxX }
         feet = CGPoint(x: f.maxX + Self.size.width / 2, y: surface?.y ?? f.minY)
         direction = -1
@@ -132,6 +139,7 @@ final class RefugeCompanion {
         p.orderFrontRegardless()
         panel = p
         refreshLook()
+        readSurfaces(f)
         startTicking()
         // Nobody sees it with the screens off or the session locked: it waits, without a single frame.
         let center = NSWorkspace.shared.notificationCenter
@@ -230,10 +238,7 @@ final class RefugeCompanion {
         let onWindow = (surface?.id ?? 0) != 0
         let airborne = mode == .jumping || mode == .falling
         if following || ticksLeft <= 0 || ((onWindow || airborne) && state.frame % 2 == 0) || state.frame % 8 == 0 {
-            let before = surface
-            surfaces = Self.currentSurfaces(in: f)
-            if [.walk, .sit, .sleep].contains(mode), !entering { holdOn(f) }
-            following = onWindow && surface?.id == before?.id && surface?.left != before?.left
+            readSurfaces(f)
         }
 
         let night = RefugeRules.isNight(Calendar.current.component(.hour, from: Date()))
@@ -469,12 +474,44 @@ final class RefugeCompanion {
 
     // MARK: Where it can stand
 
-    /// The bottom of the screen, the Dock and the visible top edges of the windows on it, front to back.
-    private static func currentSurfaces(in f: NSRect) -> [RefugeSurface] {
+    /// Asks for a fresh reading of the windows and the Dock, away from the main thread; it lands at the next frames.
+    private func readSurfaces(_ f: NSRect) {
+        guard !reading else { return }
+        reading = true
         let full = (NSScreen.main ?? NSScreen.screens.first)?.frame ?? f
-        let dock = dockRect(full: full, visible: f)
+        let primary = NSScreen.screens.first?.frame.height
+        Self.readQueue.async { [weak self] in
+            let list = Self.currentSurfaces(full: full, visible: f, primary: primary)
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { self?.surfacesRead(list) }
+            }
+        }
+    }
+
+    /// A reading came back: it follows its window if it was dragged, or falls if the window went away.
+    private func surfacesRead(_ list: [RefugeSurface]) {
+        reading = false
+        guard panel != nil, let f = Self.screenFrame else { return }
+        let before = surface
+        let onWindow = (before?.id ?? 0) != 0
+        surfaces = list
+        if entering, mode == .walk, (before?.id ?? 0) <= 0 {
+            // Still walking in from the right: onto the real ground at that end (beside the Dock, or on it).
+            if let ground = list.filter({ $0.id <= 0 }).max(by: { $0.maxX < $1.maxX }) {
+                surface = ground
+                feet.y = ground.y
+            }
+        } else if [.walk, .sit, .sleep].contains(mode), !entering {
+            holdOn(f)
+        }
+        following = onWindow && surface?.id == before?.id && surface?.left != before?.left
+    }
+
+    /// The bottom of the screen, the Dock and the visible top edges of the windows on it, front to back. Any thread.
+    nonisolated private static func currentSurfaces(full: NSRect, visible f: NSRect, primary: CGFloat?) -> [RefugeSurface] {
+        let dock = dockRect(full: full, visible: f, primary: primary)
         guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]],
-              let primary = NSScreen.screens.first?.frame.height else { return surfaces(windows: [], full: full, visible: f, dock: dock) }
+              let primary else { return surfaces(windows: [], full: full, visible: f, dock: dock) }
         var windows: [(id: Int, rect: CGRect)] = []
         for w in list {
             guard (w[kCGWindowLayer as String] as? Int) == 0, (w[kCGWindowAlpha as String] as? Double ?? 1) > 0.1,
@@ -489,22 +526,24 @@ final class RefugeCompanion {
 
     /// Where the Dock's bar really is when it sits at the bottom (its own window covers the whole screen): read through
     /// accessibility when the app may, else estimated from the Dock's settings. Nil when it hides or sits on a side.
-    private static func dockRect(full: NSRect, visible: NSRect) -> CGRect? {
+    nonisolated private static func dockRect(full: NSRect, visible: NSRect, primary: CGFloat?) -> CGRect? {
         if let c = dockCache, Date().timeIntervalSince(c.at) < 5 { return c.rect }
-        let rect = readDock(full: full, visible: visible)
+        let rect = readDock(full: full, visible: visible, primary: primary)
         dockCache = (rect, Date())
         return rect
     }
 
-    private static func readDock(full: NSRect, visible: NSRect) -> CGRect? {
+    nonisolated private static func readDock(full: NSRect, visible: NSRect, primary: CGFloat?) -> CGRect? {
         let height = visible.minY - full.minY
         guard height > 8 else { return nil }
-        if AXIsProcessTrusted(), let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first,
-           let primary = NSScreen.screens.first?.frame.height {
+        if AXIsProcessTrusted(), let primary, let dock = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first {
             let app = AXUIElementCreateApplication(dock.processIdentifier)
+            // A Dock busy laying out the screens again answers late: the estimate below will do meanwhile.
+            AXUIElementSetMessagingTimeout(app, 0.25)
             var children: CFTypeRef?
             if AXUIElementCopyAttributeValue(app, kAXChildrenAttribute as CFString, &children) == .success {
                 for child in (children as? [AXUIElement]) ?? [] {
+                    AXUIElementSetMessagingTimeout(child, 0.25)
                     var pos: CFTypeRef?, size: CFTypeRef?
                     guard AXUIElementCopyAttributeValue(child, kAXPositionAttribute as CFString, &pos) == .success,
                           AXUIElementCopyAttributeValue(child, kAXSizeAttribute as CFString, &size) == .success,
@@ -532,7 +571,7 @@ final class RefugeCompanion {
     /// Where it can stand, from the windows (front to back, in screen coordinates), the screen and the Dock: the bottom of
     /// the screen beside the Dock, the top of the Dock, and each window's top edge minus the parts covered by windows in
     /// front, up to the menu bar.
-    static func surfaces(windows: [(id: Int, rect: CGRect)], full: CGRect, visible f: CGRect, dock: CGRect?) -> [RefugeSurface] {
+    nonisolated static func surfaces(windows: [(id: Int, rect: CGRect)], full: CGRect, visible f: CGRect, dock: CGRect?) -> [RefugeSurface] {
         var out: [RefugeSurface] = []
         if let dock, dock.minY < f.minY {
             for (from, to) in [(full.minX, dock.minX - 2), (dock.maxX + 2, full.maxX)] where to - from >= 2 * reach + 10 {

@@ -195,18 +195,44 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private func show() {
         guard let button = item.button else { return }
         // A fresh view each time, so the panel starts and stops reading processes with its own lifetime.
-        let host = NSHostingController(rootView: MenuBarPanel().environment(app))
-        host.sizingOptions = .preferredContentSize
+        // Its height is its own (fixed size), measured and handed to the popover: never the popover's size fed back
+        // into the panel's layout, which AppKit can turn into an endless resize when the screens change.
+        let panel = MenuBarPanel().environment(app)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(GeometryReader { g in Color.clear.preference(key: StatusItemPanelSize.self, value: g.size) })
+            .onPreferenceChange(StatusItemPanelSize.self) { [weak self] size in
+                MainActor.assumeIsolated { self?.fit(size) }
+            }
+        let host = NSHostingController(rootView: panel)
+        host.sizingOptions = []
         popover.contentViewController = host
+        fit(host.view.fittingSize)
         app.monitor.show(.panel, true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
 
+    /// The popover follows the panel's height (rounded up to whole points, only when it really changes).
+    private func fit(_ size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        let target = NSSize(width: ceil(size.width), height: ceil(size.height))
+        if abs(popover.contentSize.height - target.height) >= 1 || abs(popover.contentSize.width - target.width) >= 1 {
+            popover.contentSize = target
+        }
+    }
+
     func popoverDidClose(_ notification: Notification) {
+        // A click on the icon while it was closing may have opened it again already: that panel keeps its content.
+        guard !popover.isShown else { return }
         popover.contentViewController = nil
         app.monitor.show(.panel, false)
     }
+}
+
+/// The height the menu bar panel wants.
+private struct StatusItemPanelSize: PreferenceKey {
+    static let defaultValue = CGSize.zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }
 
 /// `--snapshot --page menubar`: the menu bar item while a video downloads, as it looks over a light and a dark bar.

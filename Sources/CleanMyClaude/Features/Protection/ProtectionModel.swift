@@ -236,7 +236,13 @@ final class ProtectionModel: AppModule {
         RunLoop.main.add(timer, forMode: .common)
         let startup = app?.startup
         // Started at the same time (the full review): its list is waited for, the scan needs it.
-        while startup?.isScanning == true { try? await Task.sleep(nanoseconds: 100_000_000) }
+        while startup?.isScanning == true, !Task.isCancelled { try? await Task.sleep(nanoseconds: 100_000_000) }
+        guard !Task.isCancelled else {
+            timer.invalidate()
+            scanFlag = nil
+            isScanning = false
+            return
+        }
         if let startup, Date().timeIntervalSince(startup.lastScan ?? .distantPast) > 300 { await startup.scan() }
         let items = startup?.items ?? []
         let result = await Task.detached(priority: .utility) {

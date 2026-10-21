@@ -218,6 +218,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         MainActor.assumeIsolated {
             Notifier.setUp()
+            // From now on the main thread is watched: a freeze is written down, and never holds a restart up.
+            MainWatchdog.shared.start()
+            if UserDefaults.standard.bool(forKey: MainWatchdog.relaunchedKey) {
+                UserDefaults.standard.removeObject(forKey: MainWatchdog.relaunchedKey)
+                Notifier.post(id: "watchdog.relaunched", title: "\(AppEdition.name) a redémarré tout seul",
+                              body: "Il s'était figé. Ce qui s'est passé est noté dans ~/Library/Logs/CleanMyClaude.", throttle: 0)
+            }
             NSApp.servicesProvider = services
             NSUpdateDynamicServices()
             if let app = AppContext.model {
@@ -284,11 +291,18 @@ struct CleanMyClaudeApp: App {
         _model = State(initialValue: m)
     }
 
+    /// 1100 × 720, never more than the screen shows: a minimum the window cannot reach on a small screen (or a large
+    /// text setting) has AppKit and SwiftUI resize it against each other.
+    private static var minimumSize: CGSize {
+        let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.size ?? CGSize(width: 1100, height: 720)
+        return CGSize(width: min(1100, visible.width), height: min(720, max(480, visible.height - 40)))
+    }
+
     var body: some Scene {
         Window(AppEdition.name, id: "main") {
             RootView()
                 .environment(model)
-                .frame(minWidth: 1100, minHeight: 720)
+                .frame(minWidth: Self.minimumSize.width, minHeight: Self.minimumSize.height)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1380, height: 900)
