@@ -27,7 +27,7 @@ struct DarkModePage: View {
                         text: "Une app qui dessine tout elle-même (Windows via Wine, Java…) ne suit aucun réglage. L'écran s'inverse alors quand elle passe devant et se rétablit quand tu changes d'app ; photos et vidéos restent à l'endroit dans les apps qui le permettent.",
                         tint: Self.tint)
                 Callout(symbol: "arrow.uturn.backward", title: "Tout se défait",
-                        text: "« Auto » remet le réglage d'origine de l'app. Dans Safari, Feuille de style : Aucune. Dans Chrome, coupe l'interrupteur. Rien n'est supprimé, et une copie des réglages de chaque navigateur est gardée.",
+                        text: "« Auto » remet le réglage d'origine de l'app. Dans Chrome, Edge ou Brave, coupe l'interrupteur : une copie de leurs réglages d'origine est gardée. Rien n'est supprimé.",
                         tint: Self.tint)
             }
         }
@@ -195,8 +195,7 @@ private struct DarkModeSummary: View {
     }
 
     private func webValue(_ m: DarkModeModel) -> String {
-        let safari = (m.settings.safariWritten != nil && m.settings.safariSelected) || !(m.extensions ?? []).isEmpty
-        let done = (safari ? 1 : 0) + m.chromiumForced.count
+        let done = ((m.extensions ?? []).isEmpty ? 0 : 1) + m.chromiumForced.count
         let total = m.browsers.filter { $0.engine != .firefox }.count
         return "\(done)/\(max(total, 1))"
     }
@@ -216,7 +215,7 @@ private struct DarkModeWebPanel: View {
 
     var body: some View {
         let m = app.darkmode
-        Panel(title: "Pages web", subtitle: "Pour chaque navigateur, la méthode qui marche le mieux, sans rien installer",
+        Panel(title: "Pages web", subtitle: "Pour chaque navigateur, la méthode qui donne les plus belles pages",
               symbol: "globe", tint: DarkModePage.tint) {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(m.browsers) { b in
@@ -267,83 +266,74 @@ private struct DarkModeSafariBlock: View {
     var body: some View {
         let m = app.darkmode
         let ext = m.extensions?.first
-        DarkModeBrowserBlock(browser: browser, subtitle: ext == nil ? "Une feuille de style que Safari applique à chaque page" : "Une extension s'en charge") {
+        DarkModeBrowserBlock(browser: browser, subtitle: ext == nil ? "Il lui faut une extension qui lit les couleurs de chaque site" : "Une extension s'en charge") {
             if let ext {
                 Tag(text: "\(ext.name) installé", symbol: "checkmark", tint: Theme.good, filled: true)
-            } else if m.settings.safariWritten != nil && m.settings.safariSelected {
-                Tag(text: "En sombre", symbol: "moon.fill", tint: Theme.good, filled: true)
-            } else if m.settings.safariWritten != nil {
-                Tag(text: "Encore une étape", tint: Theme.warn, filled: true)
             } else {
-                Tag(text: "À préparer", tint: Theme.text2)
+                Tag(text: "Extension à ajouter", tint: Theme.text2)
             }
         } content: {
+            if m.oldStyleSheet { oldStyleSheet(m) }
             if let ext {
-                Text("\(ext.name) assombrit les pages mieux qu'une feuille de style : il lit les couleurs de chaque site. Vérifie dans Safari › Réglages… › Extensions qu'il est coché, et autorisé sur tous les sites (« Modifier les sites web… »).")
+                Text("\(ext.name) lit les couleurs de chaque site et les remplace une à une : les bandeaux sombres restent sombres, les photos intactes. Vérifie dans Safari › Réglages… › Extensions qu'il est coché, et autorisé sur tous les sites (« Modifier les sites web… »).")
                     .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                 Button("Ouvrir Safari") { m.open(browser.appPath) }
                     .buttonStyle(SoftButtonStyle(small: true))
             } else {
-                styleSheet(m)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func styleSheet(_ m: DarkModeModel) -> some View {
-        @Bindable var m = m
-        HStack(alignment: .top, spacing: 8) {
-            ForEach(DarkModeTone.allCases) { t in toneChoice(t, m) }
-        }
-        VStack(alignment: .leading, spacing: 8) {
-            darkModeStep(1, m.settings.safariWritten == nil ? "Prépare la feuille de style (un petit fichier de Chamois)."
-                         : "Feuille de style prête, teinte \(m.settings.tone.title) : un changement de teinte la met à jour.")
-            darkModeStep(2, "Dans Safari › Réglages… › Avancées, menu « Feuille de style » : choisis « Autre… ».")
-            darkModeStep(3, "Dans la fenêtre qui s'ouvre, tape ⌘⇧G, colle le chemin (bouton « Copier le chemin ») puis Retour, et choisis « \(DarkModeStyleSheet.fileName) ».")
-        }
-        HStack(spacing: 8) {
-            Button { m.prepareSafari() } label: { darkModeLabel(m.settings.safariWritten == nil ? "Préparer la feuille de style" : "Réécrire", "doc.badge.plus") }
-                .buttonStyle(SoftButtonStyle(prominent: m.settings.safariWritten == nil, small: true))
-            Button("Copier le chemin") { m.copyStyleSheetPath() }
-                .buttonStyle(SoftButtonStyle(prominent: m.settings.safariWritten != nil && !m.settings.safariSelected, small: true))
-                .disabled(m.settings.safariWritten == nil)
-            Button("Ouvrir Safari") { m.open(browser.appPath) }
-                .buttonStyle(SoftButtonStyle(small: true))
-            Button("Afficher le fichier") { m.revealStyleSheet() }
-                .buttonStyle(SoftButtonStyle(small: true))
-                .disabled(m.settings.safariWritten == nil)
-            Spacer(minLength: 8)
-            Toggle("C'est fait", isOn: $m.settings.safariSelected)
-                .font(.ui(11.5)).foregroundStyle(Theme.text2)
-                .switchToggles()
-                .fixedSize()
-                .disabled(m.settings.safariWritten == nil)
-        }
-        Text("Les pages qui annoncent un thème sombre sont laissées telles quelles ; photos et vidéos retrouvent leurs couleurs (les plus vives un peu ternies). Un site sombre qui ne l'annonce pas repasse en clair : une feuille de style ne voit pas les couleurs. Noir (payant, App Store) les lit, site par site. Après un changement de teinte, recharge tes pages.")
-            .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-        Button("Voir Noir sur l'App Store") { m.openLink(DarkModeBrowsers.noirStore) }
-            .buttonStyle(.plain).font(.ui(11, .medium)).foregroundStyle(Theme.accent)
-    }
-
-    private func toneChoice(_ t: DarkModeTone, _ m: DarkModeModel) -> some View {
-        let selected = m.settings.tone == t
-        return Button { m.setTone(t) } label: {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                        .font(.ui(12)).foregroundStyle(selected ? Theme.accent : Theme.text3)
-                    Text(t.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                Text("Safari ne sait pas assombrir une page lui-même, et une feuille de style ne voit pas les couleurs : elle retourne la page comme un négatif, et les bandeaux sombres des sites ressortent en clair. Une extension, elle, lit les couleurs de chaque site et les remplace une à une.")
+                    .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .top, spacing: 8) {
+                    extensionChoice("Noir", "Très soigné, réglable site par site. Les sites qui ont déjà un thème sombre le gardent.",
+                                    DarkModeBrowsers.noirStore, m)
+                    extensionChoice("Dark Reader", "La référence, aussi sur Chrome et Firefox. Prends celle de Dark Reader Ltd : des copies circulent.",
+                                    DarkModeBrowsers.darkReaderSafari, m)
                 }
-                Text(t.detail).font(.ui(11)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 8) {
+                    darkModeStep(1, "Installe l'une des deux (payantes) depuis l'App Store, puis ouvre-la une fois.")
+                    darkModeStep(2, "Dans Safari › Réglages… › Extensions, coche-la et autorise-la sur tous les sites (« Modifier les sites web… »).")
+                }
+                HStack(spacing: 8) {
+                    Button("Ouvrir Safari") { m.open(browser.appPath) }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                    Text("Sans extension, les sites qui ont leur propre thème sombre le prennent quand le Mac est en sombre.")
+                        .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(selected ? Theme.accent.opacity(0.1) : Theme.card))
-            .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(selected ? Theme.accent.opacity(0.6) : Theme.border, lineWidth: Theme.line))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+    }
+
+    private func extensionChoice(_ name: String, _ detail: String, _ link: String, _ m: DarkModeModel) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(name).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+            Text(detail).font(.ui(11)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
+            Button { m.openLink(link) } label: { darkModeLabel("Voir sur l'App Store", "bag") }
+                .buttonStyle(SoftButtonStyle(small: true))
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.border, lineWidth: Theme.line))
+    }
+
+    /// Back from a version that inverted Safari's pages: that style sheet is empty now, Safari should drop it.
+    private func oldStyleSheet(_ m: DarkModeModel) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("L'ancienne feuille de style ne retourne plus tes pages").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+            Text("Chamois l'a vidée : Safari n'en applique plus rien dès la page suivante. Pour finir le ménage, dans Safari › Réglages… › Avancées, remets « Feuille de style » sur « Aucune », puis jette le fichier « \(DarkModeStyleSheet.fileName) ».")
+                .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                Button("Ouvrir Safari") { m.open(browser.appPath) }
+                    .buttonStyle(SoftButtonStyle(small: true))
+                Button { m.discardOldStyleSheet() } label: { darkModeLabel("Jeter le fichier", "trash") }
+                    .buttonStyle(SoftButtonStyle(small: true))
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.warn.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(Theme.warn.opacity(0.45), lineWidth: Theme.line))
     }
 }
 

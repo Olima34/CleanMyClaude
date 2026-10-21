@@ -37,8 +37,10 @@ enum DarkModeBrowsers {
     /// Dark Reader, free, for Chromium browsers and Firefox.
     static let darkReaderChrome = "https://chromewebstore.google.com/detail/eimadpbcbfnmbkopoojfekhnkhdbieeh"
     static let darkReaderFirefox = "https://addons.mozilla.org/firefox/addon/darkreader/"
-    /// Noir, the Safari extension this page is modelled on (paid, on the Mac App Store).
+    /// The Safari extensions that read each site's colours (paid, on the Mac App Store): Noir, which this page is
+    /// modelled on, and Dark Reader's own (beware of its clones).
     static let noirStore = "macappstore://apps.apple.com/app/id1592917505"
+    static let darkReaderSafari = "macappstore://apps.apple.com/app/id1438243180"
 
     /// Only a browser installed in an Applications folder: not the Chromium a developer tool keeps for itself.
     static func appPath(_ id: String) -> String? {
@@ -129,127 +131,40 @@ enum DarkModeChromium {
     }
 }
 
-// MARK: - Safari's style sheet
+// MARK: - Safari's old style sheet
 
-/// How dark the pages turn in Safari.
-enum DarkModeTone: String, Codable, CaseIterable, Identifiable, Sendable {
-    case black, charcoal, dim
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .black: return "Noir"
-        case .charcoal: return "Anthracite"
-        case .dim: return "Tamisé"
-        }
-    }
-
-    var detail: String {
-        switch self {
-        case .black: return "Fond noir, texte blanc : le plus contrasté"
-        case .charcoal: return "Fond gris très foncé, plus doux pour les yeux"
-        case .dim: return "Texte un peu adouci, pour lire le soir"
-        }
-    }
-
-    /// Applied after the inversion, to the whole page (photos included, a little).
-    var adjust: String {
-        switch self {
-        case .black: return ""
-        case .charcoal: return " contrast(86%)"
-        case .dim: return " contrast(80%) brightness(92%)"
-        }
-    }
-}
-
-/// A user style sheet Safari applies to every page (Réglages › Avancées › Feuille de style). Without an extension,
-/// CSS cannot read a page's colours: light pages are inverted, photos and videos turned back, and the pages that show
-/// their own dark theme are recognised by what they declare and left alone.
+/// Safari cannot darken a page by itself, and a user style sheet cannot read a page's colours: the one Chamois wrote
+/// until v0.3.62 inverted every light page, so a site's dark bars and buttons came out light and its white logos faded.
+/// Safari is now left to an extension that reads each site's colours. That style sheet, which Safari may still point to
+/// (Réglages › Avancées › Feuille de style), is emptied so that nothing is inverted any more, then can be thrown away.
 enum DarkModeStyleSheet {
     static let fileName = "Sombre partout.css"
 
-    /// Marks of a page already dark, whatever the Mac's appearance (on <html>, or <body> through `:has`).
-    static let alwaysDark = [
-        "[dark]", "[class*=\"dark\" i]", "[class*=\"night\" i]", "[data-theme*=\"dark\" i]", "[data-color-mode=\"dark\" i]",
-        "[data-color-scheme*=\"dark\" i]", "[data-bs-theme=\"dark\" i]", "[data-mode=\"dark\" i]", "[theme*=\"dark\" i]",
-        "[style*=\"color-scheme: dark\" i]", "[style*=\"color-scheme:dark\" i]", "[data-darkreader-scheme]", "[data-darkreader-mode]",
-        ":has(> head > meta[name=\"color-scheme\" i]:is([content=\"dark\" i], [content=\"only dark\" i]))",
-        ":has(> body:is([class*=\"dark\" i], [data-theme*=\"dark\" i], [dark]))"
-    ]
+    /// What the file keeps once retired: no rule at all, and how to unselect it in Safari.
+    static let retired = """
+    /* Sombre partout · Chamois
+       Cette feuille de style n'est plus utilisée : elle retournait les pages comme un négatif,
+       et les bandeaux sombres des sites ressortaient en clair. Safari n'en applique plus rien.
+       Dans Safari › Réglages… › Avancées, choisis Feuille de style : « Aucune ».
+       Pour des pages vraiment sombres : une extension comme Noir ou Dark Reader (App Store). */
 
-    /// Marks of a page that follows the Mac: dark when the Mac is dark, so left alone then.
-    static let followsSystem = [
-        ":has(> head > meta[name=\"color-scheme\" i][content*=\"dark\" i])",
-        ":has(> head > meta[name=\"supported-color-schemes\" i][content*=\"dark\" i])",
-        ":has(> head > meta[name=\"theme-color\" i][media*=\"dark\" i])",
-        ":has(> head > link[rel~=\"stylesheet\" i][media*=\"dark\" i])",
-        "[data-color-mode=\"auto\" i]", "[data-color-mode=\"system\" i]", "[data-theme=\"auto\" i]", "[data-theme=\"system\" i]",
-        "[data-theme=\"os\" i]", "[data-color-scheme=\"auto\" i]", "[data-appearance=\"auto\" i]",
-        "[class*=\"clientpref-os\" i]", "[class*=\"theme-system\" i]", "[class*=\"theme-auto\" i]",
-        "[style*=\"color-scheme: light dark\" i]", "[style*=\"color-scheme:light dark\" i]",
-        ":has(> body:is([class*=\"theme-system\" i], [class*=\"theme-auto\" i], [data-theme=\"auto\" i], [data-theme=\"system\" i]))"
-    ]
+    """
 
-    /// Turned back after the page's inversion: they keep their real colours.
-    static let media = [
-        "img", "video", "canvas", "iframe", "embed", "object", "svg image",
-        "[style*=\"background-image\" i]", "[style*=\"background: url\" i]", "[style*=\"background:url\" i]"
-    ]
-    /// Inside these, the media are already turned back by their container.
-    static let mediaContainers = ["[style*=\"background-image\" i]", "[style*=\"background: url\" i]", "[style*=\"background:url\" i]"]
+    static var path: String { DataStore.folder + "/DarkMode/" + fileName }
 
-    static func css(tone: DarkModeTone) -> String {
-        let invert = "invert(100%) hue-rotate(180deg)"
-        func block(_ skip: [String]) -> String {
-            let root = "html:not(\(skip.joined(separator: ", ")))"
-            return """
-              \(root) {
-                filter: \(invert)\(tone.adjust) !important;
-                background-color: #fff !important;
-              }
-              \(root) :is(\(media.joined(separator: ", "))) {
-                filter: \(invert) !important;
-              }
-              \(root) :is(\(mediaContainers.joined(separator: ", "))) *,
-              \(root) :is(:fullscreen, :-webkit-full-screen),
-              \(root) :is(:fullscreen, :-webkit-full-screen) * {
-                filter: none !important;
-              }
-            """
-        }
-        return """
-        /* Sombre partout · Chamois · teinte \(tone.title)
-           Feuille de style pour Safari › Réglages › Avancées › Feuille de style.
-           Les pages claires passent en sombre, les photos et les vidéos gardent leurs couleurs,
-           les pages qui ont déjà un thème sombre restent telles quelles.
-           Pour l'arrêter : Feuille de style « Aucune ». */
-
-        @media screen and (prefers-color-scheme: light) {
-        \(block(alwaysDark))
-        }
-
-        @media screen and (prefers-color-scheme: dark) {
-        \(block(alwaysDark + followsSystem))
-        }
-
-        """
-    }
-
-    static var url: URL? {
-        DataStore.ensureFolder("DarkMode").map { $0.appendingPathComponent(fileName) }
-    }
-
-    /// Writes the style sheet in the app's folder (replacing the previous one: it is the app's own file).
-    static func write(tone: DarkModeTone) -> Result<URL, DarkModeFailure> {
-        guard !DemoData.isEnabled, !Snapshot.isActive else { return .failure(DarkModeFailure(message: DemoData.refusal)) }
-        guard let url else { return .failure(DarkModeFailure(message: "Impossible de créer le dossier de Chamois")) }
+    /// Empties the old style sheet if it still has its rules. True when the file is (still) there.
+    static func retire() -> Bool {
+        guard !DemoData.isEnabled, !Snapshot.isActive, FS.exists(path) else { return false }
+        let url = URL(fileURLWithPath: path)
+        guard (try? String(contentsOf: url, encoding: .utf8)) != retired else { return true }
+        // The app's own file, already replaced in place by every change of tone: replaced once more.
         do {
-            try Data(css(tone: tone).utf8).write(to: url, options: .atomic)
-            return .success(url)
+            try Data(retired.utf8).write(to: url, options: .atomic)
+            ActionLog.write("SOMBRE PARTOUT ancienne feuille de style Safari vidée · \(path)")
         } catch {
-            return .failure(DarkModeFailure(message: error.localizedDescription))
+            ActionLog.write("SOMBRE PARTOUT ancienne feuille de style Safari : échec · \(error.localizedDescription)")
         }
+        return true
     }
 }
 

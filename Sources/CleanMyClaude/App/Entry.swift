@@ -139,7 +139,7 @@ enum Entry {
             return
         }
         if let i = args.firstIndex(of: "--darkmode") {
-            // Dark mode everywhere from the command line: the style sheet, the apps that stay light, the browsers.
+            // Dark mode everywhere from the command line: the apps that stay light, the browsers.
             MainActor.assumeIsolated { DarkModeCLI.run(Array(args[(i + 1)...])) }
             return
         }

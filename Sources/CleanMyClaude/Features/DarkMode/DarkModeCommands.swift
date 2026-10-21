@@ -36,11 +36,11 @@ enum DarkModeCommands {
                 m.forceAll()
                 return .message("\(Fmt.plural(n, "app forcée", "apps forcées")) en sombre")
             },
-            AppCommand(id: "darkmode_safari", title: "Pages de Safari en sombre", subtitle: "Prépare la feuille de style qui assombrit toutes les pages",
-                       keywords: keywords + ["safari", "pages", "web", "sites", "feuille de style"], icon: .symbol("safari", tint), group: .actions,
-                       assistantSafe: true, hint: "Préparer") { _ in
+            AppCommand(id: "darkmode_safari", title: "Pages de Safari en sombre",
+                       subtitle: "Avec une extension qui lit les couleurs de chaque site (Noir, Dark Reader)",
+                       keywords: keywords + ["safari", "pages", "web", "sites", "extension", "dark reader"], icon: .symbol("safari", tint),
+                       group: .actions, assistantSafe: true, urlSafe: true, hint: "Voir") { _ in
                 m.openPage()
-                m.prepareSafari()
                 return .done
             },
             AppCommand(id: "darkmode_reset", title: "Remettre les apps dans leur apparence d'origine",
@@ -146,18 +146,12 @@ enum DarkModeChecks {
         expect(DarkModeChromium.isForced(Data(#"{"browser":{"enabled_labs_experiments":["enable-force-dark@0"]}}"#.utf8)) == false,
                "« Default » du mode sombre de Chrome pris pour activé")
 
-        // Safari's style sheet.
-        for tone in DarkModeTone.allCases {
-            let css = DarkModeStyleSheet.css(tone: tone)
-            expect(css.filter { $0 == "{" }.count == css.filter { $0 == "}" }.count, "feuille \(tone.title) : accolades déséquilibrées")
-            expect(css.filter { $0 == "(" }.count == css.filter { $0 == ")" }.count, "feuille \(tone.title) : parenthèses déséquilibrées")
-            expect(css.contains("prefers-color-scheme: light") && css.contains("prefers-color-scheme: dark"), "feuille \(tone.title) : un mode du Mac oublié")
-            expect(css.components(separatedBy: "!important").count - 1 == 8, "feuille \(tone.title) : règle sans !important")
-            expect(css.contains("filter: invert(100%) hue-rotate(180deg)\(tone.adjust) !important"), "feuille \(tone.title) : teinte absente")
-        }
-        expect(Set(DarkModeTone.allCases.map(\.adjust)).count == DarkModeTone.allCases.count, "deux teintes identiques")
-        let dark = DarkModeStyleSheet.css(tone: .black).components(separatedBy: "prefers-color-scheme: dark").last ?? ""
-        expect(dark.contains("meta[name=\"color-scheme\" i][content*=\"dark\" i]"), "page qui suit le Mac non épargnée en mode sombre")
+        // Safari's old style sheet, once retired: nothing left for Safari to apply.
+        let retired = DarkModeStyleSheet.retired
+        expect(!retired.contains("{") && !retired.contains("filter") && retired.hasPrefix("/*") && retired.contains("*/"),
+               "ancienne feuille de style : il reste une règle")
+        expect(retired.components(separatedBy: "/*").count == 2 && retired.components(separatedBy: "*/").count == 2,
+               "ancienne feuille de style : commentaire mal fermé")
 
         // Dark-mode extensions of Safari.
         let plugins = """
@@ -216,9 +210,6 @@ enum DarkModeDemo {
         s.names = ["com.fresque3d.Fresque": "Fresque 3D", "fr.cartographe.desktop": "Cartographe", "net.cadence.studio": "Cadence Studio",
                    "com.pixelune.Pixelune": "Pixelune"]
         s.originals = Dictionary(uniqueKeysWithValues: s.choices.keys.map { ($0, DarkModeOriginal(value: nil)) })
-        s.tone = .charcoal
-        s.safariWritten = Date().addingTimeInterval(-2 * 86_400)
-        s.safariSelected = true
         return s
     }
 
@@ -230,21 +221,11 @@ enum DarkModeDemo {
     }
 }
 
-/// `--darkmode css <fichier> [noir|anthracite|tamise]`, `--darkmode apps`, `--darkmode navigateurs`.
+/// `--darkmode apps`, `--darkmode navigateurs`.
 enum DarkModeCLI {
     @MainActor
     static func run(_ args: [String]) {
         switch args.first {
-        case "css":
-            guard args.count >= 2 else { return print("Usage : --darkmode css <fichier.css> [noir|anthracite|tamise]") }
-            let tone: DarkModeTone = ["noir": .black, "tamise": .dim, "tamisé": .dim][args.count > 2 ? args[2] : ""] ?? .charcoal
-            let url = URL(fileURLWithPath: FS.expand(args[1]))
-            do {
-                let out = try FileOps.write(Data(DarkModeStyleSheet.css(tone: tone).utf8), to: url)
-                print("Feuille de style \(tone.title) écrite : \(out.path)")
-            } catch {
-                print("✗ \(error.localizedDescription)")
-            }
         case "apps":
             for a in DarkModeAppScan.scan() {
                 let kind = a.kind == .lightOnly ? "CLAIRE " : a.kind == .ownUI ? "MAISON " : "suit   "
@@ -258,7 +239,7 @@ enum DarkModeCLI {
             print("Extensions sombres de Safari : \(ext.isEmpty ? "aucune" : ext.map(\.name).joined(separator: ", "))")
             print("Inversion des couleurs : \(DarkModeInvert.isAvailable ? (DarkModeInvert.isOn ? "active" : "disponible") : "indisponible")")
         default:
-            print("Usage : --darkmode css <fichier.css> [noir|anthracite|tamise] | apps | navigateurs")
+            print("Usage : --darkmode apps | navigateurs")
         }
     }
 }

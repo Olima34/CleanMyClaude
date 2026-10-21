@@ -9,11 +9,6 @@ struct DarkModeSettings: Codable, Equatable {
     var originals: [String: DarkModeOriginal] = [:]
     /// Names of the apps set, for the list and the launcher even when the scan has not run yet.
     var names: [String: String] = [:]
-    var tone: DarkModeTone = .charcoal
-    /// When the style sheet was last written for Safari.
-    var safariWritten: Date?
-    /// The user said the style sheet is selected in Safari.
-    var safariSelected = false
 }
 
 struct DarkModeOriginal: Codable, Equatable {
@@ -57,6 +52,8 @@ final class DarkModeModel: AppModule {
     var needsDiskAccess = false
     var browsers: [DarkModeBrowser] = []
     var extensions: [DarkModeExtension]?
+    /// The style sheet Safari used to darken pages with is still on disk (emptied: it inverts nothing any more).
+    var oldStyleSheet = false
     /// The browser being closed, changed and reopened.
     var browserBusy: String?
     var switchingMac = false
@@ -124,6 +121,9 @@ final class DarkModeModel: AppModule {
         }
         watcher.onFailure = { [weak self] in self?.invertFailed = true }
         watcher.update(apps: invertApps)
+        Task {
+            oldStyleSheet = await Task.detached(priority: .utility) { DarkModeStyleSheet.retire() }.value
+        }
     }
 
     func stop() {
@@ -160,6 +160,9 @@ final class DarkModeModel: AppModule {
             filter = .chosen
         case "extension":
             extensions = [DarkModeExtension(identifier: "com.exemple.noir.Extension", name: "Noir", appPath: nil)]
+        case "ancienne":
+            // Back from a version that darkened Safari with a style sheet.
+            oldStyleSheet = true
         case "acces":
             needsDiskAccess = true
         case "attente":
@@ -198,7 +201,10 @@ final class DarkModeModel: AppModule {
         for b in DarkModeBrowsers.installed() {
             let state: String
             switch b.engine {
-            case .safari: state = "feuille de style \(settings.safariWritten.map { "écrite \(Fmt.relative($0))" } ?? "pas encore écrite") · teinte \(settings.tone.title)"
+            case .safari:
+                let ext = extensions ?? DarkModeExtensions.installed()
+                state = (ext.isEmpty ? "aucune extension sombre" : "extension " + ext.map(\.name).joined(separator: ", "))
+                    + (!DemoData.isEnabled && FS.exists(DarkModeStyleSheet.path) ? " · ancienne feuille de style encore là" : "")
             case .chromium: state = b.forced.map { $0 ? "pages sombres forcées" : "pages telles quelles" } ?? "jamais ouvert (pas de Local State)"
             case .firefox: state = "réglage guidé"
             }
@@ -443,34 +449,12 @@ final class DarkModeModel: AppModule {
 
     // MARK: Safari
 
-    func prepareSafari() {
-        switch DarkModeStyleSheet.write(tone: settings.tone) {
-        case .success(let url):
-            settings.safariWritten = Date()
-            ActionLog.write("SOMBRE PARTOUT feuille de style Safari (\(settings.tone.title)) · \(url.path)")
-            HUD.show("Feuille de style prête", symbol: "moon.fill")
-        case .failure(let why):
-            HUD.show(why.message, symbol: why.message == DemoData.refusal ? "info.circle.fill" : "xmark.octagon.fill")
-        }
-    }
-
-    func setTone(_ t: DarkModeTone) {
-        guard settings.tone != t else { return }
-        settings.tone = t
-        // Safari reads the same file: written again, it takes the new tone.
-        if settings.safariWritten != nil, !DemoData.isEnabled, !Snapshot.isActive { prepareSafari() }
-    }
-
-    var styleSheetPath: String { DarkModeStyleSheet.url?.path ?? DataStore.folder + "/DarkMode/" + DarkModeStyleSheet.fileName }
-
-    func copyStyleSheetPath() {
-        if case .message(let m) = CommandRunner.copy(styleSheetPath) { return HUD.show(m, symbol: "info.circle.fill") }
-        HUD.show("Chemin copié : colle-le après ⌘⇧G", symbol: "doc.on.clipboard")
-    }
-
-    func revealStyleSheet() {
-        guard !DemoData.isEnabled, !Snapshot.isActive, FS.exists(styleSheetPath) else { return }
-        Finder.reveal(styleSheetPath)
+    /// The old style sheet, emptied at launch, thrown away once Safari no longer points to it.
+    func discardOldStyleSheet() {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return HUD.show(DemoData.refusal, symbol: "info.circle.fill") }
+        Remover.removeInternal(DarkModeStyleSheet.path)
+        oldStyleSheet = FS.exists(DarkModeStyleSheet.path)
+        if !oldStyleSheet { HUD.show("Ancienne feuille de style jetée", symbol: "checkmark.circle.fill") }
     }
 
     func open(_ path: String) {
