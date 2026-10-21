@@ -183,6 +183,26 @@ struct PhoneTask: Equatable {
     var fraction: Double { total > 0 ? Double(done) / Double(total) : 0 }
 }
 
+/// An asset of the Mac's Photos library, as `PhonePhotoLibrary` reads it to find an iPhone item there.
+struct PhoneLibraryAsset: Equatable {
+    var id: String
+    var filename: String
+    var date: Date
+    var width: Int
+    var height: Int
+    var video: Bool
+}
+
+/// What a search in the Mac's Photos library found.
+struct PhoneLibrarySearch: Equatable {
+    /// iPhone item → asset.
+    var found: [String: String] = [:]
+    /// Photos and videos in the library.
+    var total = 0
+    /// One line per item not found, for the actions log.
+    var misses: [String] = []
+}
+
 // MARK: - Kept on the Mac
 
 /// One check-up of a device, a day.

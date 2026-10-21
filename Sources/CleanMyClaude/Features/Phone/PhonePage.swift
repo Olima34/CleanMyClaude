@@ -348,6 +348,9 @@ private struct PhoneModeNote: View {
 
     var body: some View {
         let m = app.phone
+        if let trouble = m.deletionTrouble {
+            Callout(symbol: "exclamationmark.triangle", title: "Rien de supprimé pour ces éléments", text: trouble, tint: Theme.warn)
+        }
         switch m.deletion {
         case .cable:
             Callout(symbol: "checkmark.shield", title: "Rien ne quitte l'iPhone sans une copie sur ton Mac",

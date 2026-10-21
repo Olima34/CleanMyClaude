@@ -350,7 +350,7 @@ final class PhoneModel: AppModule {
         let chosen = items.filter { selection.contains($0.id) }
         cancel = CancelFlag()
         let freed = await delete(chosen, flag: cancel)
-        guard !freed.isEmpty else { return .failed(deletionTrouble ?? "Rien n'a été supprimé.") }
+        guard !freed.isEmpty else { return .failed(deletionTrouble == nil ? "Rien n'a été supprimé." : "Rien n'a été supprimé : l'explication est dans la page.") }
         let size = chosen.filter { freed.contains($0.id) }.reduce(0) { $0 + $1.size }
         return .message(deletion == .library ? "\(Fmt.bytes(size)) dans « Supprimés récemment » pour 30 jours" : "\(Fmt.bytes(size)) libérés sur l'iPhone")
     }
@@ -375,18 +375,24 @@ final class PhoneModel: AppModule {
                 deletionTrouble = "Chamois n'a pas accès à Photos : autorise-le dans Réglages Système › Confidentialité › Photos."
                 return []
             }
-            let found = await PhonePhotoLibrary.find(chosen)
-            guard !found.isEmpty else {
-                deletionTrouble = "Ces photos ne sont pas dans la photothèque de ce Mac : active Photos iCloud dans Photos › Réglages, avec le même compte que l'iPhone, ou supprime-les depuis l'iPhone."
+            let search = await PhonePhotoLibrary.find(chosen)
+            for line in search.misses { ActionLog.write("PHOTOS iCLOUD INTROUVABLE \(line)") }
+            guard !search.found.isEmpty else {
+                deletionTrouble = search.total == 0
+                    ? "La photothèque de ce Mac est vide : ouvre Photos, active Photos iCloud (Photos › Réglages › iCloud) avec le même compte que l'iPhone et laisse-le se synchroniser."
+                    : "Ces éléments ne sont pas dans la photothèque de ce Mac (\(Fmt.int(search.total)) photos et vidéos) : vérifie dans Photos › Réglages › iCloud que Photos iCloud y est activé avec le même compte que l'iPhone, et qu'il a fini de se synchroniser. Ou supprime-les depuis l'iPhone."
                 return []
             }
             do {
-                _ = try await PhonePhotoLibrary.delete(Array(found.values))
+                _ = try await PhonePhotoLibrary.delete(Array(search.found.values))
             } catch {
-                deletionTrouble = "Suppression annulée."
+                deletionTrouble = "Suppression annulée : rien n'a changé."
                 return []
             }
-            let gone = Set(found.keys)
+            let gone = Set(search.found.keys)
+            if gone.count < chosen.count {
+                deletionTrouble = "\(Fmt.plural(chosen.count - gone.count, "élément n'est", "éléments ne sont")) pas encore dans la photothèque de ce Mac : \(chosen.count - gone.count > 1 ? "ils restent" : "il reste") sur l'iPhone."
+            }
             selection.subtract(gone)
             library.forget(gone)
             return gone

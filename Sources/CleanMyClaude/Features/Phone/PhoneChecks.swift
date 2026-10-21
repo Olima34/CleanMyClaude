@@ -84,11 +84,24 @@ enum PhoneChecks {
         // Freeing.
         let october = Calendar(identifier: .gregorian).date(from: DateComponents(year: 2026, month: 10, day: 5, hour: 12)) ?? t0
         if PhoneRules.archiveFolder(base: "/x", device: "iPhone de A/B", taken: october) != "/x/iPhone de A-B/2026-10" { f.append("Dossier de copie mal nommé") }
-        let candidates = [(id: "1", filename: "IMG_1234.heic", date: t0.addingTimeInterval(1)), (id: "2", filename: "IMG_1235.HEIC", date: t0),
-                          (id: "3", filename: "IMG_1234.HEIC", date: t0.addingTimeInterval(30))]
-        if PhoneRules.match(name: "IMG_1234.HEIC", taken: t0, in: candidates) != "1"
-            || PhoneRules.match(name: "IMG_1234.HEIC", taken: t0.addingTimeInterval(10), in: candidates) != nil {
-            f.append("Photothèque du Mac : mauvaise correspondance")
+        func asset(_ id: String, _ name: String, at: TimeInterval, w: Int = 4032, h: Int = 3024, video: Bool = false) -> PhoneLibraryAsset {
+            PhoneLibraryAsset(id: id, filename: name, date: t0.addingTimeInterval(at), width: w, height: h, video: video)
+        }
+        let shot = item("1234")
+        let library = [asset("a", "IMG_1234.heic", at: 1), asset("b", "IMG_1235.HEIC", at: 0), asset("c", "IMG_1234.HEIC", at: 30)]
+        if PhoneRules.match(shot, in: library) != "a" { f.append("Photothèque du Mac : même nom à 2 s près attendu") }
+        if PhoneRules.match(shot, in: [asset("z", "IMG_1234.HEIC", at: 7200), asset("y", "IMG_1234.HEIC", at: 7210)]) != "z"
+            || PhoneRules.match(shot, in: [asset("y", "IMG_1234.HEIC", at: 7210)]) != nil {
+            f.append("Photothèque du Mac : un autre fuseau horaire doit se retrouver, pas un écart quelconque")
+        }
+        let saved = item("s", .video, ext: "MP4", w: 1280, h: 720)
+        if PhoneRules.match(saved, in: [asset("v", "FullSizeRender.mov", at: 1, w: 720, h: 1280, video: true)]) != "v"
+            || PhoneRules.match(saved, in: [asset("v", "A.mov", at: 1, w: 720, h: 1280, video: true), asset("w", "B.mov", at: 0, w: 1280, h: 720, video: true)]) != nil
+            || PhoneRules.match(saved, in: [asset("p", "C.jpg", at: 0, w: 1280, h: 720)]) != nil {
+            f.append("Photothèque du Mac : une vidéo renommée doit se retrouver seule et du même genre")
+        }
+        if PhoneRules.match(item("x") { $0.name = "IMG_E1156.JPG" }, in: [asset("e", "IMG_1156.HEIC", at: 0, w: 1206, h: 1680)]) != "e" {
+            f.append("Photothèque du Mac : une retouche IMG_E doit retrouver sa photo")
         }
         if PhoneRules.batches(Array(0..<25), size: 10).map(\.count) != [10, 10, 5] || !PhoneRules.batches([Int](), size: 10).isEmpty {
             f.append("Lots de suppression mal coupés")
@@ -191,6 +204,9 @@ enum PhoneChecks {
                      + " · analyse fine \(m.analysed ? "faite" : "non faite")"]
         for c in m.categories {
             lines.append("  \(c.kind.title) : \(Fmt.int(c.ids.count)) · \(Fmt.bytes(c.size))\(c.groups.isEmpty ? "" : " · \(Fmt.plural(c.groups.count, "série", "séries"))")")
+        }
+        if let d = m.category(.duplicates) {
+            lines.append("  Doublons : " + m.items.filter { d.ids.contains($0.id) }.map { "\($0.name) (\(Fmt.day($0.date)))" }.joined(separator: ", "))
         }
         // The sizes behind the guesses made from dimensions alone.
         for kind in [PhoneCategoryKind.recordings, .screenshots] {

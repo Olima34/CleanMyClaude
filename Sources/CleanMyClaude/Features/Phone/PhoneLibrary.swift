@@ -23,6 +23,8 @@ final class PhoneLibrary {
     private var browser: ICDeviceBrowser?
     private var camera: ICCameraDevice?
     private var files: [String: ICCameraFile] = [:]
+    /// The same file listed again in another folder (« 202609_a » and « 202609_b »): same name, date and size.
+    private var twins: [String: [ICCameraFile]] = [:]
     private var bridge: PhoneCameraDelegate?
     /// The UDID of the iPhone MobileDevice saw, to pick the right camera when several are plugged.
     private var wanted: String?
@@ -62,6 +64,7 @@ final class PhoneLibrary {
         browser?.delegate = nil
         (camera, browser, bridge) = (nil, nil, nil)
         files = [:]
+        twins = [:]
         items = []
         analysed = false
         thumbs.removeAllObjects()
@@ -143,24 +146,31 @@ final class PhoneLibrary {
         catalogued()
     }
 
-    /// The item's handle on the iPhone for this session, or its name and date.
-    private static func identifier(_ f: ICCameraFile) -> String {
-        f.ptpObjectHandle != 0 ? String(f.ptpObjectHandle) : "\(f.name ?? "")|\(f.creationDate?.timeIntervalSince1970 ?? 0)"
-    }
-
     private func rebuild() {
         guard let c = camera else { return }
         let old = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         var map: [String: ICCameraFile] = [:]
+        var doubles: [String: [ICCameraFile]] = [:]
+        var byListing: [String: String] = [:]
         var out: [PhoneItem] = []
         for case let f as ICCameraFile in c.mediaFiles ?? [] {
             let name = f.name ?? ""
-            let id = Self.identifier(f)
+            let date = f.creationDate ?? f.fileCreationDate ?? .distantPast
+            // The iPhone gives no handle (all 0): its folder, name and date tell the files apart. Listed twice under the
+            // same name, date and size, it is one item, never a duplicate: deleting « the copy » could delete the only one.
+            let listing = "\(name)|\(Int(date.timeIntervalSince1970))|\(f.fileSize)"
+            if let first = byListing[listing] {
+                doubles[first, default: []].append(f)
+                continue
+            }
+            var id = f.ptpObjectHandle != 0 ? String(f.ptpObjectHandle) : "\(f.parentFolder?.name ?? "")/\(listing)"
+            while map[id] != nil { id += "+" }
+            byListing[listing] = id
             let sidecars = (f.sidecarFiles ?? []).compactMap { $0 as? ICCameraFile }
             let ext = (name as NSString).pathExtension.uppercased()
             var item = PhoneItem(id: id, name: name, kind: f.uti == "public.movie" || ["MOV", "MP4", "M4V"].contains(ext) ? .video : .photo,
                                  size: f.fileSize + sidecars.reduce(0) { $0 + $1.fileSize },
-                                 date: f.creationDate ?? f.fileCreationDate ?? .distantPast, width: f.width, height: f.height)
+                                 date: date, width: f.width, height: f.height)
             item.duration = f.duration
             item.burst = f.burstUUID
             item.burstKept = f.burstPicked || f.burstFavorite
@@ -174,6 +184,7 @@ final class PhoneLibrary {
             out.append(item)
         }
         files = map
+        twins = doubles
         items = out
         state = .ready
         changed()
@@ -391,8 +402,11 @@ final class PhoneLibrary {
             for id in batch {
                 guard let f = files[id] else { continue }
                 owner[ObjectIdentifier(f)] = id
-                targets.append(f)
-                targets += f.sidecarFiles ?? []
+                // With the other listings of the same file: what the user deleted must not come back.
+                for g in [f] + (twins[id] ?? []) {
+                    targets.append(g)
+                    targets += g.sidecarFiles ?? []
+                }
             }
             let deleted = await withCheckedContinuation { (k: CheckedContinuation<[ICCameraItem], Never>) in
                 // Answered once: by the completion, or at once when the request could not even start.
@@ -406,8 +420,8 @@ final class PhoneLibrary {
             progress(gone.count)
         }
         // Only what really left the listing counts.
-        let still = Set((c.mediaFiles ?? []).compactMap { ($0 as? ICCameraFile).map(Self.identifier) })
-        gone.subtract(still)
+        let still = Set((c.mediaFiles ?? []).map { ObjectIdentifier($0) })
+        gone = gone.filter { id in files[id].map { !still.contains(ObjectIdentifier($0)) } ?? true }
         forget(gone)
         return gone
     }
@@ -416,7 +430,7 @@ final class PhoneLibrary {
     func forget(_ ids: Set<String>) {
         guard !ids.isEmpty else { return }
         items.removeAll { ids.contains($0.id) }
-        for id in ids { files[id] = nil }
+        for id in ids { files[id] = nil; twins[id] = nil }
         changed()
     }
 }

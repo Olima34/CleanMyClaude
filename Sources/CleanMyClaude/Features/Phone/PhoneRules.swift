@@ -181,12 +181,47 @@ enum PhoneRules {
         return (base as NSString).appendingPathComponent(safe.isEmpty ? "iPhone" : safe) + "/" + f.string(from: taken)
     }
 
-    /// The asset of the Mac's Photos library that is this iPhone item: same name, taken within two seconds.
-    static func match(name: String, taken: Date, in candidates: [(id: String, filename: String, date: Date)]) -> String? {
-        let base = (name as NSString).deletingPathExtension.lowercased()
-        return candidates
-            .filter { ($0.filename as NSString).deletingPathExtension.lowercased() == base && abs($0.date.timeIntervalSince(taken)) <= 2 }
-            .min { abs($0.date.timeIntervalSince(taken)) < abs($1.date.timeIntervalSince(taken)) }?.id
+    /// The asset of the Mac's Photos library that is this iPhone item:
+    /// 1. the same name, taken within two seconds;
+    /// 2. the same name and size in pixels, a whole number of quarter hours apart within 14 h (another time zone);
+    /// 3. without the name (a video saved from an app gets another one in Photos): the same kind and size in pixels,
+    ///    within two seconds, and the only one.
+    static func match(_ item: PhoneItem, in assets: [PhoneLibraryAsset]) -> String? {
+        let base = baseName(item.name)
+        let kind = assets.filter { $0.video == (item.kind == .video) }
+        func gap(_ a: PhoneLibraryAsset) -> Double { abs(a.date.timeIntervalSince(item.date)) }
+        func closest(_ list: [PhoneLibraryAsset]) -> String? { list.min { gap($0) < gap($1) }?.id }
+        let named = kind.filter { baseName($0.filename) == base }
+        if let id = closest(named.filter { gap($0) <= 2 }) { return id }
+        if let id = closest(named.filter { sameSize($0, item) && gap($0) <= 14 * 3600 && isZoneShift($0.date.timeIntervalSince(item.date)) }) { return id }
+        let alike = kind.filter { sameSize($0, item) && gap($0) <= 2 }
+        return alike.count == 1 ? alike[0].id : nil
+    }
+
+    /// The name of the asset in Photos: the edited render « IMG_E1234.JPG » the iPhone lists is the asset « IMG_1234 ».
+    static func baseName(_ name: String) -> String {
+        let base = (name as NSString).deletingPathExtension.uppercased()
+        let digits = base.dropFirst(5)
+        return base.hasPrefix("IMG_E") && !digits.isEmpty && digits.allSatisfy(\.isNumber) ? "IMG_" + digits : base
+    }
+
+    static func sameSize(_ a: PhoneLibraryAsset, _ i: PhoneItem) -> Bool {
+        (a.width == i.width && a.height == i.height) || (a.width == i.height && a.height == i.width)
+    }
+
+    /// A time zone apart: a whole number of quarter hours, give or take two seconds.
+    static func isZoneShift(_ seconds: Double) -> Bool {
+        abs(seconds - (seconds / 900).rounded() * 900) <= 2
+    }
+
+    /// Why an item was not found in the Mac's library, in one line for the actions log.
+    static func miss(_ item: PhoneItem, around: Int, nearest: PhoneLibraryAsset?) -> String {
+        let when = "\(Fmt.day(item.date)) \(Fmt.clock(item.date))"
+        guard let nearest else {
+            return "\(item.name) (\(when), \(item.width)×\(item.height)) : rien dans la photothèque à 14 h près"
+        }
+        let gap = Int(nearest.date.timeIntervalSince(item.date))
+        return "\(item.name) (\(when), \(item.width)×\(item.height)) : \(around) à 14 h près, le plus proche « \(nearest.filename) » à \(gap) s, \(nearest.width)×\(nearest.height)"
     }
 
     static func batches<T>(_ list: [T], size: Int) -> [[T]] {
