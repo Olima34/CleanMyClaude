@@ -105,6 +105,25 @@ enum AdBlockCLI {
             print("Mesure \(level.map { "du niveau \($0.title) (\($0.list))" } ?? "de ce Mac") en \(String(format: "%.1f", Date().timeIntervalSince(start))) s")
             print("Pubs et pisteurs bloqués : \(m.blockedAds)/\(m.ads.count) (\(Int(m.share * 100)) %) · sites utiles bloqués : \(m.brokenUseful)/\(m.useful.count)\(m.offline ? " · pas de réseau ?" : "")")
             for p in m.probes where !p.good { print("  \(p.shouldBlock ? "passe" : "bloqué à tort") : \(p.domain) (\(p.verdict.rawValue))") }
+        case "suivre":
+            // The live counter, as the app runs it, for N seconds (60 by default): what it hands over and what it costs.
+            let seconds = Double(args.dropFirst().first ?? "60") ?? 60
+            final class Got: @unchecked Sendable { var events: [AdBlockLog.Event] = []; var error: String? }
+            let got = Got()
+            let stream = AdBlockLogStream(onEvents: { got.events += $0 }, onError: { got.error = $0 })
+            var usage = rusage()
+            getrusage(RUSAGE_CHILDREN, &usage)
+            stream.start()
+            try? await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
+            stream.stop()
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            var after = rusage()
+            getrusage(RUSAGE_CHILDREN, &after)
+            let child = Double(after.ru_utime.tv_sec - usage.ru_utime.tv_sec + after.ru_stime.tv_sec - usage.ru_stime.tv_sec)
+                + Double(after.ru_utime.tv_usec - usage.ru_utime.tv_usec + after.ru_stime.tv_usec - usage.ru_stime.tv_usec) / 1e6
+            print("\(got.events.count) pubs et pisteurs arrêtés en \(Int(seconds)) s · processeur de log stream : \(String(format: "%.2f", child)) s"
+                  + (got.error.map { " · \($0)" } ?? ""))
+            for (app, n) in Dictionary(grouping: got.events, by: \.app).mapValues(\.count).sorted(by: { $0.value > $1.value }) { print("  \(app) : \(n)") }
         case "compteur":
             // The last N minutes of macOS' log (60 by default), as the counter reads them.
             let minutes = Double(args.dropFirst().first ?? "60") ?? 60
@@ -135,7 +154,7 @@ enum AdBlockCLI {
             }
             do { print("Écrit : \(try FileOps.write(data, to: URL(fileURLWithPath: path)).path)") } catch { print("Échec : \(error.localizedDescription)") }
         default:
-            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | verifier <domaine> | profil <fichier>")
+            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier>")
         }
     }
 

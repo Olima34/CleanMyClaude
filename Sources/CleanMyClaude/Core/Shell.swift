@@ -175,6 +175,70 @@ enum Shell {
         p.terminate()
     }
 
+    /// A tool that keeps running (`log stream`): see `follow`.
+    final class Following: @unchecked Sendable {
+        private let child: Child
+        private let source: DispatchSourceRead
+
+        fileprivate init(child: Child, source: DispatchSourceRead) {
+            self.child = child
+            self.source = source
+        }
+
+        /// Stops reading and terminates the tool; `onExit` still comes.
+        func stop() {
+            source.cancel()
+        }
+
+        deinit {
+            source.cancel()
+        }
+    }
+
+    /// Starts a tool that keeps running and hands over each line of its output as it comes, on `queue`: a dispatch
+    /// source reads the pipe (no thread waits, no polling, nothing kept but an unfinished line). `onExit` comes once,
+    /// on `queue`, after the tool ended or `stop()`. Nil when it could not start (and in demo mode).
+    static func follow(_ path: String, _ args: [String], queue: DispatchQueue, onLine: @escaping (String) -> Void,
+                       onExit: @escaping (Int32) -> Void) -> Following? {
+        if DemoData.isEnabled { return nil }
+        let pipe = Pipe()
+        guard let child = try? start(path, args, environment: environment, workingDirectory: nil, stdin: nil,
+                                     stdout: pipe.fileHandleForWriting, stderr: nil, disclaim: isThirdParty(path)) else { return nil }
+        try? pipe.fileHandleForWriting.close()
+        let reader = pipe.fileHandleForReading
+        let fd = reader.fileDescriptor
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+        final class Pending: @unchecked Sendable { var data = Data() }
+        let pending = Pending()
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+        source.setEventHandler { [weak source] in
+            var buffer = [UInt8](repeating: 0, count: 65_536)
+            let n = read(fd, &buffer, buffer.count)
+            guard n > 0 else {
+                // End of the output (the tool ended), or a real error: done.
+                if n == 0 || (errno != EAGAIN && errno != EINTR) { source?.cancel() }
+                return
+            }
+            pending.data.append(contentsOf: buffer[0..<n])
+            while let nl = pending.data.firstIndex(of: 0x0A) {
+                onLine(String(decoding: pending.data[pending.data.startIndex..<nl], as: UTF8.self))
+                pending.data.removeSubrange(pending.data.startIndex...nl)
+            }
+            // A line that never ends is not kept for ever.
+            if pending.data.count > 1 << 20 { pending.data.removeAll() }
+        }
+        source.setCancelHandler {
+            try? reader.close()
+            child.terminate()
+            DispatchQueue.global(qos: .utility).async {
+                let status = child.waitUntilExit()
+                queue.async { onExit(status) }
+            }
+        }
+        source.resume()
+        return Following(child: child, source: source)
+    }
+
     /// Starts a tool without waiting for it nor reading its output: it keeps running after the app quits
     /// (the relaunch after an update). Nothing in demo mode.
     @discardableResult
@@ -192,7 +256,7 @@ enum Shell {
     // MARK: Starting a tool
 
     /// A started tool: a `Process`, or a child spawned without the app's privacy permissions.
-    private final class Child: @unchecked Sendable {
+    fileprivate final class Child: @unchecked Sendable {
         let pid: pid_t
         private let process: Process?
         private let lock = NSLock()

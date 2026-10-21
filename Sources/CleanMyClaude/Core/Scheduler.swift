@@ -1,7 +1,9 @@
-import Foundation
+import AppKit
 
 /// Periodic background jobs while the app runs (it stays in the menu bar).
-/// The last run of each job is saved, so a job missed while the Mac slept catches up at the next check.
+/// The last run of each job is saved, so a job missed while the Mac slept catches up at the next check, but never in
+/// the minutes that follow the launch or a wake (of the Mac or of its screens): that is when the user wants the Mac
+/// back, and every overdue job would otherwise start at that very moment. Due jobs then run one after the other.
 /// Nothing runs in demo or snapshot mode.
 @MainActor
 final class Scheduler {
@@ -12,12 +14,42 @@ final class Scheduler {
         let run: @MainActor () async -> Void
     }
 
+    /// How long nothing is started after the launch or a wake.
+    static let settle: TimeInterval = 180
+
     private var jobs: [String: Job] = [:]
     private var running: Set<String> = []
     private var timer: Timer?
     private let lastRuns = JSONStore<[String: Date]>("scheduler", default: [:])
+    /// No job starts before this moment.
+    private var quietUntil = Date().addingTimeInterval(Scheduler.settle)
+    private var settleTick: DispatchWorkItem?
+    private var draining = false
 
-    private init() {}
+    private init() {
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didWakeNotification, NSWorkspace.screensDidWakeNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.woke() }
+            }
+        }
+    }
+
+    /// The Mac or its screens woke up: the jobs wait a few minutes, then the overdue ones run.
+    private func woke() {
+        quietUntil = Date().addingTimeInterval(Self.settle)
+        tickAfterQuiet()
+    }
+
+    private func tickAfterQuiet() {
+        settleTick?.cancel()
+        guard !jobs.isEmpty else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        settleTick = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(1, quietUntil.timeIntervalSinceNow + 1), execute: work)
+    }
 
     /// Registers (or replaces) a job. `interval` is the minimum time between two runs.
     func register(_ id: String, every interval: TimeInterval, run: @escaping @MainActor () async -> Void) {
@@ -55,18 +87,26 @@ final class Scheduler {
         t.tolerance = 60
         RunLoop.main.add(t, forMode: .common)
         timer = t
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
-            MainActor.assumeIsolated { self?.tick() }
-        }
+        tickAfterQuiet()
     }
 
     private func tick() {
         let now = Date()
-        for (id, job) in jobs where !running.contains(id) {
-            let last = lastRuns.value[id] ?? .distantPast
-            if now.timeIntervalSince(last) >= job.interval {
-                Task { await runNow(id) }
-            }
+        guard now >= quietUntil else {
+            tickAfterQuiet()
+            return
+        }
+        guard !draining else { return }
+        let due = jobs.filter { id, job in
+            !running.contains(id) && now.timeIntervalSince(lastRuns.value[id] ?? .distantPast) >= job.interval
+        }.keys.sorted()
+        guard !due.isEmpty else { return }
+        draining = true
+        Task {
+            // A sleep may come between two jobs: what is left waits for the quiet minutes after the wake.
+            for id in due where Date() >= quietUntil { await runNow(id) }
+            draining = false
         }
     }
+
 }

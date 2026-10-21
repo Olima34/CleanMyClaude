@@ -41,15 +41,15 @@ final class AdBlockModel: AppModule {
     var tally = AdBlockTally() {
         didSet { tallyStore.value = tally }
     }
-    var counting = false
-    /// Why the log could not be read, if it could not.
+    /// Why the log could not be followed, if it could not.
     var countError: String?
 
     /// YouTube and Twitch without their video ads, in a window of the app.
     let player = AdBlockPlayer()
     @ObservationIgnored private let store = JSONStore<AdBlockSettings>("adblock", default: AdBlockSettings())
     @ObservationIgnored private let tallyStore = JSONStore<AdBlockTally>("adblock-tally", default: AdBlockTally())
-    static let countJob = "adblock-count"
+    /// The live reading of macOS' log, while the blocker is installed.
+    @ObservationIgnored private var stream: AdBlockLogStream?
     @ObservationIgnored private var activeObserver: NSObjectProtocol?
     @ObservationIgnored private weak var app: AppModel?
 
@@ -84,10 +84,11 @@ final class AdBlockModel: AppModule {
 
     func start(app: AppModel) {
         self.app = app
-        if installed { scheduleCount() }
+        if installed { startCounting() }
     }
 
     func stop() {
+        stopCounting()
         store.flush()
         tallyStore.flush()
     }
@@ -163,7 +164,6 @@ final class AdBlockModel: AppModule {
             // At work: a measurement on this Mac, a domain being checked, the log being read.
             measuring = true
             checking = true
-            counting = true
         default:
             break
         }
@@ -175,23 +175,31 @@ final class AdBlockModel: AppModule {
 
     func selfTest() -> [String] { AdBlockChecks.run(self) + Self.countChecks() }
 
-    /// The log is read an hour at a time, the last 24 hours at most, and not at all a few seconds after a reading.
+    /// The live counter: a lookup read line by line gives the same events as a whole stretch of log, its memory stays
+    /// small, and a stream that keeps failing waits longer each time.
     private static func countChecks() -> [String] {
         var f: [String] = []
-        let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
-        let week = AdBlockLog.chunks(from: now.addingTimeInterval(-7 * 86_400), to: now)
-        if week.first?.start != now.addingTimeInterval(-AdBlockLog.maxBacklog) || week.last?.end != now || week.count != 24 {
-            f.append("Compteur : une semaine de journal n'est pas ramenée aux 24 dernières heures, par tranches d'une heure")
+        let lines = [
+            "2026-10-20 01:03:41.542 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R100] getaddrinfo start -- flags: 0xC000D000, client pid: 988 (com.apple.WebKi), delegator uuid: 1",
+            "2026-10-20 01:03:41.543 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R100->Q1] getaddrinfo result -- event: add, ifindex: 0, name: <dn:Y>, type: A, rdata: 0.0.0.0, expired: yes",
+            "2026-10-20 01:03:41.544 Df mDNSResponder[688:3678] [com.apple.mdns:dnssd_server] [R100->Q2] getaddrinfo result -- event: add, ifindex: 0, name: <dn:Y>, type: A, rdata: 0.0.0.0, expired: no"
+        ]
+        var parser = AdBlockLogParser()
+        let live = lines.compactMap { parser.feed($0) }
+        if live != AdBlockLog.parse(lines.joined(separator: "\n")) || live.count != 1 || live.first?.app != "Safari et pages web" {
+            f.append("Compteur : la lecture en direct ne donne pas les mêmes pubs que la lecture d'un bloc (\(live.map(\.app)))")
         }
-        // A catch-up comes late (the scheduler checks every few minutes): the hours in between must still be read.
-        if AdBlockLog.maxBacklog < AdBlockLog.catchUpInterval + 3_600 { f.append("Compteur : un rattrapage perdrait la fin de la période") }
-        if zip(week, week.dropFirst()).contains(where: { $0.end != $1.start }) || week.contains(where: { $0.end.timeIntervalSince($0.start) > 3_600 }) {
-            f.append("Compteur : tranches du journal mal découpées")
+        var flood = AdBlockLogParser()
+        for i in 0..<(AdBlockLogParser.memory * 3) {
+            _ = flood.feed("2026-10-20 01:03:41.542 Df mDNSResponder[688:3678] [x] [R\(i)] getaddrinfo start -- client pid: 9 (Mail), x")
         }
-        let short = AdBlockLog.chunks(from: now.addingTimeInterval(-90 * 60), to: now)
-        if short.count != 2 || short.last?.end.timeIntervalSince(short.last!.start) != 1_800 { f.append("Compteur : 1 h 30 mal découpée") }
-        if !AdBlockLog.chunks(from: now.addingTimeInterval(-10), to: now).isEmpty { f.append("Compteur : relit le journal 10 s après") }
-        if AdBlockLog.catchUpInterval < 6 * 3_600 { f.append("Compteur : rattrapage plus d'une fois toutes les 6 h") }
+        if flood.remembered > 2 * AdBlockLogParser.memory {
+            f.append("Compteur : la mémoire des requêtes grandit sans fin")
+        }
+        let delays = (1...8).map(AdBlockLogStream.retryDelay(after:))
+        if delays.first != 30 || delays.last != 600 || zip(delays, delays.dropFirst()).contains(where: { $0 > $1 }) {
+            f.append("Compteur : attente entre deux essais mal réglée (\(delays))")
+        }
         return f
     }
 
@@ -228,39 +236,24 @@ final class AdBlockModel: AppModule {
 
     // MARK: Counting
 
-    /// Reading the log is the costly part (several seconds of work for macOS): it happens when the page shows the
-    /// counter, and otherwise as a catch-up every 6 hours while the blocker is installed.
-    private func scheduleCount() {
-        Scheduler.shared.register(Self.countJob, every: AdBlockLog.catchUpInterval) { [weak self] in await self?.count() }
+    /// Stops following the log; what it counted and did not hand over yet is kept.
+    private func stopCounting() {
+        guard let stream else { return }
+        let left = stream.stopNow()
+        self.stream = nil
+        if !left.isEmpty { tally.add(left, readUntil: Date()) }
     }
 
-    /// Reads macOS' log since the last reading, an hour at a time, and adds the requests answered "blocked". Never more
-    /// than the last 6 hours: an older stretch is given up rather than read in one huge go.
-    func count() async {
-        guard installed, !counting, !DemoData.isEnabled, !Snapshot.isActive else { return }
-        let end = Date()
-        let chunks = AdBlockLog.chunks(from: tally.readUntil ?? settings.installedAt ?? end, to: end)
-        guard !chunks.isEmpty else { return }
-        counting = true
-        defer { counting = false }
-        for chunk in chunks {
-            let result = await Task.detached(priority: .background) { AdBlockLog.read(from: chunk.start, to: chunk.end) }.value
-            switch result {
-            case .success(let events):
-                countError = nil
-                // Each stretch read is kept at once: a stretch that fails is the only one read again next time.
-                tally.add(events, readUntil: chunk.end)
-            case .failure(.unreadable(let why)):
-                countError = why
-                return
-            }
-        }
-    }
-
-    /// The page shows: the counter is brought up to date if it is more than a minute old.
-    func countIfStale() {
-        guard installed, Date().timeIntervalSince(tally.readUntil ?? .distantPast) > 60 else { return }
-        Task { await count() }
+    /// The log is followed live while the blocker is installed: nothing to read back after a sleep or at launch.
+    private func startCounting() {
+        guard stream == nil, !DemoData.isEnabled, !Snapshot.isActive else { return }
+        let s = AdBlockLogStream(onEvents: { [weak self] events in
+            self?.tally.add(events, readUntil: Date())
+        }, onError: { [weak self] why in
+            if self?.countError != why { self?.countError = why }
+        })
+        stream = s
+        s.start()
     }
 
     // MARK: Safari extensions
@@ -395,7 +388,7 @@ final class AdBlockModel: AppModule {
         settings.installedAt = Date()
         waitingForInstall = true
         watchReturn()
-        scheduleCount()
+        startCounting()
     }
 
     /// Back from System Settings: is the filter on now?
@@ -426,6 +419,8 @@ final class AdBlockModel: AppModule {
             if r.ok {
                 ActionLog.write("BLOQUEUR DE PUB profil retiré")
                 settings.installedLevel = nil
+                // No blocker of ours any more: a 0.0.0.0 answer would come from another one (a Pi-hole, a hosts file).
+                stopCounting()
                 settings.installedExceptions = nil
                 settings.installedAt = nil
                 waitingForInstall = false

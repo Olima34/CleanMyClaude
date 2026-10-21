@@ -123,8 +123,9 @@ final class UpdatesSelfModel {
         Remover.removeInternal(DataStore.url(UpdatesSelfInstaller.folderName).path)
         guard canCheck else { return }
         Scheduler.shared.register(Self.jobID, every: Self.interval) { [weak self] in await self?.check(auto: true) }
-        // At every launch, once the rest has settled; then every six hours through the scheduler (it catches up after a sleep).
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+        // At every launch, once the Mac has settled (the scheduler's quiet minutes); then every six hours through the
+        // scheduler (it catches up after a sleep, a few minutes after the wake).
+        DispatchQueue.main.asyncAfter(deadline: .now() + Scheduler.settle) {
             Task { await Scheduler.shared.runNow(Self.jobID) }
         }
     }

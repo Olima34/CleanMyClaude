@@ -51,6 +51,7 @@ final class MainWatchdog: @unchecked Sendable {
     /// A logout, restart or shutdown began.
     private var endingSince: Date?
     private var tokens: [Int32] = []
+    private var lastSlowNote: Date?
 
     private init(limits: Limits = Limits(), rehearsal: (@Sendable (String) -> Void)? = nil) {
         self.limits = limits
@@ -138,8 +139,15 @@ final class MainWatchdog: @unchecked Sendable {
     }
 
     private func answered() {
-        if reported, let sent = pingSent {
-            log("BLOCAGE terminé : le fil principal répond de nouveau après \(Int(seconds(since: sent).rounded())) s")
+        if let sent = pingSent {
+            let late = seconds(since: sent)
+            if reported {
+                log("BLOCAGE terminé : le fil principal répond de nouveau après \(Int(late.rounded())) s")
+            } else if late > 1, started, lastSlowNote.map({ Date().timeIntervalSince($0) > 60 }) ?? true {
+                // Short of a report: a line, once a minute at most, so that a short freeze can be told from a slow Mac.
+                lastSlowNote = Date()
+                log("LENTEUR : le fil principal a mis \(Fmt.dec(late)) s à répondre")
+            }
         }
         pingSent = nil
         reported = false

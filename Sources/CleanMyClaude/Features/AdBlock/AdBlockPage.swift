@@ -45,7 +45,6 @@ struct AdBlockPage: View {
         .onAppear {
             m.refreshState()
             m.refreshExtensions()
-            m.countIfStale()
         }
     }
 

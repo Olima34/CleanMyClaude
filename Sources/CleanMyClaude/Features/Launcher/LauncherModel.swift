@@ -567,6 +567,7 @@ final class LauncherModel: AppModule {
         catalog = ModuleRegistry.commands(app) + LauncherAppIndex.commands(apps)
         leaveMode()
         if newScope == .files, text.isEmpty { loadRecentFiles() }
+        // Only the file window searches the index; its list is rebuilt while it shows: the changes since come in now.
         if newScope == .files { fileIndex.catchUp() }
         checkFavorites()
         // Set once: a new text already refreshes the results by itself.
@@ -647,6 +648,7 @@ final class LauncherModel: AppModule {
                 // A window that closes late (once the other one is open) leaves the open one alone.
                 guard let self, let p, p === self.activePanel else { return }
                 self.isOpen = false
+                self.fileIndex.setShowing(false)
                 self.marked = []
                 self.leaveMode()
                 self.removeKeyMonitor()

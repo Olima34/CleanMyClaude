@@ -77,6 +77,8 @@ final class LauncherFileIndex: @unchecked Sendable {
     private var tree: [String: [Child]] = [:]
     private var stream: FSEventStreamRef?
     private var snapshotScheduled = false
+    /// The launcher shows: the list follows the changes (on `queue`).
+    private var showing = false
     /// Seconds the last rebuild of the snapshot took.
     private var lastSnapshotCost = 0.0
     private var running = false
@@ -96,12 +98,17 @@ final class LauncherFileIndex: @unchecked Sendable {
     // MARK: Lifecycle
 
     func start() {
+        // Right after the Mac starts, macOS indexes, syncs and loads a lot: the first reading waits a minute.
+        let wait: TimeInterval = ProcessInfo.processInfo.systemUptime < 300 ? 60 : 0
         queue.async { [self] in
             guard !running else { return }
             running = true
             onChange?(.building)
-            fullBuild()
-            startWatching()
+            queue.asyncAfter(deadline: .now() + wait) { [self] in
+                guard running, tree.isEmpty else { return }
+                fullBuild()
+                startWatching()
+            }
         }
     }
 
@@ -127,9 +134,11 @@ final class LauncherFileIndex: @unchecked Sendable {
         return (snapshot.count, Date().timeIntervalSince(t))
     }
 
-    /// The file window opens: changes waiting for their rebuild are taken in now (a file just downloaded is found at once).
+    /// The file window opens: changes waiting for their rebuild are taken in now (a file just downloaded is found at
+    /// once), and the list follows the changes while it shows.
     func catchUp() {
         queue.async { [self] in
+            showing = true
             guard running, let stream else { return }
             FSEventStreamFlushAsync(stream)
             queue.asyncAfter(deadline: .now() + 0.2) { [self] in
@@ -138,6 +147,12 @@ final class LauncherFileIndex: @unchecked Sendable {
                 makeSnapshot()
             }
         }
+    }
+
+    /// The file window closed: the folders changed are still read again as they change (a few names), but the whole
+    /// list is rebuilt only at its next opening. A build or a download that writes for an hour costs nothing meanwhile.
+    func setShowing(_ on: Bool) {
+        queue.async { [self] in showing = on }
     }
 
     /// Reads everything again (once a day, or on request), without stopping the searches meanwhile.
@@ -386,6 +401,8 @@ final class LauncherFileIndex: @unchecked Sendable {
     private func scheduleSnapshot() {
         guard !snapshotScheduled else { return }
         snapshotScheduled = true
+        // File window closed: noted only, rebuilt when it opens (`catchUp`).
+        guard showing else { return }
         // A burst of changes (a download, an unzip, a build) costs one rebuild, not one per second; and a big index,
         // whose rebuild takes long, waits ten times that long before the next one (a build that never stops writing
         // costs a tenth of a core at most).

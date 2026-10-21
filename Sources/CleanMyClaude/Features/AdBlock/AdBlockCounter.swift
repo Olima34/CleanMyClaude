@@ -3,8 +3,9 @@ import SwiftUI
 // The counter of ads stopped. macOS' resolver (mDNSResponder) writes each lookup in the system log: the site's name is
 // masked (<private>), but a blocked answer reads "type: A, rdata: 0.0.0.0" in clear, with the app that asked.
 // Counting those lines tells how many ad and tracker requests the blocker stopped, app by app, without ever seeing
-// which sites are visited. Read when the page shows the counter, and as a catch-up every 6 hours (a few seconds of work
-// for an hour of log): an hour at a time, at background priority, the last 6 hours at most.
+// which sites are visited. The log is followed live while the app runs (`log stream`, filtered by macOS itself): a few
+// lines per lookup, nothing while none happens, and nothing to read back after a sleep or at launch. Reading an hour
+// of log afterwards took 18 s of processor and 100 MB on an 8 GB Mac, right when the Mac woke up.
 
 /// What was counted, kept between launches.
 struct AdBlockTally: Codable, Equatable {
@@ -62,41 +63,16 @@ enum AdBlockLog {
         case unreadable(String)
     }
 
-    struct Chunk: Equatable {
-        var start: Date
-        var end: Date
-    }
+    /// mDNSResponder's lookups and the answers "blocked" (0.0.0.0), the only lines the counter needs.
+    static let predicate = "process == \"mDNSResponder\" AND (eventMessage CONTAINS \"getaddrinfo start\" OR eventMessage CONTAINS \"rdata: 0.0.0.0\")"
 
-    /// The catch-up when the page has not been opened for a while.
-    static let catchUpInterval: TimeInterval = 6 * 3_600
-    /// The log is never read further back than this (an older stretch is given up): a day, so that the catch-up every
-    /// six hours, a night with the lid closed or a weekend away lose nothing of the evening before.
-    static let maxBacklog: TimeInterval = 24 * 3_600
-    /// One `log show` reads an hour at most: a short call that ends well within its time limit.
-    static let chunkLength: TimeInterval = 3_600
-
-    /// The stretches to read between the last reading and `end`, oldest first: an hour each, the last 24 hours at most,
-    /// nothing under 20 seconds.
-    static func chunks(from last: Date, to end: Date) -> [Chunk] {
-        var start = max(last, end.addingTimeInterval(-maxBacklog))
-        guard end.timeIntervalSince(start) > 20 else { return [] }
-        var out: [Chunk] = []
-        while start < end {
-            let stop = min(end, start.addingTimeInterval(chunkLength))
-            out.append(Chunk(start: start, end: stop))
-            start = stop
-        }
-        return out
-    }
-
-    /// mDNSResponder's lines between `start` and `end`: the lookups answered 0.0.0.0, with the app that asked.
-    /// `log` runs at background priority (`taskpolicy -b`): slower, but it never competes with what the user does.
+    /// mDNSResponder's lines between `start` and `end`: the lookups answered 0.0.0.0, with the app that asked
+    /// (`--adblock compteur`). `log` runs at background priority (`taskpolicy -b`).
     static func read(from start: Date, to end: Date) -> Result<[Event], Failure> {
         guard !DemoData.isEnabled else { return .success([]) }
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-        let predicate = "process == \"mDNSResponder\" AND (eventMessage CONTAINS \"getaddrinfo start\" OR eventMessage CONTAINS \"rdata: 0.0.0.0\")"
         let args = ["show", "--start", f.string(from: start), "--end", f.string(from: end), "--style", "compact", "--predicate", predicate]
         let policy = "/usr/sbin/taskpolicy"
         let r = FileManager.default.isExecutableFile(atPath: policy)
@@ -110,28 +86,19 @@ enum AdBlockLog {
 
     /// One event per lookup (a request may get several answers: the cached one, then the fresh one).
     static func parse(_ text: String) -> [Event] {
+        var parser = AdBlockLogParser()
+        return text.split(separator: "\n").compactMap { parser.feed(String($0)) }
+    }
+
+    fileprivate static let lineDate: DateFormatter = {
         let f = DateFormatter()
         f.locale = Locale(identifier: "en_US_POSIX")
         f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-        var apps: [String: String] = [:]
-        var seen = Set<String>()
-        var out: [Event] = []
-        for raw in text.split(separator: "\n") {
-            let line = String(raw)
-            if line.contains("] getaddrinfo start"), let r = request(in: line),
-               let pid = line.range(of: "client pid: "), let open = line[pid.upperBound...].firstIndex(of: "("),
-               let close = line[open...].firstIndex(of: ")") {
-                apps[r] = String(line[line.index(after: open)..<close])
-            } else if line.contains("getaddrinfo result"), line.contains("type: A, rdata: 0.0.0.0"), let r = request(in: line),
-                      seen.insert(r).inserted, line.count > 23, let date = f.date(from: String(line.prefix(23))) {
-                out.append(Event(date: date, app: appName(apps[r])))
-            }
-        }
-        return out
-    }
+        return f
+    }()
 
     /// "[R130252->Q9103]" or "[R130252]" → "R130252".
-    private static func request(in line: String) -> String? {
+    fileprivate static func request(in line: String) -> String? {
         guard let start = line.range(of: "] [R") else { return nil }
         let rest = line[line.index(start.upperBound, offsetBy: -1)...]
         let id = rest.prefix { $0 == "R" || $0.isNumber }
@@ -151,6 +118,140 @@ enum AdBlockLog {
         // Daemons: lowercase names, often ending in "d" (cloudd, nsurlsessiond, cloudtelemetryd).
         if raw.first?.isLowercase == true { return "Services de macOS" }
         return raw
+    }
+}
+
+/// Reads mDNSResponder's lines one at a time: remembers which app started each lookup, and turns the first "blocked"
+/// answer of a lookup into an event. What it remembers stays small (a few thousand lookups at most).
+struct AdBlockLogParser {
+    private var apps: [String: String] = [:]
+    private var seen = Set<String>()
+    static let memory = 4_000
+    /// Lookups remembered right now (the self-test checks it stays small).
+    var remembered: Int { apps.count + seen.count }
+
+    mutating func feed(_ line: String) -> AdBlockLog.Event? {
+        if line.contains("] getaddrinfo start"), let r = AdBlockLog.request(in: line),
+           let pid = line.range(of: "client pid: "), let open = line[pid.upperBound...].firstIndex(of: "("),
+           let close = line[open...].firstIndex(of: ")") {
+            if apps.count >= Self.memory { apps.removeAll(keepingCapacity: true) }
+            apps[r] = String(line[line.index(after: open)..<close])
+        } else if line.contains("getaddrinfo result"), line.contains("type: A, rdata: 0.0.0.0"), let r = AdBlockLog.request(in: line),
+                  line.count > 23, let date = AdBlockLog.lineDate.date(from: String(line.prefix(23))) {
+            if seen.count >= Self.memory { seen.removeAll(keepingCapacity: true) }
+            guard seen.insert(r).inserted else { return nil }
+            return AdBlockLog.Event(date: date, app: AdBlockLog.appName(apps.removeValue(forKey: r)))
+        }
+        return nil
+    }
+}
+
+/// The counter's live reading: `log stream` at background priority, its lines parsed on a queue of its own, the events
+/// handed to the main thread at most once a minute. A stream that ends starts again after 30 s, then a minute, two…
+/// (10 min at most); a run that lasted starts the count of failures again. If the app is killed without quitting,
+/// `log stream` ends by itself at its next line: nobody reads its pipe any more (checked on this Mac).
+final class AdBlockLogStream: @unchecked Sendable {
+    static let flushEvery: TimeInterval = 60
+
+    private let queue = DispatchQueue(label: "cleanmyclaude.adblock.stream", qos: .utility)
+    private let onEvents: @MainActor ([AdBlockLog.Event]) -> Void
+    private let onError: @MainActor (String?) -> Void
+    private var following: Shell.Following?
+    private var parser = AdBlockLogParser()
+    private var batch: [AdBlockLog.Event] = []
+    private var flushPending = false
+    private var running = false
+    private var failures = 0
+    private var startedAt = Date()
+    /// The "paused" message is showing: the first line of a stream that works again takes it away.
+    private var errorShown = false
+
+    init(onEvents: @escaping @MainActor ([AdBlockLog.Event]) -> Void, onError: @escaping @MainActor (String?) -> Void) {
+        self.onEvents = onEvents
+        self.onError = onError
+    }
+
+    func start() {
+        queue.async { [self] in
+            guard !running else { return }
+            running = true
+            failures = 0
+            launch()
+        }
+    }
+
+    func stop() {
+        queue.async { [self] in
+            running = false
+            following?.stop()
+            following = nil
+            flush()
+        }
+    }
+
+    /// The app quits: the stream stops now, and the events not handed over yet come back here (the main thread will not
+    /// run another block).
+    func stopNow() -> [AdBlockLog.Event] {
+        queue.sync {
+            running = false
+            following?.stop()
+            following = nil
+            let events = batch
+            batch = []
+            return events
+        }
+    }
+
+    /// The seconds before the next try after `failures` stops in a row.
+    static func retryDelay(after failures: Int) -> TimeInterval {
+        min(600, 30 * pow(2, Double(max(0, failures - 1))))
+    }
+
+    private func launch() {
+        guard running, following == nil else { return }
+        parser = AdBlockLogParser()
+        startedAt = Date()
+        let policy = "/usr/sbin/taskpolicy"
+        let args = ["stream", "--style", "compact", "--predicate", AdBlockLog.predicate]
+        let (path, all) = FileManager.default.isExecutableFile(atPath: policy) ? (policy, ["-b", "/usr/bin/log"] + args) : ("/usr/bin/log", args)
+        following = Shell.follow(path, all, queue: queue, onLine: { [weak self] line in self?.line(line) },
+                                 onExit: { [weak self] _ in self?.ended() })
+        if following == nil { ended() }
+    }
+
+    private func line(_ text: String) {
+        if errorShown {
+            errorShown = false
+            let report = onError
+            DispatchQueue.main.async { MainActor.assumeIsolated { report(nil) } }
+        }
+        guard let event = parser.feed(text) else { return }
+        batch.append(event)
+        guard !flushPending else { return }
+        flushPending = true
+        queue.asyncAfter(deadline: .now() + Self.flushEvery) { [weak self] in self?.flush() }
+    }
+
+    private func flush() {
+        flushPending = false
+        guard !batch.isEmpty else { return }
+        let events = batch
+        batch = []
+        let handler = onEvents
+        DispatchQueue.main.async { MainActor.assumeIsolated { handler(events) } }
+    }
+
+    private func ended() {
+        following = nil
+        flush()
+        guard running else { return }
+        if Date().timeIntervalSince(startedAt) > 600 { failures = 0 }
+        failures += 1
+        let report = onError
+        let why: String? = failures >= 3 ? "macOS ne laisse pas suivre son journal (essai toutes les \(Int(Self.retryDelay(after: failures) / 60)) min)." : nil
+        errorShown = why != nil
+        DispatchQueue.main.async { MainActor.assumeIsolated { report(why) } }
+        queue.asyncAfter(deadline: .now() + Self.retryDelay(after: failures)) { [weak self] in self?.launch() }
     }
 }
 
@@ -261,7 +362,7 @@ struct AdBlockCounterPanel: View {
                                 .font(.serif(52)).foregroundStyle(Theme.text).monospacedDigit()
                                 .contentTransition(.numericText())
                                 .animation(.easeOut(duration: 0.6), value: t.total)
-                            if m.counting { BusyMascot(.sweeping, pixel: 2) } else { PixelMascot(pixel: 2) }
+                            PixelMascot(pixel: 2)
                         }
                         Text("pubs et pisteurs arrêtés" + (t.since.map { " depuis le \($0.formatted(.dateTime.day().month(.wide).locale(Fmt.fr)))" } ?? ""))
                             .font(.ui(13)).foregroundStyle(Theme.text2)
@@ -308,7 +409,7 @@ struct AdBlockCounterPanel: View {
                     }
                 }
                 Text(m.countError.map { "Compteur en pause : \($0)" }
-                     ?? "Compté sur ce Mac, dans le journal de macOS : les noms des sites y sont masqués, Chamois voit seulement qu'une réponse a été « bloquée ». Les pubs vidéo coupées par le lecteur sans pub sont comptées aussi ; celles qu'une extension de Safari coupe ne le sont pas.")
+                     ?? "Compté sur ce Mac, en direct dans le journal de macOS, pendant que Chamois tourne : les noms des sites y sont masqués, Chamois voit seulement qu'une réponse a été « bloquée ». Les pubs vidéo coupées par le lecteur sans pub sont comptées aussi ; celles qu'une extension de Safari coupe ne le sont pas.")
                     .font(.ui(11)).foregroundStyle(m.countError == nil ? Theme.text3 : Theme.warn).fixedSize(horizontal: false, vertical: true)
             }
         }

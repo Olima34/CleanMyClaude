@@ -217,7 +217,7 @@ Tes fichiers, ton historique de presse-papiers et l'état de ton Mac restent sur
 | « Traduire avec Claude » | Anthropic, via ton abonnement Claude ou ta clé API | Le texte à traduire (la traduction Apple, elle, reste sur ton Mac) |
 | Une recherche web dans le lanceur | Ton navigateur | Ce que tu as tapé, comme dans la barre d'adresse |
 | Un lien YouTube collé dans le lanceur ou dans Vidéos YouTube, puis « Télécharger » | YouTube (`youtube.com`, `i.ytimg.com`), par l'app et par `yt-dlp` | Le numéro de la vidéo : son titre, sa miniature et ses qualités, puis la vidéo elle-même si tu la télécharges |
-| Au lancement, puis toutes les 6 h (désactivable) | GitHub (`api.github.com`) | Rien : l'app lit le numéro de sa dernière version publiée et, s'il est plus récent, la liste des changements |
+| Trois minutes après le lancement, puis toutes les 6 h (désactivable) | GitHub (`api.github.com`) | Rien : l'app lit le numéro de sa dernière version publiée et, s'il est plus récent, la liste des changements |
 | « Mettre à jour » dans le panneau de nouvelle version | GitHub (`github.com`) | Rien : l'app télécharge l'archive publiée |
 
 ## La recherche de fichiers, en un millième de seconde
@@ -241,7 +241,7 @@ Comme Raycast, Clean My Claude n'a pas d'icône dans le Dock : il vit dans la ba
 
 ## Mises à jour de Clean My Claude
 
-Au lancement, puis toutes les 6 h tant que l'app tourne en arrière-plan, Clean My Claude demande à GitHub le numéro de sa **dernière version publiée** (la plus récente de la [page des versions](https://github.com/Olima34/CleanMyClaude/releases/latest)). Chaque push sur `main` en devient une : une fois la compilation et les autotests réussis sur GitHub, la CI publie l'app sous un nouveau numéro, environ 7 minutes après le push. S'il est plus récent que le tien, la fenêtre de Clean My Claude s'ouvre avec un panneau en son centre, l'app légèrement assombrie derrière : tant que tu n'y as pas répondu (ou fermé avec Échap), le reste de la fenêtre ne réagit plus. Le panneau liste **ce qui a changé**, c'est-à-dire les commits entre ta version et la nouvelle (les fusions sont laissées de côté, les points « - … » des messages deviennent des détails).
+Trois minutes après le lancement (jamais dans les minutes qui suivent un réveil), puis toutes les 6 h tant que l'app tourne en arrière-plan, Clean My Claude demande à GitHub le numéro de sa **dernière version publiée** (la plus récente de la [page des versions](https://github.com/Olima34/CleanMyClaude/releases/latest)). Chaque push sur `main` en devient une : une fois la compilation et les autotests réussis sur GitHub, la CI publie l'app sous un nouveau numéro, environ 7 minutes après le push. S'il est plus récent que le tien, la fenêtre de Clean My Claude s'ouvre avec un panneau en son centre, l'app légèrement assombrie derrière : tant que tu n'y as pas répondu (ou fermé avec Échap), le reste de la fenêtre ne réagit plus. Le panneau liste **ce qui a changé**, c'est-à-dire les commits entre ta version et la nouvelle (les fusions sont laissées de côté, les points « - … » des messages deviennent des détails).
 
 <p align="center"><img src="screenshots/selfupdate-window-panel.png" alt="La fenêtre de Clean My Claude assombrie, avec au centre le panneau de nouvelle version : ce qui change, puis Ignorer cette version, Plus tard et Mettre à jour" width="760"></p>
 

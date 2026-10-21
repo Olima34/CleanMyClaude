@@ -167,6 +167,9 @@ final class AutomationModel: AppModule {
     /// Set once the settings were checked at launch: from then on every change is sealed.
     @ObservationIgnored private var sealing = false
     @ObservationIgnored private var sealKey: SymmetricKey?
+    /// The launch check of the seal is reading the keychain; a seal asked for meanwhile waits for it.
+    @ObservationIgnored private var verifying = false
+    @ObservationIgnored private var resealAfterCheck = false
 
     init() {
         // Whatever the file says, only values the page could have set.
@@ -241,7 +244,8 @@ final class AutomationModel: AppModule {
     func start(app: AppModel) {
         self.app = app
         checkIntegrity()
-        updateSchedule()
+        // While the seal is being checked nothing is scheduled: `verify` does it once the settings are known to be ours.
+        if !verifying { updateSchedule() }
     }
 
     /// A light check every quarter of an hour, only while an automation is on (each one decides whether it is due);
@@ -255,6 +259,11 @@ final class AutomationModel: AppModule {
         } else {
             Scheduler.shared.unregister(Self.jobID)
         }
+    }
+
+    /// Seconds since the last keyboard, mouse or trackpad event, from any app.
+    static func idleSeconds() -> TimeInterval {
+        CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
     }
 
     static func anyActive(_ s: AutomationSettings) -> Bool {
@@ -281,12 +290,34 @@ final class AutomationModel: AppModule {
         guard settings.cleanupEnabled || settings.trashEnabled || settings.downloadsEnabled else { return }
         // First launch of a version with seals (no seal, no key yet): the settings, already brought back within what
         // the page offers, are sealed as they are, so an update does not switch off what the user set up.
-        if sealStore.value.mac.isEmpty, !Keychain.exists(AutomationSeal.keyAccount) {
+        // The keychain is read away from the main thread: right after a login it can take seconds, and macOS may ask
+        // the user first. Nothing is scheduled meanwhile (however long the question waits for an answer); a seal asked
+        // for meanwhile is written once the check is done.
+        verifying = true
+        let unsealed = sealStore.value.mac.isEmpty
+        Task {
+            let found = await Task.detached(priority: .userInitiated) { () -> (exists: Bool, key: SymmetricKey?) in
+                (Keychain.exists(AutomationSeal.keyAccount), AutomationSeal.key(create: false))
+            }.value
+            verify(raw: raw, unsealed: unsealed, keyExists: found.exists, key: found.key)
+        }
+    }
+
+    private func verify(raw: Data, unsealed: Bool, keyExists: Bool, key: SymmetricKey?) {
+        verifying = false
+        defer {
+            if resealAfterCheck {
+                resealAfterCheck = false
+                reseal()
+            }
+            updateSchedule()
+        }
+        if unsealed, !keyExists {
             settingsStore.value = settings
             reseal()
             return
         }
-        if let key = AutomationSeal.key(create: false), AutomationSeal.isValid(sealStore.value.mac, for: raw, key: key) {
+        if let key, AutomationSeal.isValid(sealStore.value.mac, for: raw, key: key) {
             sealKey = key
             // A folder that became a symbolic link since, for instance.
             if settings != settingsStore.value {
@@ -295,6 +326,7 @@ final class AutomationModel: AppModule {
             }
             return
         }
+        resealAfterCheck = false
         lockdown()
     }
 
@@ -315,6 +347,10 @@ final class AutomationModel: AppModule {
     /// Seals what is about to be written (the key is made the first time).
     private func reseal() {
         guard sealing, !DemoData.isEnabled else { return }
+        guard !verifying else {
+            resealAfterCheck = true
+            return
+        }
         if sealKey == nil { sealKey = AutomationSeal.key(create: true) }
         guard let key = sealKey, let data = AutomationSeal.bytes(settings) else { return }
         sealStore.value = AutomationSealRecord(mac: AutomationSeal.mac(data, key: key))
@@ -348,7 +384,9 @@ final class AutomationModel: AppModule {
     func tick() async {
         guard let app, !DemoData.isEnabled else { return }
         let now = Date()
-        if settings.healthEnabled, AutomationHealth.needsSample(samples, now: now) {
+        // The day's health reading measures the junk too (a whole scan): only once the user has left the Mac alone for
+        // two minutes, never while they work or just after it wakes up. Else at a later check of the day.
+        if settings.healthEnabled, AutomationHealth.needsSample(samples, now: now), Self.idleSeconds() > 120 {
             await recordHealth(app: app)
         }
         if settings.cleanupEnabled, AutomationSchedule.isDue(last: settings.cleanupLastRun, every: interval(.cleanup), now: now) {
@@ -584,13 +622,10 @@ final class AutomationModel: AppModule {
         var junk: Int64?
         if let scanned = app.cleanup.lastScan, Date().timeIntervalSince(scanned) < 86400 {
             junk = app.cleanup.recommendedSize
-        } else if !DemoData.isEnabled && app.cleanup.lastScan == nil && !app.cleanup.isCleaning {
-            // Nothing scanned yet: the Cleanup page gets the results too, and the score below counts them.
-            await app.cleanup.scan()
-            junk = app.cleanup.recommendedSize
         } else if !DemoData.isEnabled {
+            // At background priority (slow processor cores, disk reads after everyone else's): the user is away anyway.
             let running = RunningApps.snapshot()
-            junk = await Task.detached(priority: .utility) { () -> Int64 in
+            junk = await Task.detached(priority: .background) { () -> Int64 in
                 CleanupScanner.scan(running: running).flatMap { $0.cleanable.filter(\.defaultOn) }.reduce(0) { $0 + $1.size }
             }.value
         }
