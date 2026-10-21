@@ -16,7 +16,7 @@ enum UpdatesSelfCLI {
             let url = URL(fileURLWithPath: FS.expand(path)).standardizedFileURL
             guard let info = NSDictionary(contentsOf: url.appendingPathComponent("Contents/Info.plist")) as? [String: Any],
                   info["CFBundleIdentifier"] as? String == UpdatesSelfInstaller.bundleID else {
-                print("✗ \(url.path) n'est pas une copie de Clean My Claude.")
+                print("✗ \(url.path) n'est pas une copie de Chamois.")
                 return
             }
             target = url

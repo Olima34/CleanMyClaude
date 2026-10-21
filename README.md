@@ -35,7 +35,7 @@ L'app s'installe dans Applications et s'ouvre. Ensuite, elle te prévient elle-m
 
 </details>
 
-> Chamois s'appelait **Clean My Claude**. Le temps de la transition, le fichier téléchargé et l'app dans le Finder gardent cet ancien nom ; si tu l'as déjà, rien à faire : elle se met à jour toute seule.
+> Chamois s'appelait **Clean My Claude**. Si tu l'as déjà, rien à faire : elle se met à jour toute seule et prend son nouveau nom. Seul le fichier téléchargé (`CleanMyClaude.zip`) garde l'ancien, le temps de la transition.
 
 ## Ce qu'elle fait pour toi
 

@@ -507,12 +507,12 @@ extension UpdatesSelfModel {
                               date: now.addingTimeInterval(-hoursAgo * 3600))
         }
         release = UpdatesSelfRelease(
-            version: "0.4.0", tag: "v0.4.0", title: "Clean My Claude 0.4.0",
+            version: "0.4.0", tag: "v0.4.0", title: "Chamois 0.4.0",
             pageURL: "https://github.com/\(UpdatesSelfGitHub.repo)/releases/tag/v0.4.0", published: now.addingTimeInterval(-5 * 3600),
             downloadURL: "https://github.com/\(UpdatesSelfGitHub.repo)/releases/download/v0.4.0/\(UpdatesSelfGitHub.assetName)",
             size: 11_480_000, digest: "sha256:" + String(repeating: "5e", count: 32),
             changes: [
-                change("d1", "Mises à jour : Clean My Claude se met à jour tout seul", [
+                change("d1", "Mises à jour : Chamois se met à jour tout seul", [
                     "Vérification au lancement puis toutes les 6 h, désactivable dans les réglages",
                     "Nouveautés listées avant d'installer, ancienne version mise à la Corbeille"
                 ], hoursAgo: 6),

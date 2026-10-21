@@ -2,7 +2,7 @@
 
 Tout ce que fait l'app, comment elle protège tes données, et comment la compiler toi-même. Pour l'installer, deux lignes suffisent : voir le [README](../README.md).
 
-Chamois s'appelait Clean My Claude : le temps de la transition, l'app installée, son archive, ses dossiers et certains menus de macOS gardent cet ancien nom.
+Chamois s'appelait Clean My Claude : le temps de la transition, quelques noms techniques gardent l'ancien (l'archive `CleanMyClaude.zip`, le paquet `Clean My Claude.app` que le Finder affiche « Chamois », les dossiers de données, l'identifiant de l'app et les liens `cleanmyclaude://`).
 
 <p align="center">
   <img src="screenshots/dashboard.png" alt="Tableau de bord : score de santé, stockage, mémoire, processeur, batterie, analyse intelligente, activité en direct, conseils et les outils du profil, les plus utilisés d'abord" width="900">

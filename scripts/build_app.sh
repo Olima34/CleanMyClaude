@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds "Clean My Claude.app" (release) and installs it in ~/Applications.
+# Builds the app, shown by macOS as "Chamois", in its bundle "Clean My Claude.app" (release), and installs it in ~/Applications.
 # Usage: ./scripts/build_app.sh [--no-install] [--zip] [--universal]
 #   --universal : Apple Silicon et Intel dans la même app (pour les versions publiées).
 #   CMC_VERSION=0.3.0 : numéro de version (sinon celui de scripts/version.sh : dernière étiquette vX.Y.Z + commits depuis).
@@ -9,9 +9,13 @@ ROOT="${0:A:h:h}"
 cd "$ROOT"
 
 EXEC="CleanMyClaude"
-DISPLAY_NAME="Clean My Claude"
+# What macOS shows (menu bar, Dock, Finder, System Settings), and the bundle's file name: the versions already installed
+# look for "Clean My Claude.app" in the archive to update themselves, so the file keeps that name for now; the Finder
+# and the Dock still show "Chamois" (a localized display name, like Apple's own apps).
+DISPLAY_NAME="Chamois"
+BUNDLE_NAME="Clean My Claude"
 BUILD_DIR="$ROOT/build"
-APP="$BUILD_DIR/$DISPLAY_NAME.app"
+APP="$BUILD_DIR/$BUNDLE_NAME.app"
 # The version: CMC_VERSION (the CI passes the one it publishes), else that of this commit: the latest vX.Y.Z tag plus
 # the commits since, the number the CI gives the same commit.
 VERSION="${CMC_VERSION:-$("$ROOT/scripts/version.sh")}"
@@ -52,11 +56,19 @@ for s in 16 32 128 256 512; do
 done
 iconutil -c icns "$ICON_WORK/AppIcon.iconset" -o "$ICON_WORK/AppIcon.icns"
 
-echo "→ Assemblage de $DISPLAY_NAME.app…"
+echo "→ Assemblage de $BUNDLE_NAME.app ($DISPLAY_NAME)…"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$EXEC"
 cp "$ICON_WORK/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
+# The name the Finder, the Dock and System Settings show (LSHasLocalizedDisplayName). macOS uses it only while the file
+# name matches the Info.plist's own CFBundleDisplayName (otherwise it takes the bundle for one the user renamed): that
+# one is the file name, these are "Chamois".
+for lang in fr en; do
+  mkdir -p "$APP/Contents/Resources/$lang.lproj"
+  printf 'CFBundleDisplayName = "%s";\nCFBundleName = "%s";\n' "$DISPLAY_NAME" "$DISPLAY_NAME" \
+    > "$APP/Contents/Resources/$lang.lproj/InfoPlist.strings"
+done
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -64,7 +76,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 <plist version="1.0">
 <dict>
   <key>CFBundleName</key><string>$DISPLAY_NAME</string>
-  <key>CFBundleDisplayName</key><string>$DISPLAY_NAME</string>
+  <key>CFBundleDisplayName</key><string>$BUNDLE_NAME</string>
+  <key>LSHasLocalizedDisplayName</key><true/>
   <key>CFBundleIdentifier</key><string>io.github.olima34.cleanmyclaude</string>
   <key>CFBundleExecutable</key><string>$EXEC</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -78,7 +91,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>Clean My Claude pilote le Finder et Événements système pour vider la Corbeille, basculer le mode sombre, redémarrer ou éteindre, uniquement quand tu le demandes.</string>
+  <key>NSAppleEventsUsageDescription</key><string>$DISPLAY_NAME pilote le Finder et Événements système pour vider la Corbeille, basculer le mode sombre, redémarrer ou éteindre, uniquement quand tu le demandes.</string>
   <key>NSLocationUsageDescription</key><string>macOS n'indique le nom du réseau Wi-Fi qu'aux apps autorisées à utiliser la localisation. Ta position n'est ni lue ni enregistrée.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>macOS n'indique le nom du réseau Wi-Fi qu'aux apps autorisées à utiliser la localisation. Ta position n'est ni lue ni enregistrée.</string>
   <key>NSLocalNetworkUsageDescription</key><string>Pour mesurer la latence de ta box et des appareils de ton réseau, à ta demande.</string>
@@ -88,7 +101,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSServices</key>
   <array>
     <dict>
-      <key>NSMenuItem</key><dict><key>default</key><string>Convertir avec Clean My Claude</string></dict>
+      <key>NSMenuItem</key><dict><key>default</key><string>Convertir avec $DISPLAY_NAME</string></dict>
       <key>NSMessage</key><string>convertFiles</string>
       <key>NSPortName</key><string>$DISPLAY_NAME</string>
       <key>NSRequiredContext</key><dict/>
@@ -177,19 +190,19 @@ fi
 rm -f "$ENTITLEMENTS"
 
 if [[ $ZIP -eq 1 ]]; then
-  (cd "$BUILD_DIR" && rm -f CleanMyClaude.zip && ditto -c -k --keepParent "$DISPLAY_NAME.app" CleanMyClaude.zip)
+  (cd "$BUILD_DIR" && rm -f CleanMyClaude.zip && ditto -c -k --keepParent "$BUNDLE_NAME.app" CleanMyClaude.zip)
   echo "✓ Archive : $BUILD_DIR/CleanMyClaude.zip"
 fi
 
 if [[ $INSTALL -eq 1 ]]; then
   DEST="$HOME/Applications"
   mkdir -p "$DEST"
-  rm -rf "$DEST/$DISPLAY_NAME.app"
+  rm -rf "$DEST/$BUNDLE_NAME.app"
   cp -R "$APP" "$DEST/"
   # Register the app and its Finder service right away.
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST/$DISPLAY_NAME.app" >/dev/null 2>&1 || true
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$DEST/$BUNDLE_NAME.app" >/dev/null 2>&1 || true
   /System/Library/CoreServices/pbs -update >/dev/null 2>&1 || true
-  echo "✓ Installée dans $DEST/$DISPLAY_NAME.app"
+  echo "✓ Installée dans $DEST/$BUNDLE_NAME.app"
 else
   echo "✓ App prête : $APP"
 fi

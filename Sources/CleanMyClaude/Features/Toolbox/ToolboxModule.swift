@@ -491,7 +491,7 @@ final class ToolboxModel: AppModule {
         assertions.removeAll()
     }
 
-    static let assertionName = "Clean My Claude - Cafeine"
+    static let assertionName = "Chamois - Caféine"
 
     /// The IOKit assertions currently held (for `dump()`).
     var heldAssertions: Int { assertions.count }

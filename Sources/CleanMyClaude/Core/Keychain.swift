@@ -43,7 +43,7 @@ enum Keychain {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecAttrLabel as String: "Clean My Claude · \(account)",
+            kSecAttrLabel as String: "\(AppEdition.name) · \(account)",
             kSecValueData as String: Data(value.utf8)
         ]
         return SecItemAdd(query as CFDictionary, nil) == errSecSuccess

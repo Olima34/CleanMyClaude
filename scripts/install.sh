@@ -1,5 +1,6 @@
 #!/bin/bash
-# Installs (or updates) Clean My Claude from the latest release, then opens it.
+# Installs (or updates) Chamois from the latest release, then opens it. The bundle keeps its old file name,
+# "Clean My Claude.app", which the installed versions look for to update themselves; macOS shows it as "Chamois".
 #   curl -fsSL https://raw.githubusercontent.com/Olima34/CleanMyClaude/main/scripts/install.sh | bash
 set -euo pipefail
 
@@ -14,12 +15,12 @@ PUBLIC_KEY="BrZ97S0xVjos9xHFjqhiRzFXLLJAJdo9VTdGFTQX09w="
 TEST_DIR="${CMC_INSTALL_DIR:-}"
 
 if [[ "$(uname)" != "Darwin" ]]; then
-  echo "Clean My Claude est une app pour Mac." >&2
+  echo "Chamois est une app pour Mac." >&2
   exit 1
 fi
 major="$(sw_vers -productVersion | cut -d. -f1)"
 if (( major < 14 )); then
-  echo "Clean My Claude demande macOS 14 Sonoma ou plus récent (tu as $(sw_vers -productVersion))." >&2
+  echo "Chamois demande macOS 14 Sonoma ou plus récent (tu as $(sw_vers -productVersion))." >&2
   exit 1
 fi
 
@@ -48,7 +49,7 @@ SIG_URL="${CMC_SIG_URL:-$URL.sig}"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "→ Téléchargement de Clean My Claude…"
+echo "→ Téléchargement de Chamois…"
 curl -fL --progress-bar "$URL" -o "$TMP/CleanMyClaude.zip"
 
 # The signature: made by the key of the published versions, which never leaves GitHub's secrets. macOS's own
@@ -71,7 +72,7 @@ if [[ -n "$PUBLIC_KEY" ]]; then
     if ! "$OPENSSL" base64 -d -A -in "$TMP/CleanMyClaude.zip.sig" -out "$TMP/signature" 2>/dev/null \
        || ! "$OPENSSL" pkeyutl -verify -pubin -inkey "$TMP/key.pem" -rawin -in "$TMP/CleanMyClaude.zip" \
                        -sigfile "$TMP/signature" >/dev/null 2>&1; then
-      echo "La signature de l'archive ne correspond pas à la clé de Clean My Claude : je ne l'installe pas." >&2
+      echo "La signature de l'archive ne correspond pas à la clé de Chamois : je ne l'installe pas." >&2
       exit 1
     fi
     echo "→ Signature vérifiée."
@@ -100,6 +101,6 @@ ditto "$TMP/$APP" "$DEST/$APP"
 # Downloaded by curl, the app carries no quarantine; this only matters if the archive did.
 xattr -dr com.apple.quarantine "$DEST/$APP" 2>/dev/null || true
 
-echo "✓ Clean My Claude est installé. Il s'ouvre ; ensuite, ⌥Espace ouvre le lanceur depuis n'importe où."
+echo "✓ Chamois est installé. Il s'ouvre ; ensuite, ⌥Espace ouvre le lanceur depuis n'importe où."
 [[ -z "$TEST_DIR" ]] && open "$DEST/$APP"
 exit 0

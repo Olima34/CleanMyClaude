@@ -52,7 +52,7 @@ NOTES
 } > "$NOTES"
 
 # GitHub adds its own notes below (merged pull requests, link to the full comparison).
-ARGS=(--target "$COMMIT" --title "Clean My Claude $VERSION" --notes-file "$NOTES" --generate-notes)
+ARGS=(--target "$COMMIT" --title "Chamois $VERSION" --notes-file "$NOTES" --generate-notes)
 [[ -n "$PREVIOUS" ]] && ARGS+=(--notes-start-tag "$PREVIOUS")
 # With assets, gh creates the release as a draft and publishes it once they are all uploaded.
 gh release create "$TAG" "${ASSETS[@]}" "${ARGS[@]}"

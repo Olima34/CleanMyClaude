@@ -104,7 +104,7 @@ enum PerformanceDiagnosis {
         }
 
         // Apps busy in the background.
-        let skip: Set<String> = ["kernel_task", "WindowServer", "launchd", "Clean My Claude", "CleanMyClaude"]
+        let skip: Set<String> = ["kernel_task", "WindowServer", "launchd", "Clean My Claude", "Chamois", "CleanMyClaude"]
         let activityNames = Set(activities.flatMap(\.names))
         let hogs = i.processes
             .filter { $0.cpu >= 40 && $0.id != i.frontID && $0.id != i.ownID && !skip.contains($0.name) && !activityNames.contains($0.name)

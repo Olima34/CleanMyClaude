@@ -182,7 +182,7 @@ enum UpdatesSelfGitHub {
             return d
         }
         let signature = complete.first { $0.name == signatureAssetName }.map(\.browser_download_url).flatMap { isTrustedDownload($0) ? $0 : nil }
-        return UpdatesSelfRelease(version: version, tag: r.tag_name, title: r.name?.isEmpty == false ? r.name! : "Clean My Claude \(version)",
+        return UpdatesSelfRelease(version: version, tag: r.tag_name, title: r.name?.isEmpty == false ? r.name! : "Chamois \(version)",
                                   pageURL: page.absoluteString, published: r.published_at,
                                   downloadURL: download, size: download == nil ? 0 : zip?.size ?? 0, digest: download == nil ? nil : digest,
                                   signatureURL: download == nil ? nil : signature)
@@ -333,7 +333,10 @@ enum UpdatesSelfPlace: Equatable {
 /// Replacing this copy of the app by the downloaded one.
 enum UpdatesSelfInstaller {
     static let bundleID = "io.github.olima34.cleanmyclaude"
+    /// The bundle's file name, which the installed versions look for in the archive: it stays until every copy can
+    /// read the new one. macOS shows the app as "Chamois" (its localized display name, see scripts/build_app.sh).
     static let appName = "Clean My Claude.app"
+    static let futureAppName = "Chamois.app"
     /// Inside the app's data folder: one sub-folder per download, removed once installed or abandoned.
     static let folderName = "Mise à jour"
 
@@ -348,11 +351,11 @@ enum UpdatesSelfInstaller {
             case .noDigest:
                 return "GitHub ne donne pas l'empreinte de cette archive : sans elle, impossible de vérifier ce qui a été téléchargé. Rien n'a été installé."
             case .untrusted:
-                return "L'adresse de l'archive ne mène pas aux versions de Clean My Claude sur GitHub : je ne la télécharge pas."
+                return "L'adresse de l'archive ne mène pas aux versions de Chamois sur GitHub : je ne la télécharge pas."
             case .unsigned:
                 return "Cette version n'est pas accompagnée de sa signature (CleanMyClaude.zip.sig) : je ne l'installe pas."
             case .badSignature:
-                return "La signature de l'archive ne correspond pas à la clé de Clean My Claude : je ne l'installe pas."
+                return "La signature de l'archive ne correspond pas à la clé de Chamois : je ne l'installe pas."
             case .unpack(let why):
                 return "L'archive téléchargée ne s'ouvre pas\(why.isEmpty ? "" : " (\(why))") : rien n'a été installé."
             case .invalid(let why):
@@ -379,7 +382,7 @@ enum UpdatesSelfInstaller {
     static func place(bundlePath: String, readOnly: Bool, writable: Bool, original: String? = nil, home: String = FS.home,
                       userCopy: Bool = false, systemWritable: Bool = true) -> UpdatesSelfPlace {
         guard bundlePath.hasSuffix(".app") else {
-            return .blocked("Tu lances Clean My Claude depuis le code source : mets-le à jour avec git pull, puis ./scripts/build_app.sh.")
+            return .blocked("Tu lances Chamois depuis le code source : mets-le à jour avec git pull, puis ./scripts/build_app.sh.")
         }
         let translocated = bundlePath.contains("/AppTranslocation/")
         if translocated || readOnly {
@@ -445,7 +448,7 @@ enum UpdatesSelfInstaller {
 
     /// What the unpacked app must be: Clean My Claude, the version announced, and a macOS this Mac has.
     static func validate(info: [String: Any], expectedVersion: String, macOS: String) -> String? {
-        guard info["CFBundleIdentifier"] as? String == bundleID else { return "L'archive ne contient pas Clean My Claude." }
+        guard info["CFBundleIdentifier"] as? String == bundleID else { return "L'archive ne contient pas Chamois." }
         guard let v = info["CFBundleShortVersionString"] as? String,
               UpdatesVersion.compare(v, UpdatesSelfGitHub.version(fromTag: expectedVersion)) == .orderedSame else {
             return "L'archive annonce une autre version que celle publiée."
@@ -478,9 +481,12 @@ enum UpdatesSelfInstaller {
         let out = try FileOps.makeDirectory(folder.appendingPathComponent("app", isDirectory: true))
         let unzip = Shell.run("/usr/bin/ditto", ["-x", "-k", zip.path, out.path], timeout: 180)
         guard unzip.ok else { throw Failure.unpack(unzip.err.trimmingCharacters(in: .whitespacesAndNewlines)) }
-        let app = out.appendingPathComponent(appName)
+        // The bundle keeps its old file name for the versions already installed, which look for it; a later version
+        // may carry the new one: either is taken.
+        let app = [appName, Self.futureAppName].map { out.appendingPathComponent($0) }
+            .first { FileManager.default.fileExists(atPath: $0.path) } ?? out.appendingPathComponent(appName)
         guard let info = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist")) as? [String: Any] else {
-            throw Failure.invalid("L'archive ne contient pas Clean My Claude.")
+            throw Failure.invalid("L'archive ne contient pas Chamois.")
         }
         if let problem = validate(info: info, expectedVersion: release.version, macOS: UpdatesVersion.macOS) { throw Failure.invalid(problem) }
         let executable = app.appendingPathComponent("Contents/MacOS").appendingPathComponent(info["CFBundleExecutable"] as? String ?? "?")
