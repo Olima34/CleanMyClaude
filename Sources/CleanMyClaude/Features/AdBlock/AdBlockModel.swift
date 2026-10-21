@@ -46,6 +46,10 @@ final class AdBlockModel: AppModule {
 
     /// YouTube and Twitch without their video ads, in a window of the app.
     let player = AdBlockPlayer()
+    /// YouTube and Twitch opened in the browser go on in the player (`AdBlockHandoff`).
+    let handoff = AdBlockHandoff()
+    /// The player's accounts, signed in or not (`AdBlockAccount`).
+    var accounts: [String: AdBlockAccountState] = AdBlockModel.storedAccounts()
     @ObservationIgnored private let store = JSONStore<AdBlockSettings>("adblock", default: AdBlockSettings())
     @ObservationIgnored private let tallyStore = JSONStore<AdBlockTally>("adblock-tally", default: AdBlockTally())
     /// The live reading of macOS' log, while the blocker is installed.
@@ -57,6 +61,7 @@ final class AdBlockModel: AppModule {
         settings = store.value
         tally = tallyStore.value
         player.model = self
+        handoff.player = player
     }
 
     /// An ad the player cut, added to the counter under the site it was on.
@@ -85,9 +90,11 @@ final class AdBlockModel: AppModule {
     func start(app: AppModel) {
         self.app = app
         if installed { startCounting() }
+        handoff.start()
     }
 
     func stop() {
+        handoff.stop()
         stopCounting()
         store.flush()
         tallyStore.flush()
@@ -112,6 +119,7 @@ final class AdBlockModel: AppModule {
         player.title = "Boussole · le making-of en 12 minutes"
         player.cut = 3
         player.notice = .youtubeHeld
+        accounts = ["google": .signedIn(nil), "twitch": .signedOut]
         checkText = "securepubads.g.doubleclick.net"
         check = AdBlockCheck(domain: "securepubads.g.doubleclick.net", onMac: .blocked, level: .maximal, inList: .blocked, excepted: false)
     }
@@ -163,6 +171,9 @@ final class AdBlockModel: AppModule {
         case "video":
             // « Vidéo seule » : the small window, its buttons shown.
             player.previewVideoOnly()
+        case "comptes":
+            // Both accounts signed in.
+            accounts = ["google": .signedIn(nil), "twitch": .signedIn("chamois_des_cimes")]
         case "attente":
             // At work: a measurement on this Mac, a domain being checked, the log being read.
             measuring = true
@@ -176,7 +187,9 @@ final class AdBlockModel: AppModule {
 
     func results(for query: String, app: AppModel) -> [AppCommand] { AdBlockCommands.results(query, self) }
 
-    func selfTest() -> [String] { AdBlockChecks.run(self) + Self.countChecks() + AdBlockVideoOnly.checks() }
+    func selfTest() -> [String] {
+        AdBlockChecks.run(self) + Self.countChecks() + AdBlockVideoOnly.checks() + AdBlockAccount.checks() + AdBlockHandoff.checks()
+    }
 
     /// The live counter: a lookup read line by line gives the same events as a whole stretch of log, its memory stays
     /// small, and a stream that keeps failing waits longer each time.
@@ -220,6 +233,14 @@ final class AdBlockModel: AppModule {
         let safari = AdBlockVideoOnly.scriptsAllowed(AdBlockVideoBrowser.all[0])
         lines.append("Vidéo seule : \(player.pinned ? "au-dessus des autres fenêtres" : "passe derrière") · pause de Safari : "
                      + (safari == true ? "possible" : safari == false ? "JavaScript des évènements Apple refusé" : "pas encore essayée"))
+        lines.append("Comptes du lecteur : " + AdBlockAccount.all.map { a in
+            switch accounts[a.key] ?? .signedOut {
+            case .signedOut: return "\(a.name) non connecté"
+            case .signedIn(let name): return "\(a.name) connecté" + (name.map { " (\($0))" } ?? "")
+            }
+        }.joined(separator: ", "))
+        lines.append("Bascule depuis le navigateur : \(handoff.enabled ? "allumée" : "éteinte")"
+                     + (handoff.refused.isEmpty ? "" : " · refusée par \(handoff.refused.joined(separator: ", "))"))
         if let m = measure {
             lines.append("Dernière mesure (\(m.level.map { "niveau \($0.title)" } ?? "ce Mac"), \(Fmt.relative(m.date))) : \(m.blockedAds)/\(m.ads.count) pubs bloquées")
         }

@@ -685,7 +685,7 @@ struct OnboardingPermissionsCard: View {
         case .location: return "Afficher le nom du Wi-Fi (jamais ta position)"
         case .finder: return "Mettre certaines apps à la Corbeille"
         case .systemEvents: return "Mode sombre, redémarrer… depuis la barre"
-        case .safari: return "Détacher la vidéo que tu regardes"
+        case .safari: return "Passer YouTube et Twitch au lecteur sans pub"
         case .localNetwork: return "Mesurer la latence de ta box"
         case .photos: return "Supprimer les photos de l'iPhone triées, avec Photos iCloud"
         }

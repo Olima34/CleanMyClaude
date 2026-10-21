@@ -20,7 +20,9 @@ struct AdBlockPlayerSite: Identifiable, Equatable {
 
     static let youtube = AdBlockPlayerSite(key: "youtube", name: "YouTube", home: URL(string: "https://www.youtube.com/")!,
                                            domains: ["youtube.com", "youtu.be", "youtube-nocookie.com", "ytimg.com", "googlevideo.com",
-                                                     "accounts.google.com", "google.com", "gstatic.com", "googleusercontent.com"])
+                                                     "accounts.google.com", "google.com", "gstatic.com", "googleusercontent.com",
+                                                     // Google's sign-in may pass through the user's country.
+                                                     "google.fr", "google.be", "google.ch", "google.ca", "google.lu"])
     static let twitch = AdBlockPlayerSite(key: "twitch", name: "Twitch", home: URL(string: "https://www.twitch.tv/")!,
                                           domains: ["twitch.tv", "twitchcdn.net", "ttvnw.net", "jtvnw.net"])
     static let francetv = AdBlockPlayerSite(key: "francetv", name: "France.tv", home: URL(string: "https://www.france.tv/")!,
@@ -53,7 +55,8 @@ struct AdBlockPlayerSite: Identifiable, Equatable {
     static func site(of url: URL) -> AdBlockPlayerSite? {
         guard let host = url.host else { return nil }
         // Sign-in pages shared by several sites (Google, Gigya) are no site of their own.
-        return all.first { $0.owns(host) && !["google.com", "gigya.com"].contains { host.lowercased().hasSuffix($0) } }
+        let h = host.lowercased()
+        return all.first { $0.owns(h) && !(h.hasSuffix("gigya.com") || h.split(separator: ".").contains("google")) }
     }
 
     /// Every ad server of the sites, without duplicates.

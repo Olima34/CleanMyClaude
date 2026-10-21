@@ -162,8 +162,10 @@ enum AdBlockCLI {
             }
             let png = args.dropFirst(2).first
             await AdBlockVideoBench.run(url, png: png)
+        case "bascule":
+            await MainActor.run { AdBlockHandoff.bench(Array(args.dropFirst())) }
         default:
-            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier> | video <lien> [image.png]")
+            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier> | video <lien> [image.png] | bascule [lien…]")
         }
     }
 

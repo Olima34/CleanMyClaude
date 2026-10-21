@@ -53,6 +53,11 @@ final class AdBlockPlayer: NSObject {
     @ObservationIgnored private var watches: [NSKeyValueObservation] = []
     @ObservationIgnored private var noticeWork: DispatchWorkItem?
     @ObservationIgnored private var controlsWork: DispatchWorkItem?
+    /// The small windows a page opens itself (« Se connecter avec Google », the pop-out chat).
+    @ObservationIgnored private var popups: [NSWindow] = []
+    /// Told when the cookies change while the window is open: a sign-in or a sign-out in a page.
+    @ObservationIgnored private var cookieWatch: AdBlockCookieProxy?
+    @ObservationIgnored private var cookieWork: DispatchWorkItem?
     /// The Labo's notes on what each site calls (`AdBlockPlayerJournal`), nil in the published app.
     @ObservationIgnored private lazy var journal: JSONStore<AdBlockPlayerJournal>? =
         AppEdition.isLab ? JSONStore("player-journal", default: AdBlockPlayerJournal()) : nil
@@ -79,6 +84,8 @@ final class AdBlockPlayer: NSObject {
         if videoOnly {
             window?.orderFrontRegardless()
         } else {
+            // Over the browser even when macOS keeps the app from coming forward (a switch from the browser).
+            window?.orderFrontRegardless()
             window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
         }
@@ -132,6 +139,9 @@ final class AdBlockPlayer: NSObject {
             web.observe(\.isLoading) { [weak self] w, _ in MainActor.assumeIsolated { self?.loading = w.isLoading } }
         ]
         self.web = web
+        let cookies = AdBlockCookieProxy(self)
+        web.configuration.websiteDataStore.httpCookieStore.add(cookies)
+        cookieWatch = cookies
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 820),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -273,7 +283,53 @@ final class AdBlockPlayer: NSObject {
 
     func openInSafari() {
         guard let url = web?.url else { return }
+        // Given back to the browser on purpose: the automatic switch leaves it there.
+        model?.handoff.giveBack(url)
         NSWorkspace.shared.open(url)
+    }
+
+    /// After a sign-out: the page shown again, signed out (a Google account also serves the other sites).
+    func reloadAfterSignOut() {
+        if web?.url != nil { web?.reload() }
+    }
+
+    /// The accounts are read again a moment after the cookies stop changing (the sites change some on every page).
+    fileprivate func cookiesChanged() {
+        guard cookieWork == nil else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated {
+                self?.cookieWork = nil
+                self?.model?.refreshAccounts()
+            }
+        }
+        cookieWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+    }
+
+    // MARK: Windows opened by the pages
+
+    /// A window the page opens itself, small, over the player: the page that opened it gets its answer (a sign-in).
+    private func popup(_ configuration: WKWebViewConfiguration, features: WKWindowFeatures) -> WKWebView {
+        let size = NSSize(width: min(max(CGFloat(truncating: features.width ?? 520), 360), 1000),
+                          height: min(max(CGFloat(truncating: features.height ?? 680), 400), 900))
+        let page = WKWebView(frame: NSRect(origin: .zero, size: size), configuration: configuration)
+        page.navigationDelegate = self
+        page.uiDelegate = self
+        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .miniaturizable, .resizable],
+                         backing: .buffered, defer: false)
+        w.title = "Lecteur sans pub"
+        w.isReleasedWhenClosed = false
+        w.contentView = page
+        w.delegate = self
+        if let parent = window {
+            w.level = parent.level
+            w.setFrameOrigin(NSPoint(x: parent.frame.midX - size.width / 2, y: parent.frame.midY - size.height / 2))
+        } else {
+            w.center()
+        }
+        popups.append(w)
+        w.makeKeyAndOrderFront(nil)
+        return page
     }
 
     // MARK: Messages from the pages
@@ -360,18 +416,38 @@ extension AdBlockPlayer: WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
         // The pages of another site, opened by the user in a frame of its own: the default browser shows them.
         if action.targetFrame?.isMainFrame != false, let url = action.request.url, !Self.belongs(url), url.scheme?.hasPrefix("http") == true {
             NSWorkspace.shared.open(url)
+            // A window opened for that page alone has nothing left to show.
+            if webView !== web, webView.backForwardList.currentItem == nil { webView.window?.close() }
             return .cancel
         }
         return .allow
     }
 
-    /// A link that asks for a new window: in this one if it belongs to the sites, in the browser otherwise.
+    /// A link that asks for a new tab: in this window if it belongs to the sites, in the browser otherwise. A window the
+    /// page opens itself (« Se connecter avec Google », the pop-out chat) gets a small window of its own.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for action: WKNavigationAction,
                  windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if let url = action.request.url {
-            if Self.belongs(url) { webView.load(URLRequest(url: url)) } else { NSWorkspace.shared.open(url) }
+        let url = action.request.url
+        if let url, url.scheme?.hasPrefix("http") == true {
+            guard Self.belongs(url) else {
+                NSWorkspace.shared.open(url)
+                return nil
+            }
+            if action.navigationType == .linkActivated {
+                (web ?? webView).load(URLRequest(url: url))
+                return nil
+            }
         }
-        return nil
+        return popup(configuration, features: windowFeatures)
+    }
+
+    /// The page closed its own window (a sign-in that is done).
+    func webViewDidClose(_ webView: WKWebView) {
+        if webView !== web { webView.window?.close() }
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if webView !== web, let title = webView.title, !title.isEmpty { webView.window?.title = title }
     }
 
     func windowDidExitFullScreen(_ notification: Notification) {
@@ -379,6 +455,27 @@ extension AdBlockPlayer: WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        guard let closing = notification.object as? NSWindow, closing === window else {
+            // A window a page opened: its page stops and goes.
+            if let w = notification.object as? NSWindow {
+                if let page = w.contentView as? WKWebView {
+                    page.stopLoading()
+                    page.navigationDelegate = nil
+                    page.uiDelegate = nil
+                }
+                w.contentView = nil
+                popups.removeAll { $0 === w }
+            }
+            return
+        }
+        let opened = popups
+        popups = []
+        opened.forEach { $0.close() }
+        if let cookieWatch { web?.configuration.websiteDataStore.httpCookieStore.remove(cookieWatch) }
+        cookieWatch = nil
+        cookieWork?.cancel()
+        cookieWork = nil
+        model?.refreshAccounts()
         // The page stops (sound and picture) and its memory is freed.
         watches = []
         web?.stopLoading()
@@ -398,6 +495,19 @@ extension AdBlockPlayer: WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
 /// The window's content answers the first click even while another app is in front (the video-only window's buttons).
 private final class AdBlockPlayerHost<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+/// Holds the player weakly, like the message handler below.
+private final class AdBlockCookieProxy: NSObject, WKHTTPCookieStoreObserver {
+    weak var player: AdBlockPlayer?
+
+    init(_ player: AdBlockPlayer) {
+        self.player = player
+    }
+
+    func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        MainActor.assumeIsolated { player?.cookiesChanged() }
+    }
 }
 
 /// Holds the player weakly: WebKit keeps its message handlers for as long as the page lives.
@@ -468,6 +578,7 @@ struct AdBlockPlayerView: View {
             Text(player.title.isEmpty ? "Lecteur sans pub" : player.title)
                 .font(.ui(12.5, .medium)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.tail)
                 .frame(maxWidth: .infinity)
+            if let model = player.model { AdBlockAccountsMenu(model: model) }
             Tag(text: Fmt.plural(player.cut, "pub coupée", "pubs coupées"), symbol: "hand.raised.fill", tint: Theme.good, filled: true)
                 .help("Depuis l'ouverture de cette fenêtre")
             button("pip.enter", "Vidéo seule : la vidéo seule dans une petite fenêtre au-dessus des autres", enabled: !player.address.isEmpty) {

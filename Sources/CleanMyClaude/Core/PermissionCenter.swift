@@ -34,7 +34,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .location: return "Afficher le nom du réseau Wi-Fi (ta position n'est jamais lue)"
         case .finder: return "Mettre à la Corbeille les apps installées par un administrateur, vider la Corbeille, la roue des fichiers sélectionnés"
         case .systemEvents: return "Mode sombre, redémarrer, éteindre, masquer les autres apps depuis le lanceur"
-        case .safari: return "Détacher la vidéo ou le direct que tu regardes dans sa propre petite fenêtre"
+        case .safari: return "Passer YouTube et Twitch de Safari au lecteur sans pub, détacher la vidéo que tu regardes dans sa petite fenêtre"
         case .folders: return "Index des fichiers du lanceur, rangement de Téléchargements, conversions et copies de la roue des fichiers"
         case .localNetwork: return "Mesurer la latence de ta box et des appareils de ton réseau"
         case .photos: return "Supprimer de ta photothèque iCloud les photos de l'iPhone que tu as triées"

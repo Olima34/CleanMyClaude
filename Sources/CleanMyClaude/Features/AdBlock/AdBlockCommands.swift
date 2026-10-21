@@ -35,6 +35,31 @@ enum AdBlockCommands {
                 m.player.open(AdBlockPlayer.twitch)
                 return .done
             },
+            AppCommand(id: AdBlockHandoff.commandID,
+                       title: m.handoff.enabled ? "Laisser YouTube et Twitch dans le navigateur" : "YouTube et Twitch toujours sans pub",
+                       subtitle: m.handoff.enabled ? "Éteint la bascule automatique dans le lecteur sans pub"
+                                                   : "Ouverts dans ton navigateur, ils passent d'eux-mêmes dans le lecteur sans pub",
+                       keywords: ["youtube", "twitch", "sans pub", "bascule", "basculer", "automatique", "toujours", "navigateur", "safari", "chrome", "lecteur"],
+                       icon: .symbol("arrow.triangle.swap", tint), group: .actions,
+                       risk: m.handoff.enabled ? .safe : .confirm("YouTube et Twitch ouverts dans ton navigateur passeront dans le lecteur sans pub, et leur onglet se fermera dans le navigateur."),
+                       hint: m.handoff.enabled ? "Éteindre" : "Allumer") { _ in
+                m.handoff.setEnabled(!m.handoff.enabled)
+                m.openPage()
+                return .done
+            }
+        ] + AdBlockAccount.all.map { account in
+            let signedIn = m.accounts[account.key]?.isSignedIn == true
+            return AppCommand(id: "adblock_account_\(account.key)",
+                              title: signedIn ? "Se déconnecter de \(account.name) dans le lecteur" : "Se connecter à \(account.name) dans le lecteur sans pub",
+                              subtitle: signedIn ? "Le lecteur sans pub oublie ce compte (ton navigateur garde le sien)" : account.serves,
+                              keywords: ["compte", "comptes", "connexion", "connecter", "se connecter", "déconnecter", account.name.lowercased(), "lecteur", "sans pub"],
+                              icon: .symbol(account.symbol, tint), group: .actions,
+                              risk: signedIn ? .confirm("Le lecteur sans pub oubliera ton compte \(account.name) : il faudra te reconnecter.") : .safe,
+                              hint: signedIn ? "Déconnecter" : "Se connecter") { _ in
+                if signedIn { m.signOut(account) } else { m.signIn(account) }
+                return .done
+            }
+        } + [
             AppCommand(id: AdBlockVideoOnly.commandID, title: "Vidéo seule",
                        subtitle: "La vidéo ou le direct de Safari, seul dans une petite fenêtre au-dessus des autres, sans pub",
                        keywords: ["vidéo", "video", "seule", "mini", "lecteur", "fenêtre", "flottante", "détacher", "pip", "image dans l'image",
