@@ -602,6 +602,7 @@ enum RefugeRules {
         RefugeRoom(page: .apps, name: "La Cave"),
         RefugeRoom(page: .storage, name: "Le Grenier"),
         RefugeRoom(page: .converter, name: "L'Atelier"),
+        RefugeRoom(page: .wheel, name: "Le Moulin"),
         RefugeRoom(page: .fillsign, name: "Le Secrétaire"),
         RefugeRoom(page: .youtube, name: "La Salle de projection"),
         RefugeRoom(page: .cinema, name: "Le Ciné-club"),

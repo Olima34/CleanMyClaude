@@ -91,6 +91,24 @@ enum Entry {
             for line in ConverterDocCheck.run(path, format: value(after: "--to"), folder: value(after: "--out")) { print(line) }
             return
         }
+        if args.contains("--wheel-check") {
+            // The wheel alone, for a while: the gestures it sees, what is under the pointer, the drop and its copy.
+            let seconds = Double(value(after: "--wheel-check") ?? "") ?? 30
+            MainActor.assumeIsolated { WheelCheck.run(seconds: seconds) }
+            return
+        }
+        if let i = args.firstIndex(of: "--wheel-engines"), args.count > i + 1 {
+            // Every action of the wheel on made-up files in that folder, and what each one wrote.
+            final class Done: @unchecked Sendable { var value = false }
+            let done = Done()
+            let folder = args[i + 1]
+            Task.detached {
+                for line in await WheelEngineCheck.run(folder: folder) { print(line) }
+                done.value = true
+            }
+            while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
+            return
+        }
         if args.contains("--preview-check") {
             final class Done: @unchecked Sendable { var value = false }
             let done = Done()
@@ -419,6 +437,14 @@ enum Snapshot {
             // as it shows in the middle of the window.
             shots.append(("refuge-ceremony-panel", AnyView(RefugeCeremonyPanel())))
         }
+        var widths: [String: CGFloat] = [:]
+        if everything || only == .wheel {
+            // The wheel over a desktop (`--tab pdf`, `video`… for another kind of file), its small windows, its list and its toast.
+            for p in WheelDemo.panels(model) {
+                shots.append((p.name, p.view))
+                widths[p.name] = p.width
+            }
+        }
         if everything || only == .clipboard {
             // The history's own window (`--tab fenetre:lumiere` with a search typed, `--tab images` filtered).
             shots.append(("clipboard-window-panel", AnyView(ClipboardWindowView())))
@@ -440,7 +466,7 @@ enum Snapshot {
                                "appearance-panel": AppearanceSettings.width, "mascotte-panel": MascotGallery.width,
                                "selfupdate-panel": UpdatesSelfPanel.width, "refuge-ceremony-panel": RefugeCeremonyPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180,
                                "sidebar-panel": 248, "profile-panel": ProfilePanel.width, "statusitem-panel": 340][name]
-                       ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))
+                       ?? widths[name] ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)

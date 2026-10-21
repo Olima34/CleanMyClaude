@@ -150,6 +150,26 @@ enum Remover {
         }
     }
 
+    /// Moves to the Trash a copy the app made during this run, when the user takes it back (the wheel's « Annuler »).
+    /// Allowed anywhere, like `discardOutput`, but to the Trash: the user can still put it back.
+    @discardableResult
+    static func trashOwnOutput(_ url: URL) -> Bool {
+        let path = (url.path as NSString).standardizingPath
+        guard !DemoData.isEnabled, FS.exists(path) else { return false }
+        guard FileOps.isOwnOutput(url) || isSafe(path) else {
+            ActionLog.write("REFUSÉ \(path)")
+            return false
+        }
+        do {
+            try FS.fm.trashItem(at: URL(fileURLWithPath: path), resultingItemURL: nil)
+            ActionLog.write("CORBEILLE (copie reprise) \(path)")
+            return true
+        } catch {
+            ActionLog.write("ÉCHEC \(path) : \(error.localizedDescription)")
+            return false
+        }
+    }
+
     // MARK: Threats
 
     /// Whether a threat found by the Protection scan may go to the Trash. Wider than `isSafe` (a piece of malware also

@@ -29,9 +29,9 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         switch self {
         case .notifications: return "Alertes de disque, de mémoire ou de batterie, bilan des automatisations"
         case .location: return "Afficher le nom du réseau Wi-Fi (ta position n'est jamais lue)"
-        case .finder: return "Mettre à la Corbeille les apps installées par un administrateur, vider la Corbeille"
+        case .finder: return "Mettre à la Corbeille les apps installées par un administrateur, vider la Corbeille, la roue des fichiers sélectionnés"
         case .systemEvents: return "Mode sombre, redémarrer, éteindre, masquer les autres apps depuis le lanceur"
-        case .folders: return "Index des fichiers du lanceur, rangement de Téléchargements, conversions"
+        case .folders: return "Index des fichiers du lanceur, rangement de Téléchargements, conversions et copies de la roue des fichiers"
         case .localNetwork: return "Mesurer la latence de ta box et des appareils de ton réseau"
         case .accessibility: return "Ranger les fenêtres au clavier, coller depuis l'historique du presse-papiers"
         case .fullDiskAccess: return "Voir la Corbeille, Mail, Safari et les autorisations des autres apps"

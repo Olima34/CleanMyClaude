@@ -163,7 +163,7 @@ enum RefugePath: String, CaseIterable, Codable {
     var pages: [Page] {
         switch self {
         case .gardien: return [.protection, .updates, .network, .adblock]
-        case .artiste: return [.converter, .fillsign, .translator, .youtube, .cinema, .darkmode]
+        case .artiste: return [.converter, .wheel, .fillsign, .translator, .youtube, .cinema, .darkmode]
         case .guide: return [.launcher, .hotkeys, .windows, .clipboard, .toolbox]
         case .fee: return [.cleanup, .storage, .apps, .automation, .performance, .battery]
         }

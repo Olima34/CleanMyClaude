@@ -61,6 +61,7 @@ enum ModuleRegistry {
         list.append((.launcher, app.launcher))
         list.append((.hotkeys, app.hotkeys))
         list.append((.converter, app.converter))
+        list.append((.wheel, app.wheel))
         list.append((.fillsign, app.fillSign))
         list.append((.youtube, app.youtube))
         list.append((.cinema, app.cinema))

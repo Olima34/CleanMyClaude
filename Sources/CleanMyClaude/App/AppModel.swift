@@ -5,7 +5,7 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, refuge, cleanup, protection, performance, battery, updates, apps, storage
-    case converter, fillsign, youtube, cinema, translator, toolbox, clipboard, network, adblock, darkmode
+    case converter, wheel, fillsign, youtube, cinema, translator, toolbox, clipboard, network, adblock, darkmode
     case launcher, hotkeys, windows, automation
     case assistant, menubar
 
@@ -23,6 +23,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "Applications"
         case .storage: return "Espace de stockage"
         case .converter: return "Convertisseur"
+        case .wheel: return "Roue des fichiers"
         case .fillsign: return "Remplir et signer"
         case .youtube: return "Vidéos YouTube"
         case .cinema: return "Films et séries"
@@ -53,6 +54,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "square.grid.2x2"
         case .storage: return "chart.pie"
         case .converter: return "arrow.left.arrow.right.square"
+        case .wheel: return "dial.medium"
         case .fillsign: return "signature"
         case .youtube: return "play.rectangle"
         case .cinema: return "popcorn"
@@ -84,6 +86,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "Les apps que tu n'ouvres plus, désinstallées sans rien oublier."
         case .storage: return "La carte de ton disque, les gros fichiers et les doublons."
         case .converter: return "Images, vidéos, audio, PDF et documents : dépose, c'est converti."
+        case .wheel: return "Secoue un fichier que tu glisses : recadre, convertis, annote sans rien ouvrir."
         case .fillsign: return "Remplis un formulaire PDF, signe et paraphe en quelques clics."
         case .youtube: return "Colle un lien : la vidéo en MP4 ou le son en MP3."
         case .cinema: return "Un film ou une série : sa fiche et où le regarder."
@@ -106,7 +109,7 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard, .refuge]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage]),
-        ("Outils", [.converter, .fillsign, .youtube, .cinema, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
+        ("Outils", [.converter, .wheel, .fillsign, .youtube, .cinema, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
         ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
@@ -157,6 +160,7 @@ final class AppModel {
     // Modules (Features/<Module>/), listed in ModuleRegistry.
     let launcher = LauncherModel()
     let converter = ConverterModel()
+    let wheel = WheelModel()
     let fillSign = FillSignModel()
     let youtube = YouTubeModel()
     let cinema = CinemaModel()

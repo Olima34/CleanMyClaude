@@ -57,9 +57,9 @@ enum ToolProfileKind: String, Codable, CaseIterable, Identifiable {
     var pages: Set<Page> {
         switch self {
         case .essentials: return [.storage, .apps, .fillsign, .adblock]
-        case .studies: return [.converter, .fillsign, .youtube, .translator, .clipboard, .adblock, .launcher]
+        case .studies: return [.converter, .wheel, .fillsign, .youtube, .translator, .clipboard, .adblock, .launcher]
         case .work: return [.converter, .fillsign, .translator, .clipboard, .launcher, .hotkeys, .windows, .network, .toolbox]
-        case .creation: return [.storage, .apps, .converter, .youtube, .toolbox, .windows, .clipboard]
+        case .creation: return [.storage, .apps, .converter, .wheel, .youtube, .toolbox, .windows, .clipboard]
         case .leisure: return [.youtube, .cinema, .adblock, .darkmode, .network, .translator]
         case .everything: return Set(Page.allCases)
         }
@@ -457,6 +457,7 @@ final class ToolProfileModel {
         }
         s.hasBattery = signals.hasBattery
         if app.clipboard.isActive { s.active.insert(.clipboard) }
+        if app.wheel.recentlyUsed { s.active.insert(.wheel) }
         if app.automation.activeCount > 0 { s.active.insert(.automation) }
         if app.hotkeys.bindings.contains(where: { $0.combo != nil }) { s.active.insert(.hotkeys) }
         if let limit = app.battery.activeLimit, limit < 100 { s.active.insert(.battery) }

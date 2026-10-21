@@ -44,7 +44,7 @@ enum HotkeysTarget: Codable, Equatable {
 /// Who asks whether a shortcut is free (it does not conflict with itself).
 /// `.windows` leaves out every window action: that page moves a shortcut from one action to another itself.
 enum HotkeysOwner: Equatable {
-    case launcher, clipboard, windows
+    case launcher, clipboard, windows, wheel
     case binding(String)
 
     var bindingKey: String? {
@@ -237,6 +237,7 @@ final class HotkeysModel: AppModule {
         guard let app = app ?? AppContext.model else { return nil }
         if except != .launcher, app.launcher.combo == combo { return "le lanceur" }
         if except != .clipboard, app.clipboard.combo == combo { return "l'historique du presse-papiers" }
+        if except != .wheel, app.wheel.combo == combo { return "la roue des fichiers" }
         if except != .windows, let action = app.windows.combos.first(where: { $0.value == combo })?.key { return "Fenêtres (\(action.title))" }
         return nil
     }

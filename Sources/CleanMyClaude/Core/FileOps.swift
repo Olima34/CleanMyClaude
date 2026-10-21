@@ -21,7 +21,7 @@ enum FileOps {
     static func isOwnOutput(_ url: URL) -> Bool {
         let path = (url.path as NSString).standardizingPath
         issued.lock.lock()
-        let since = issued.paths[path]
+        let since = issued.paths[key(url)]
         issued.lock.unlock()
         guard let since, let created = (try? FileManager.default.attributesOfItem(atPath: path))?[.creationDate] as? Date else {
             return false
@@ -29,11 +29,17 @@ enum FileOps {
         return created >= since.addingTimeInterval(-2)
     }
 
+    /// The same for a name handed out and for the item written there later: only the folder, which exists both times, is
+    /// standardized (macOS shortens "/private/tmp/…" to "/tmp/…" only for what exists).
+    private static func key(_ url: URL) -> String {
+        (url.deletingLastPathComponent().path as NSString).standardizingPath + "/" + url.lastPathComponent
+    }
+
     /// A free name next to `url`: "photo.jpg", then "photo 2.jpg", "photo 3.jpg"…
     static func uniqueURL(_ url: URL) -> URL {
         let found = freeURL(url)
         issued.lock.lock()
-        issued.paths[(found.path as NSString).standardizingPath] = Date()
+        issued.paths[key(found)] = Date()
         issued.lock.unlock()
         return found
     }

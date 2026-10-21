@@ -308,6 +308,9 @@ struct ToolsOverview: View {
         case .converter:
             tile(page, tint: Theme.accent, value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : "Glisser-déposer",
                  detail: "Images, vidéos, audio, PDF, documents, OCR et QR codes")
+        case .wheel:
+            tile(page, tint: Theme.brand, value: app.wheel.isActive ? "Active" : "En pause",
+                 detail: app.wheel.isActive ? "Glisse un fichier et secoue-le : recadre, convertis, annote" : "La roue ne s'ouvre plus quand tu glisses un fichier")
         case .fillsign:
             tile(page, tint: Theme.accent, value: app.fillSign.document != nil ? "En cours" : "Un PDF",
                  detail: "Remplis un formulaire, écris où tu veux, signe et paraphe")
