@@ -3,7 +3,7 @@ import AVFoundation
 import PDFKit
 import AppKit
 
-/// `--selftest`: pure checks (names, matrix, page ranges, rename patterns, presets, Markdown, QR round trip). Writes nothing.
+/// `--selftest`: pure checks (names, matrix, page ranges, rename patterns, presets, Markdown, QR round trip, Word layout). Writes nothing.
 extension ConverterModel {
     func selfTest() -> [String] {
         var previewFailures: [String] = []
@@ -176,6 +176,7 @@ extension ConverterModel {
         }
         expect(ConverterVision.qrImage("") == nil, "QR code d'un texte vide")
         failures += Self.mergeChecks()
+        failures += Self.docxChecks()
         return failures + previewFailures
     }
 

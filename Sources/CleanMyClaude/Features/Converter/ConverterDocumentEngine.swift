@@ -32,13 +32,30 @@ enum ConverterDocumentEngine {
         }
 
         if format == .pdf {
-            // textutil turns anything into RTF on stdout; the text system then lays it out on A4 pages.
+            // Word: read and laid out like Word does (styles, tables, pictures, headers, footers, page size).
+            if ["docx", "docm", "dotx", "dotm"].contains(ext) {
+                do {
+                    let doc = try ConverterDocx.read(try Data(contentsOf: input))
+                    try control.check()
+                    if let data = try ConverterPageLayout.render(doc, title: title, control: control) {
+                        return try FileOps.write(data, to: out)
+                    }
+                } catch ConverterError.cancelled {
+                    throw ConverterError.cancelled
+                } catch {
+                    // A document this reader does not understand still goes through textutil below.
+                }
+            }
+            // textutil turns anything else into RTF on stdout; the text system lays it out on the document's own page size.
             let r = Shell.run(textutil, ["-convert", "rtf", "-stdout"] + encodingArgs(input) + [input.path], timeout: 180)
-            guard r.ok, let attributed = NSAttributedString(rtf: Data(r.out.utf8), documentAttributes: nil) else {
+            var info: NSDictionary?
+            guard r.ok, let attributed = NSAttributedString(rtf: Data(r.out.utf8), documentAttributes: &info) else {
                 throw ConverterError.failed(r.err.isEmpty ? "textutil n'a pas pu lire ce document." : r.err)
             }
             try control.check()
-            guard let data = ConverterTextPDF.render(attributed, title: title) else { throw ConverterError.failed("Le PDF n'a pas pu être dessiné.") }
+            guard let data = ConverterTextPDF.render(attributed, title: title, page: ConverterTextPDF.page(info)) else {
+                throw ConverterError.failed("Le PDF n'a pas pu être dessiné.")
+            }
             return try FileOps.write(data, to: out)
         }
 
@@ -371,47 +388,25 @@ enum ConverterMarkdown {
 
 // MARK: - Text to PDF
 
-/// Lays an attributed string out on A4 pages with the AppKit text system (works off the main thread).
+/// Lays an attributed string out on pages (A4 unless the document says otherwise), through `ConverterPageLayout`.
 enum ConverterTextPDF {
-    static func render(_ text: NSAttributedString, title: String) -> Data? {
-        let page = CGRect(x: 0, y: 0, width: 595.28, height: 841.89)
-        let margin: CGFloat = 56.7
-        let data = NSMutableData()
-        guard let consumer = CGDataConsumer(data: data as CFMutableData) else { return nil }
-        var media = page
-        let info = [kCGPDFContextTitle: title, kCGPDFContextCreator: "Chamois"] as CFDictionary
-        guard let ctx = CGContext(consumer: consumer, mediaBox: &media, info) else { return nil }
+    static func render(_ text: NSAttributedString, title: String, page: ConverterDocxSection? = nil) -> Data? {
+        var section = page ?? ConverterDocxSection()
+        if page == nil { section.margins = NSEdgeInsets(top: 56.7, left: 56.7, bottom: 56.7, right: 56.7) }
+        return try? ConverterPageLayout.render(ConverterDocxDocument(text: text, sections: [section]), title: title)
+    }
 
-        let storage = NSTextStorage(attributedString: text)
-        let layout = NSLayoutManager()
-        storage.addLayoutManager(layout)
-        let size = CGSize(width: page.width - 2 * margin, height: page.height - 2 * margin)
-        var containers: [NSTextContainer] = []
-        repeat {
-            let container = NSTextContainer(size: size)
-            container.lineFragmentPadding = 0
-            layout.addTextContainer(container)
-            containers.append(container)
-            let range = layout.glyphRange(for: container)
-            if NSMaxRange(range) >= layout.numberOfGlyphs || range.length == 0 { break }
-        } while containers.count < 3000
-
-        let previous = NSGraphicsContext.current
-        for container in containers {
-            let range = layout.glyphRange(for: container)
-            ctx.beginPDFPage(nil)
-            ctx.saveGState()
-            ctx.translateBy(x: 0, y: page.height)
-            ctx.scaleBy(x: 1, y: -1)
-            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
-            let origin = CGPoint(x: margin, y: margin)
-            layout.drawBackground(forGlyphRange: range, at: origin)
-            layout.drawGlyphs(forGlyphRange: range, at: origin)
-            NSGraphicsContext.current = previous
-            ctx.restoreGState()
-            ctx.endPDFPage()
+    /// The paper size and margins an RTF document carries, when they make sense.
+    static func page(_ info: NSDictionary?) -> ConverterDocxSection? {
+        guard let info, let paper = (info[NSAttributedString.DocumentAttributeKey.paperSize] as? NSValue)?.sizeValue,
+              paper.width > 144, paper.height > 144 else { return nil }
+        var section = ConverterDocxSection()
+        section.pageSize = paper
+        func margin(_ key: NSAttributedString.DocumentAttributeKey) -> CGFloat {
+            (info[key] as? NSNumber).map { CGFloat($0.doubleValue) } ?? 72
         }
-        ctx.closePDF()
-        return data as Data
+        section.margins = NSEdgeInsets(top: margin(.topMargin), left: margin(.leftMargin), bottom: margin(.bottomMargin), right: margin(.rightMargin))
+        if section.textWidth < 72 || section.textHeight < 72 { section.margins = NSEdgeInsets(top: 56.7, left: 56.7, bottom: 56.7, right: 56.7) }
+        return section
     }
 }

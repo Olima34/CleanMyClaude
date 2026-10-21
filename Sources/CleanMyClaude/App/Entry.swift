@@ -87,6 +87,10 @@ enum Entry {
             print("\(watch.readingCount) lectures, \(changes) états transmis au fil principal, processeur \(String(format: "%.2f", used)) s en \(Int(span)) s")
             return
         }
+        if let path = value(after: "--doc-check") {
+            for line in ConverterDocCheck.run(path, format: value(after: "--to"), folder: value(after: "--out")) { print(line) }
+            return
+        }
         if args.contains("--preview-check") {
             final class Done: @unchecked Sendable { var value = false }
             let done = Done()
