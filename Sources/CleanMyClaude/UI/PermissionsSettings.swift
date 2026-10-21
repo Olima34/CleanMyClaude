@@ -145,7 +145,7 @@ private struct PermissionSettingsRow: View {
             Label("Accordée", systemImage: "checkmark.circle.fill").labelStyle(.titleAndIcon).font(.caption).foregroundStyle(Theme.good)
         } else if state == .denied {
             HStack(spacing: 6) {
-                if kind.needsSettings || kind == .finder || kind == .systemEvents {
+                if kind.needsSettings || kind == .finder || kind == .systemEvents || kind == .safari {
                     Button("Réinitialiser") { Task { await center.reset(kind) } }.controlSize(.small)
                         .help("macOS ne redemande plus : efface sa réponse pour cette app, puis redemande.")
                 }

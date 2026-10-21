@@ -685,6 +685,7 @@ struct OnboardingPermissionsCard: View {
         case .location: return "Afficher le nom du Wi-Fi (jamais ta position)"
         case .finder: return "Mettre certaines apps à la Corbeille"
         case .systemEvents: return "Mode sombre, redémarrer… depuis la barre"
+        case .safari: return "Détacher la vidéo que tu regardes"
         case .localNetwork: return "Mesurer la latence de ta box"
         }
     }

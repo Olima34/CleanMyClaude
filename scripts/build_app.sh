@@ -91,7 +91,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
   <key>NSHighResolutionCapable</key><true/>
-  <key>NSAppleEventsUsageDescription</key><string>$DISPLAY_NAME pilote le Finder et Événements système pour vider la Corbeille, basculer le mode sombre, redémarrer ou éteindre, uniquement quand tu le demandes.</string>
+  <key>NSAppleEventsUsageDescription</key><string>$DISPLAY_NAME pilote le Finder, Événements système et ton navigateur pour vider la Corbeille, basculer le mode sombre, redémarrer, éteindre ou détacher la vidéo que tu regardes, uniquement quand tu le demandes.</string>
   <key>NSLocationUsageDescription</key><string>macOS n'indique le nom du réseau Wi-Fi qu'aux apps autorisées à utiliser la localisation. Ta position n'est ni lue ni enregistrée.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>macOS n'indique le nom du réseau Wi-Fi qu'aux apps autorisées à utiliser la localisation. Ta position n'est ni lue ni enregistrée.</string>
   <key>NSLocalNetworkUsageDescription</key><string>Pour mesurer la latence de ta box et des appareils de ton réseau, à ta demande.</string>

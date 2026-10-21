@@ -160,6 +160,9 @@ final class AdBlockModel: AppModule {
             tally = AdBlockTally()
         case "lecteur-twitch":
             player.notice = .twitchSwapped
+        case "video":
+            // « Vidéo seule » : the small window, its buttons shown.
+            player.previewVideoOnly()
         case "attente":
             // At work: a measurement on this Mac, a domain being checked, the log being read.
             measuring = true
@@ -173,7 +176,7 @@ final class AdBlockModel: AppModule {
 
     func results(for query: String, app: AppModel) -> [AppCommand] { AdBlockCommands.results(query, self) }
 
-    func selfTest() -> [String] { AdBlockChecks.run(self) + Self.countChecks() }
+    func selfTest() -> [String] { AdBlockChecks.run(self) + Self.countChecks() + AdBlockVideoOnly.checks() }
 
     /// The live counter: a lookup read line by line gives the same events as a whole stretch of log, its memory stays
     /// small, and a stream that keeps failing waits longer each time.
@@ -214,6 +217,9 @@ final class AdBlockModel: AppModule {
         if !DemoData.isEnabled {
             lines.append("État de ce Mac : \(AdBlockCLI.describe(AdBlockProbes.state())) · DNS du réseau : \(AdBlockProbes.networkResolvers().joined(separator: ", "))")
         }
+        let safari = AdBlockVideoOnly.scriptsAllowed(AdBlockVideoBrowser.all[0])
+        lines.append("Vidéo seule : \(player.pinned ? "au-dessus des autres fenêtres" : "passe derrière") · pause de Safari : "
+                     + (safari == true ? "possible" : safari == false ? "JavaScript des évènements Apple refusé" : "pas encore essayée"))
         if let m = measure {
             lines.append("Dernière mesure (\(m.level.map { "niveau \($0.title)" } ?? "ce Mac"), \(Fmt.relative(m.date))) : \(m.blockedAds)/\(m.ads.count) pubs bloquées")
         }

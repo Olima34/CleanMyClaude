@@ -430,7 +430,8 @@ enum Snapshot {
         }
         if everything || only == .adblock {
             // The ad-free player's window: its bar and what it says over a video (the page itself cannot be drawn here).
-            shots.append(("adblock-player-panel", AnyView(AdBlockPlayerView(player: model.adblock.player).frame(height: 520))))
+            // `--tab video` : the « Vidéo seule » window instead, 16:9.
+            shots.append(("adblock-player-panel", AnyView(AdBlockPlayerView(player: model.adblock.player).frame(height: model.adblock.player.videoOnly ? 540 : 520))))
         }
         if everything || only == .refuge {
             // The chamois' birth (`--tab naissance`, `naissance-nom`, `refus`…), a mue (`mue`, `echarpe`) or its path (`voie`),

@@ -23,6 +23,7 @@ struct AdBlockPage: View {
             }
             AdBlockLevelPanel()
             AdBlockPlayerPanel()
+            AdBlockVideoPanel()
             AdBlockYouTubePanel()
             TileRow {
                 AdBlockExceptionsPanel()

@@ -8,7 +8,7 @@ import Network
 /// Every macOS permission the app may use, with its state and a way to ask for all of them in one go
 /// (Réglages › Autorisations › « Tout autoriser »). Nothing is asked without that click.
 enum PermissionKind: String, CaseIterable, Identifiable {
-    case notifications, location, finder, systemEvents, folders, localNetwork, accessibility, fullDiskAccess
+    case notifications, location, finder, systemEvents, safari, folders, localNetwork, accessibility, fullDiskAccess
 
     var id: String { rawValue }
 
@@ -18,6 +18,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .location: return "Localisation"
         case .finder: return "Piloter le Finder"
         case .systemEvents: return "Piloter Événements système"
+        case .safari: return "Piloter Safari"
         case .folders: return "Bureau, Documents et Téléchargements"
         case .localNetwork: return "Réseau local"
         case .accessibility: return "Accessibilité"
@@ -31,6 +32,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .location: return "Afficher le nom du réseau Wi-Fi (ta position n'est jamais lue)"
         case .finder: return "Mettre à la Corbeille les apps installées par un administrateur, vider la Corbeille, la roue des fichiers sélectionnés"
         case .systemEvents: return "Mode sombre, redémarrer, éteindre, masquer les autres apps depuis le lanceur"
+        case .safari: return "Détacher la vidéo ou le direct que tu regardes dans sa propre petite fenêtre"
         case .folders: return "Index des fichiers du lanceur, rangement de Téléchargements, conversions et copies de la roue des fichiers"
         case .localNetwork: return "Mesurer la latence de ta box et des appareils de ton réseau"
         case .accessibility: return "Ranger les fenêtres au clavier, coller depuis l'historique du presse-papiers"
@@ -44,6 +46,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .location: return "location"
         case .finder: return "face.smiling"
         case .systemEvents: return "gearshape.2"
+        case .safari: return "safari"
         case .folders: return "folder"
         case .localNetwork: return "wifi"
         case .accessibility: return "accessibility"
@@ -58,7 +61,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         switch self {
         case .notifications: return "x-apple.systempreferences:com.apple.Notifications-Settings.extension"
         case .location: return "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices"
-        case .finder, .systemEvents: return "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
+        case .finder, .systemEvents, .safari: return "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation"
         case .folders: return "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
         case .localNetwork: return "x-apple.systempreferences:com.apple.preference.security?Privacy_LocalNetwork"
         case .accessibility: return "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
@@ -109,6 +112,7 @@ final class PermissionCenter {
     }
 
     private static let askedKey = "permissions.asked"
+    private static let safari = "com.apple.Safari"
 
     var grantedCount: Int { PermissionKind.allCases.filter { states[$0] == .granted }.count }
 
@@ -140,6 +144,13 @@ final class PermissionCenter {
             s[.systemEvents] = remembered[.systemEvents] ?? .asked // not running right now: the last answer
         } else {
             s[.systemEvents] = events
+        }
+        // Safari too, and it is not always open.
+        let safari = await Self.automation(Self.safari)
+        if safari == .notAsked, asked.contains(PermissionKind.safari.rawValue) {
+            s[.safari] = remembered[.safari] ?? .asked
+        } else {
+            s[.safari] = safari
         }
         let fda = Permissions.hasFullDiskAccess
         s[.fullDiskAccess] = fda ? .granted : .notAsked
@@ -232,6 +243,21 @@ final class PermissionCenter {
             _ = try? await NSWorkspace.shared.openApplication(at: url, configuration: config)
             await wait(seconds: 5) { !NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.systemevents").isEmpty }
             remembered[.systemEvents] = await Self.automation("com.apple.systemevents", ask: true)
+        case .safari:
+            remember(.safari)
+            // macOS only asks while Safari runs: opened hidden if it is not, and closed again after the answer.
+            var launched: NSRunningApplication?
+            if NSRunningApplication.runningApplications(withBundleIdentifier: Self.safari).isEmpty,
+               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.safari) {
+                let config = NSWorkspace.OpenConfiguration()
+                config.activates = false
+                config.hides = true
+                config.addsToRecentItems = false
+                launched = try? await NSWorkspace.shared.openApplication(at: url, configuration: config)
+                await wait(seconds: 5) { launched?.isFinishedLaunching == true }
+            }
+            remembered[.safari] = await Self.automation(Self.safari, ask: true)
+            if let launched, launched.isHidden { launched.terminate() } // left alone if the user turned to it meanwhile
         case .folders:
             remember(.folders)
             // Reading each folder makes macOS ask (without Full Disk Access).
@@ -261,7 +287,7 @@ final class PermissionCenter {
         switch kind {
         case .accessibility: service = "Accessibility"
         case .fullDiskAccess: service = "SystemPolicyAllFiles"
-        case .finder, .systemEvents: service = "AppleEvents"
+        case .finder, .systemEvents, .safari: service = "AppleEvents"
         default: return
         }
         let r = await Task.detached { Shell.run("/usr/bin/tccutil", ["reset", service, bundleID], timeout: 10) }.value

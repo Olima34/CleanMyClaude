@@ -94,6 +94,7 @@ enum AdBlockProbes {
 ///   --adblock compteur [minutes]                the ads stopped in the last minutes, from macOS' log
 ///   --adblock verifier <domaine>                one domain, on this Mac and through both levels
 ///   --adblock profil <fichier.mobileconfig>     writes the profile (Maximal) for inspection, never over a file
+///   --adblock video <lien> [image.png]          « Vidéo seule » on a real page (`AdBlockVideoBench`), muted
 enum AdBlockCLI {
     static func run(_ args: [String]) async {
         switch args.first ?? "" {
@@ -153,8 +154,16 @@ enum AdBlockCLI {
                 return
             }
             do { print("Écrit : \(try FileOps.write(data, to: URL(fileURLWithPath: path)).path)") } catch { print("Échec : \(error.localizedDescription)") }
+        case "video":
+            let raw = args.dropFirst().first ?? ""
+            guard let url = await MainActor.run(body: { AdBlockPlayer.playable(raw) }) else {
+                print("Indique un lien YouTube, Twitch, France.tv, M6+, Arte ou Pluto TV.")
+                return
+            }
+            let png = args.dropFirst(2).first
+            await AdBlockVideoBench.run(url, png: png)
         default:
-            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier>")
+            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier> | video <lien> [image.png]")
         }
     }
 

@@ -35,6 +35,14 @@ enum AdBlockCommands {
                 m.player.open(AdBlockPlayer.twitch)
                 return .done
             },
+            AppCommand(id: AdBlockVideoOnly.commandID, title: "Vidéo seule",
+                       subtitle: "La vidéo ou le direct de Safari, seul dans une petite fenêtre au-dessus des autres, sans pub",
+                       keywords: ["vidéo", "video", "seule", "mini", "lecteur", "fenêtre", "flottante", "détacher", "pip", "image dans l'image",
+                                  "direct", "live", "stream", "twitch", "youtube", "regarder", "coin"],
+                       icon: .symbol("pip.enter", tint), group: .actions, assistantSafe: true, hint: "Détacher") { _ in
+                Task { await m.player.detach() }
+                return .done
+            },
             AppCommand(id: "adblock_youtube", title: "Bloquer les pubs YouTube dans Safari", subtitle: "L'extension de Safari qui coupe les pubs des vidéos",
                        keywords: keywords + ["youtube", "vidéo", "vidéos", "safari", "extension", "ublock"], icon: .symbol("play.rectangle", tint),
                        group: .actions, assistantSafe: true, hint: "Ouvrir") { _ in

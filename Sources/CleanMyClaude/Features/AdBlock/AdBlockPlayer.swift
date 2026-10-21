@@ -29,32 +29,64 @@ final class AdBlockPlayer: NSObject {
     var notice: AdBlockPlayerNotice?
     /// Ads cut since the window opened.
     var cut = 0
+    /// « Vidéo seule » : the window shows the video alone, small, above the other windows (`AdBlockVideoOnly`).
+    private(set) var videoOnly = false
+    /// In video-only mode, the window stays above the other windows and on every desktop.
+    var pinned = UserDefaults.standard.object(forKey: AdBlockVideoOnly.pinnedKey) as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(pinned, forKey: AdBlockVideoOnly.pinnedKey)
+            if let window { applyLevel(window) }
+        }
+    }
+    /// The video-only window's buttons, shown while the mouse moves over it.
+    var controls = false
+    /// Width over height of the video shown, which the video-only window keeps.
+    private(set) var videoRatio: CGFloat = 16 / 9
+    /// Why the last « Détacher la vidéo » could not reach the browser, shown on the page.
+    var detachIssue: String?
+    /// A « Détacher la vidéo » is reading the browser (a second press waits for it).
+    @ObservationIgnored var detaching = false
 
     @ObservationIgnored weak var model: AdBlockModel?
     @ObservationIgnored private(set) var web: WKWebView?
     @ObservationIgnored private var window: NSWindow?
     @ObservationIgnored private var watches: [NSKeyValueObservation] = []
     @ObservationIgnored private var noticeWork: DispatchWorkItem?
+    @ObservationIgnored private var controlsWork: DispatchWorkItem?
     /// The Labo's notes on what each site calls (`AdBlockPlayerJournal`), nil in the published app.
     @ObservationIgnored private lazy var journal: JSONStore<AdBlockPlayerJournal>? =
         AppEdition.isLab ? JSONStore("player-journal", default: AdBlockPlayerJournal()) : nil
 
+    static let frameName = "CleanMyClaude.AdFreePlayer"
+    static let videoFrameName = "CleanMyClaude.AdFreePlayer.Video"
+
+    /// The player's window is the one the user is in.
+    var isFront: Bool { NSApp.isActive && window?.isKeyWindow == true }
+
     // MARK: Opening
 
-    func open(_ url: URL) {
+    /// Shows a page; `videoOnly` puts the window in « Vidéo seule » (then the app is not brought forward: the user goes on
+    /// with what they were doing), otherwise in the full player.
+    func open(_ url: URL, videoOnly: Bool = false) {
         guard !DemoData.isEnabled, !Snapshot.isActive else {
             HUD.show(DemoData.refusal, symbol: "info.circle.fill")
             return
         }
         guard let app = AppContext.model else { return }
-        if web == nil { makeWindow(app) }
+        if web == nil { makeWindow(app, videoOnly: videoOnly) } else { setVideoOnly(videoOnly) }
         web?.load(URLRequest(url: url))
-        window?.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        ActionLog.write("LECTEUR SANS PUB \(url.host ?? "")")
+        if window?.isMiniaturized == true { window?.deminiaturize(nil) }
+        if videoOnly {
+            window?.orderFrontRegardless()
+        } else {
+            window?.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+        ActionLog.write("\(videoOnly ? "VIDÉO SEULE" : "LECTEUR SANS PUB") \(url.host ?? "")")
     }
 
-    private func makeWindow(_ app: AppModel) {
+    /// The page's settings, like Safari's, with the blocking engine; `handler` receives what the pages say ("cmc").
+    static func configuration(handler: WKScriptMessageHandler, journal: Bool, videoOnly: Bool) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .default()
         // Like Safari: YouTube and Twitch serve their full sites, and remember the account the user signs in with.
@@ -62,22 +94,36 @@ final class AdBlockPlayer: NSObject {
         config.mediaTypesRequiringUserActionForPlayback = []
         config.preferences.isElementFullscreenEnabled = true
         let content = WKUserContentController()
-        for source in [AdBlockPlayerScripts.youtube, AdBlockPlayerScripts.twitch] {
-            content.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
-        }
-        if journal != nil {
-            content.addUserScript(WKUserScript(source: AdBlockPlayerJournal.script, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
-        }
-        content.add(AdBlockScriptProxy(self), name: "cmc")
+        installScripts(content, journal: journal, videoOnly: videoOnly)
+        content.add(handler, name: "cmc")
         config.userContentController = content
-        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1240, height: 780), configuration: config)
-        web.navigationDelegate = self
-        web.uiDelegate = self
-        web.allowsBackForwardNavigationGestures = true
         WKContentRuleListStore.default().compileContentRuleList(forIdentifier: "cleanmyclaude-adfree-2",
                                                                  encodedContentRuleList: AdBlockPlayerScripts.rules) { list, _ in
             if let list { content.add(list) }
         }
+        return config
+    }
+
+    /// The scripts every page gets from its start; changed with the mode, they apply from the next page on.
+    static func installScripts(_ content: WKUserContentController, journal: Bool, videoOnly: Bool) {
+        content.removeAllUserScripts()
+        var sources = [AdBlockPlayerScripts.youtube, AdBlockPlayerScripts.twitch]
+        if videoOnly { sources.append(AdBlockVideoOnly.wanted) }
+        sources.append(AdBlockVideoOnly.script)
+        for source in sources {
+            content.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page))
+        }
+        if journal {
+            content.addUserScript(WKUserScript(source: AdBlockPlayerJournal.script, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page))
+        }
+    }
+
+    private func makeWindow(_ app: AppModel, videoOnly: Bool) {
+        let config = Self.configuration(handler: AdBlockScriptProxy(self), journal: journal != nil, videoOnly: videoOnly)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1240, height: 780), configuration: config)
+        web.navigationDelegate = self
+        web.uiDelegate = self
+        web.allowsBackForwardNavigationGestures = true
         watches = [
             web.observe(\.title) { [weak self] w, _ in MainActor.assumeIsolated { self?.title = w.title ?? "" } },
             web.observe(\.url) { [weak self] w, _ in MainActor.assumeIsolated { self?.address = w.url?.absoluteString ?? "" } },
@@ -93,15 +139,123 @@ final class AdBlockPlayer: NSObject {
         window.title = "Lecteur sans pub"
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
-        window.minSize = NSSize(width: 640, height: 420)
-        window.collectionBehavior.insert(.fullScreenPrimary)
-        window.contentView = NSHostingView(rootView: AdBlockPlayerView(player: self).environment(app))
+        window.contentView = AdBlockPlayerHost(rootView: AdBlockPlayerView(player: self).environment(app))
         window.delegate = self
-        window.setFrameAutosaveName("CleanMyClaude.AdFreePlayer")
-        if !window.setFrameUsingName("CleanMyClaude.AdFreePlayer") { window.center() }
         self.window = window
+        self.videoOnly = videoOnly
+        applyMode(window)
         isOpen = true
         cut = 0
+    }
+
+    // MARK: Video only
+
+    /// Switches the window between the full player and « Vidéo seule », on the page shown.
+    func setVideoOnly(_ on: Bool) {
+        guard on != videoOnly else { return }
+        videoOnly = on
+        guard let window, let web else { return }
+        Self.installScripts(web.configuration.userContentController, journal: journal != nil, videoOnly: on)
+        web.evaluateJavaScript("window.__cmcVideoOnly && window.__cmcVideoOnly(\(on))", completionHandler: nil)
+        controls = false
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        if window.styleMask.contains(.fullScreen) {
+            // Out of full screen first: the window takes its small size once it is back (`windowDidExitFullScreen`).
+            window.toggleFullScreen(nil)
+        } else {
+            applyMode(window)
+        }
+        if on {
+            window.orderFrontRegardless()
+        } else {
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+        }
+    }
+
+    /// The window's look and size for the mode; each mode keeps its own place on screen.
+    private func applyMode(_ window: NSWindow) {
+        let on = videoOnly
+        window.setFrameAutosaveName("")
+        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(button)?.isHidden = on
+        }
+        window.title = on ? "Vidéo seule" : "Lecteur sans pub"
+        window.titleVisibility = on ? .hidden : .visible
+        if on {
+            window.minSize = NSSize(width: 200, height: 112)
+            window.contentAspectRatio = NSSize(width: videoRatio, height: 1)
+            if window.setFrameUsingName(Self.videoFrameName) {
+                // Saved with the last video's shape (macOS does not apply the ratio to a frame it restores).
+                window.setFrame(AdBlockVideoOnly.fit(window.frame, ratio: videoRatio, in: visible(window)), display: true)
+            } else {
+                window.setFrame(AdBlockVideoOnly.place(.bottomRight, width: AdBlockVideoOnly.sizes[1].width * visible(window).width,
+                                                       ratio: videoRatio, in: visible(window)), display: true)
+            }
+        } else {
+            window.minSize = NSSize(width: 640, height: 420)
+            window.contentResizeIncrements = NSSize(width: 1, height: 1) // no aspect ratio
+            if !window.setFrameUsingName(Self.frameName) {
+                window.setContentSize(NSSize(width: 1240, height: 820))
+                window.center()
+            }
+        }
+        applyLevel(window)
+        window.setFrameAutosaveName(on ? Self.videoFrameName : Self.frameName)
+    }
+
+    private func applyLevel(_ window: NSWindow) {
+        let floats = videoOnly && pinned
+        window.level = floats ? .floating : .normal
+        window.collectionBehavior = !videoOnly ? [.fullScreenPrimary] : floats ? [.canJoinAllSpaces, .fullScreenAuxiliary] : [.fullScreenNone]
+    }
+
+    private func visible(_ window: NSWindow) -> NSRect {
+        (window.screen ?? NSScreen.main)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+    }
+
+    /// Moves the video-only window to a corner of its screen, at its size or at `size` (a share of the screen's width).
+    func place(_ corner: AdBlockVideoCorner?, size: CGFloat? = nil) {
+        guard let window, videoOnly else { return }
+        let screen = visible(window)
+        let width = size.map { $0 * screen.width } ?? window.frame.width
+        let to = corner ?? AdBlockVideoOnly.nearestCorner(of: window.frame, in: screen)
+        window.setFrame(AdBlockVideoOnly.place(to, width: width, ratio: videoRatio, in: screen), display: true, animate: true)
+    }
+
+    /// The page found a video of another shape: the window takes it, keeping its area and its corner.
+    private func adopt(width: Double, height: Double) {
+        guard width > 0, height > 0 else { return }
+        let ratio = min(max(CGFloat(width / height), 0.3), 4)
+        guard abs(ratio - videoRatio) / videoRatio > 0.02 else { return }
+        videoRatio = ratio
+        guard videoOnly, let window else { return }
+        window.contentAspectRatio = NSSize(width: ratio, height: 1)
+        window.setFrame(AdBlockVideoOnly.fit(window.frame, ratio: ratio, in: visible(window)), display: true, animate: true)
+    }
+
+    /// The buttons appear while the mouse moves, and go 2 s after it stops (not while it rests on them).
+    func pointerMoved(overButtons: Bool) {
+        if !controls { withAnimation(.easeOut(duration: 0.15)) { controls = true } }
+        controlsWork?.cancel()
+        guard !overButtons else { return }
+        let work = DispatchWorkItem { [weak self] in
+            MainActor.assumeIsolated { withAnimation(.easeOut(duration: 0.3)) { self?.controls = false } }
+        }
+        controlsWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    func pointerLeft() {
+        controlsWork?.cancel()
+        withAnimation(.easeOut(duration: 0.3)) { controls = false }
+    }
+
+    /// The snapshot's video-only window: its buttons and a notice over the (empty) video.
+    func previewVideoOnly() {
+        videoOnly = true
+        controls = true
+        notice = .twitchSwapped
     }
 
     /// Safari's own version, for the user agent (the sites serve their full pages to it).
@@ -142,6 +296,8 @@ final class AdBlockPlayer: NSObject {
             show(.twitchSwapped, for: 8)
         case "strip":
             show(.twitchCut, for: 120)
+        case "vo":
+            adopt(width: body["w"] as? Double ?? 0, height: body["h"] as? Double ?? 0)
         default:
             break
         }
@@ -218,6 +374,10 @@ extension AdBlockPlayer: WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
         return nil
     }
 
+    func windowDidExitFullScreen(_ notification: Notification) {
+        if videoOnly, let window { applyMode(window) }
+    }
+
     func windowWillClose(_ notification: Notification) {
         // The page stops (sound and picture) and its memory is freed.
         watches = []
@@ -229,7 +389,15 @@ extension AdBlockPlayer: WKNavigationDelegate, WKUIDelegate, NSWindowDelegate {
         window = nil
         isOpen = false
         notice = nil
+        videoOnly = false
+        controls = false
+        videoRatio = 16 / 9
     }
+}
+
+/// The window's content answers the first click even while another app is in front (the video-only window's buttons).
+private final class AdBlockPlayerHost<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// Holds the player weakly: WebKit keeps its message handlers for as long as the page lives.
@@ -251,23 +419,32 @@ private final class AdBlockScriptProxy: NSObject, WKScriptMessageHandler {
 struct AdBlockPlayerView: View {
     var player: AdBlockPlayer
 
+    /// One place for the page in both modes: SwiftUI keeps the same web view when the mode changes.
     var body: some View {
+        let video = player.videoOnly
         VStack(spacing: 0) {
-            toolbar
-            ZStack(alignment: .bottom) {
+            if !video { toolbar }
+            ZStack(alignment: .top) {
                 if let web = player.web {
                     AdBlockWebView(web: web)
+                } else if video {
+                    AdBlockVideoPlaceholder()
                 } else {
                     Theme.bg
                 }
+                if video { AdBlockVideoOverlay(player: player) }
+            }
+            .overlay(alignment: .bottom) {
                 if let notice = player.notice {
-                    AdBlockNoticeView(notice: notice)
-                        .padding(.bottom, 28)
+                    AdBlockNoticeView(notice: notice, compact: video)
+                        .padding(.bottom, video ? 12 : 28)
+                        .allowsHitTesting(false)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
         }
         .background(Theme.bg)
+        .ignoresSafeArea(.container, edges: video ? .all : [])
     }
 
     private var toolbar: some View {
@@ -293,6 +470,9 @@ struct AdBlockPlayerView: View {
                 .frame(maxWidth: .infinity)
             Tag(text: Fmt.plural(player.cut, "pub coupée", "pubs coupées"), symbol: "hand.raised.fill", tint: Theme.good, filled: true)
                 .help("Depuis l'ouverture de cette fenêtre")
+            button("pip.enter", "Vidéo seule : la vidéo seule dans une petite fenêtre au-dessus des autres", enabled: !player.address.isEmpty) {
+                player.setVideoOnly(true)
+            }
             button("safari", "Ouvrir cette page dans Safari", enabled: !player.address.isEmpty) { player.openInSafari() }
         }
         .padding(.horizontal, 12)
@@ -315,18 +495,22 @@ struct AdBlockPlayerView: View {
 /// What the player says over the video, with the mascot at work.
 struct AdBlockNoticeView: View {
     var notice: AdBlockPlayerNotice
+    /// The video-only window's version: the title alone.
+    var compact = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            BusyMascot(.sweeping, pixel: 2)
+        HStack(spacing: compact ? 8 : 12) {
+            BusyMascot(.sweeping, pixel: compact ? 1 : 2)
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                Text(detail).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                Text(title).font(.ui(compact ? 11.5 : 13, .semibold)).foregroundStyle(Theme.text)
+                if !compact {
+                    Text(detail).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: 460, alignment: .leading)
+        .padding(.horizontal, compact ? 10 : 16)
+        .padding(.vertical, compact ? 6 : 12)
+        .frame(maxWidth: compact ? nil : 460, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).fill(Theme.cardRaised))
         .overlay(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).strokeBorder(Theme.borderStrong, lineWidth: Theme.line))
         .themedShadow(color: .black.opacity(0.35), radius: 14, y: 4)

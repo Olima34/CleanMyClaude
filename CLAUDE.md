@@ -15,6 +15,7 @@ TMDB_KEY=… .build/debug/CleanMyClaude --cinema-check "dune" [--kind film|serie
 .build/debug/CleanMyClaude --doc-check <fichier> [--to pdf|rtf|html|txt|odt] [--out <dossier>]   # un document converti pour de vrai (un .emf/.wmf : son rendu en PNG)
 .build/debug/CleanMyClaude --wheel-check 30          # la roue des fichiers seule : les gestes vus, le segment survolé, le dépôt et sa copie
 .build/debug/CleanMyClaude --wheel-engines <dossier> # chaque action de la roue sur des fichiers inventés dans ce dossier, et ce qu'elle a écrit
+.build/debug/CleanMyClaude --adblock video "<lien YouTube ou Twitch>" out.png   # Vidéo seule sur la vraie page (une fenêtre s'affiche ~1 min, sans son)
 ```
 
 Relis toujours la capture PNG de ta page. `./scripts/build_app.sh` installe l'app dans `~/Applications` : **ne le lance pas depuis une copie de travail parallèle** (toutes partagent la même app installée et les mêmes autorisations macOS).
