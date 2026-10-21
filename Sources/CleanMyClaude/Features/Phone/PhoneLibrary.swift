@@ -18,17 +18,27 @@ final class PhoneLibrary {
     private(set) var iCloudPhotos = false
     /// The iPhone accepts deletions through the cable (only with iCloud Photos off).
     private(set) var canDelete = false
-    var isOpen: Bool { camera != nil || browser != nil }
+    var isOpen: Bool { camera != nil || wanting }
 
+    /// One browser for the app's whole life, started the first time the photos are opened and never stopped: once
+    /// stopped, it still receives the iPhone plugged back in, and a new browser never hears of it (seen on iOS 27).
     private var browser: ICDeviceBrowser?
+    private var bridge: PhoneCameraDelegate?
+    /// The cameras plugged in, as the browser announced them.
+    private var present: [ICCameraDevice] = []
+    /// The photos were asked for: the session opens as soon as the iPhone is there.
+    private var wanting = false
+    /// The camera whose session is open, or opening.
     private var camera: ICCameraDevice?
     private var files: [String: ICCameraFile] = [:]
     /// The same file listed again in another folder (« 202609_a » and « 202609_b »): same name, date and size.
     private var twins: [String: [ICCameraFile]] = [:]
-    private var bridge: PhoneCameraDelegate?
     /// The UDID of the iPhone MobileDevice saw, to pick the right camera when several are plugged.
     private var wanted: String?
     private var settle: Timer?
+    private var giveUp: Timer?
+    /// Sessions refused as « locked » by an iPhone that is no longer locked.
+    private var retries = 0
     private var lastCount = -1
     private let thumbs: NSCache<NSString, CGImage> = {
         let c = NSCache<NSString, CGImage>()
@@ -39,30 +49,54 @@ final class PhoneLibrary {
     // MARK: Opening
 
     func open(udid: String?) {
-        guard browser == nil else { return }
         wanted = udid.map(Self.normalized)
+        wanting = true
         state = .listing
-        let delegate = PhoneCameraDelegate(self)
-        let b = ICDeviceBrowser()
-        b.delegate = delegate
-        if let mask = ICDeviceTypeMask(rawValue: ICDeviceTypeMask.camera.rawValue | ICDeviceLocationTypeMask.local.rawValue) {
-            b.browsedDeviceTypeMask = mask
+        if let b = browser {
+            if camera == nil, let c = pick(b) { start(c) }
+        } else {
+            let delegate = PhoneCameraDelegate(self)
+            let b = ICDeviceBrowser()
+            b.delegate = delegate
+            if let mask = ICDeviceTypeMask(rawValue: ICDeviceTypeMask.camera.rawValue | ICDeviceLocationTypeMask.local.rawValue) {
+                b.browsedDeviceTypeMask = mask
+            }
+            bridge = delegate
+            browser = b
+            b.start()
         }
-        bridge = delegate
-        browser = b
-        b.start()
+        armGiveUp()
         changed()
     }
 
-    /// Closes the session and forgets the listing (the iPhone was unplugged, or the page let it go).
+    /// An iPhone that says nothing: the page offers to try again rather than wait for ever.
+    private func armGiveUp() {
+        giveUp?.invalidate()
+        let t = Timer(timeInterval: 25, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.timedOut() }
+        }
+        t.tolerance = 2
+        RunLoop.main.add(t, forMode: .common)
+        giveUp = t
+    }
+
+    private func timedOut() {
+        giveUp = nil
+        guard state == .listing else { return }
+        close()
+        state = .failed("L'iPhone ne montre pas ses photos. Déverrouille-le, débranche-le et rebranche-le, puis réessaie.")
+        changed()
+    }
+
+    /// Closes the session and forgets the listing (the iPhone was unplugged, or the page let it go). The browser stays.
     func close() {
         settle?.invalidate()
-        settle = nil
+        giveUp?.invalidate()
+        (settle, giveUp) = (nil, nil)
         camera?.requestCloseSession()
         camera?.delegate = nil
-        browser?.stop()
-        browser?.delegate = nil
-        (camera, browser, bridge) = (nil, nil, nil)
+        camera = nil
+        wanting = false
         files = [:]
         twins = [:]
         items = []
@@ -72,22 +106,41 @@ final class PhoneLibrary {
         changed()
     }
 
+    /// The app quits.
+    func shutdown() {
+        close()
+        browser?.stop()
+        browser?.delegate = nil
+        (browser, bridge) = (nil, nil)
+    }
+
     private static func normalized(_ s: String) -> String { s.replacingOccurrences(of: "-", with: "").lowercased() }
 
     private func changed() { onChange?() }
 
-    // MARK: Device events (from `PhoneCameraDelegate`)
+    /// Several cameras: the one MobileDevice saw, by its serial number (the UDID on an iPhone), else the first.
+    private func pick(_ b: ICDeviceBrowser) -> ICCameraDevice? {
+        let all = present + (b.devices ?? []).compactMap { $0 as? ICCameraDevice }.filter { d in !present.contains { $0 === d } }
+        return all.first { c in wanted.map { Self.normalized(c.serialNumberString ?? "") == $0 } ?? false } ?? all.first
+    }
 
-    fileprivate func found(_ device: ICDevice) {
-        guard camera == nil, let c = device as? ICCameraDevice else { return }
-        // Several cameras: the one MobileDevice saw, by its serial number (the UDID on an iPhone), else the first Apple one.
-        if let wanted, let serial = c.serialNumberString, Self.normalized(serial) != wanted, (browser?.devices?.count ?? 0) > 1 { return }
+    private func start(_ c: ICCameraDevice) {
+        retries = 0
         camera = c
         c.delegate = bridge
         c.requestOpenSession()
     }
 
+    // MARK: Device events (from `PhoneCameraDelegate`)
+
+    fileprivate func found(_ device: ICDevice) {
+        guard let c = device as? ICCameraDevice else { return }
+        if !present.contains(where: { $0 === c }) { present.append(c) }
+        if wanting, camera == nil, let b = browser, let p = pick(b) { start(p) }
+    }
+
     fileprivate func lost(_ device: ICDevice) {
+        present.removeAll { $0 === device }
         guard device === camera else { return }
         close()
     }
@@ -95,7 +148,15 @@ final class PhoneLibrary {
     fileprivate func opened(_ device: ICDevice, error: Error?) {
         guard device === camera, let c = camera else { return }
         if let error = error as NSError? {
-            // -9943: ICReturnDeviceIsPasscodeLocked.
+            // -9943: ICReturnDeviceIsPasscodeLocked. The iPhone often answers it first, then says it is unlocked: when
+            // that came before this answer, nothing else would ask again.
+            if error.code == -9943, !c.isAccessRestrictedAppleDevice, retries < 3 {
+                retries += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                    MainActor.assumeIsolated { if self?.camera === c { c.requestOpenSession() } }
+                }
+                return
+            }
             state = error.code == -9943 || c.isAccessRestrictedAppleDevice ? .locked : .failed(error.localizedDescription)
             changed()
             return
@@ -115,6 +176,7 @@ final class PhoneLibrary {
             changed()
         } else if state == .locked {
             state = .listing
+            armGiveUp()
             changed()
             c.requestOpenSession()
         }
@@ -186,6 +248,8 @@ final class PhoneLibrary {
         files = map
         twins = doubles
         items = out
+        giveUp?.invalidate()
+        giveUp = nil
         state = .ready
         changed()
     }

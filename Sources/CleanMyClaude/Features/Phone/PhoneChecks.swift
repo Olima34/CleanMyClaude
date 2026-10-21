@@ -152,6 +152,14 @@ enum PhoneChecks {
             lines += describePhotos(m)
             lines.append("Durée : \(Fmt.duration(Date().timeIntervalSince(start)))")
         }
+        // `--rouvrir`: closes the photos and opens them again, as after an unplugged iPhone or a second visit.
+        if Entry.arguments.contains("--rouvrir"), m.photoState == .ready {
+            m.library.close()
+            let again = Date()
+            m.openPhotos()
+            spin(30) { m.photoState == .ready || m.photoState != .listing && m.photoState != .locked }
+            lines.append("Réouverture : \(m.photoState) en \(Fmt.dec(Date().timeIntervalSince(again))) s, \(Fmt.int(m.items.count)) éléments")
+        }
         // `--copie <dossier>`: copies a Live Photo and a small video, checked against the iPhone. Nothing is deleted.
         if let folder = Entry.value(after: "--copie"), m.photoState == .ready {
             let live = m.items.filter { $0.live }.min { $0.size < $1.size }

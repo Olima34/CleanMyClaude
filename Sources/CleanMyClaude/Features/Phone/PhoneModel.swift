@@ -95,7 +95,7 @@ final class PhoneModel: AppModule {
         if let subscription { PhoneBridge.unsubscribe(subscription) }
         subscription = nil
         cancel.cancel()
-        library.close()
+        library.shutdown()
         for d in devices { PhoneBridge.release(d.device) }
         devices = []
         healthStore.flush()
