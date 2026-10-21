@@ -5,8 +5,8 @@ import Observation
 enum Page: String, CaseIterable, Identifiable {
     // Declared in sidebar order: the first nine get ⌘1…⌘9.
     case dashboard, refuge, cleanup, protection, performance, battery, updates, apps, storage
-    case phone, converter, wheel, fillsign, youtube, cinema, translator, toolbox, clipboard, network, adblock, darkmode
-    case launcher, hotkeys, windows, automation
+    case phone, wheel, media, toolbox, clipboard
+    case launcher, hotkeys, automation
     case assistant, menubar
 
     var id: String { rawValue }
@@ -23,20 +23,12 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "Applications"
         case .storage: return "Espace de stockage"
         case .phone: return "iPhone"
-        case .converter: return "Convertisseur"
-        case .wheel: return "Roue des fichiers"
-        case .fillsign: return "Remplir et signer"
-        case .youtube: return "Vidéos YouTube"
-        case .cinema: return "Films et séries"
-        case .translator: return "Traducteur"
+        case .wheel: return "Convertisseur"
+        case .media: return "Multimédia"
         case .hotkeys: return "Raccourcis"
         case .toolbox: return "Boîte à outils"
         case .clipboard: return "Presse-papiers"
-        case .network: return "Réseau"
-        case .adblock: return "Bloqueur de pub"
-        case .darkmode: return "Sombre partout"
         case .launcher: return "Lanceur"
-        case .windows: return "Fenêtres"
         case .automation: return "Automatisations"
         case .assistant: return "Assistant Claude"
         case .menubar: return "Menu d'état"
@@ -55,20 +47,12 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "square.grid.2x2"
         case .storage: return "chart.pie"
         case .phone: return "iphone"
-        case .converter: return "arrow.left.arrow.right.square"
-        case .wheel: return "dial.medium"
-        case .fillsign: return "signature"
-        case .youtube: return "play.rectangle"
-        case .cinema: return "popcorn"
-        case .translator: return "character.bubble"
+        case .wheel: return "arrow.left.arrow.right.square"
+        case .media: return "play.tv"
         case .hotkeys: return "keyboard"
         case .toolbox: return "wrench.and.screwdriver"
         case .clipboard: return "doc.on.clipboard"
-        case .network: return "network"
-        case .adblock: return "hand.raised"
-        case .darkmode: return "moon.stars"
         case .launcher: return "command"
-        case .windows: return "rectangle.split.2x1"
         case .automation: return "clock.arrow.2.circlepath"
         case .assistant: return "sparkle"
         case .menubar: return "menubar.rectangle"
@@ -88,20 +72,12 @@ enum Page: String, CaseIterable, Identifiable {
         case .apps: return "Les apps que tu n'ouvres plus, désinstallées sans rien oublier."
         case .storage: return "La carte de ton disque, les gros fichiers et les doublons."
         case .phone: return "Branche ton iPhone : sa santé, et ses photos et vidéos triées."
-        case .converter: return "Images, vidéos, audio, PDF et documents : dépose, c'est converti."
-        case .wheel: return "Glisse un fichier : une roue pour recadrer, convertir, annoter sans rien ouvrir."
-        case .fillsign: return "Remplis un formulaire PDF, signe et paraphe en quelques clics."
-        case .youtube: return "Colle un lien : la vidéo en MP4 ou le son en MP3."
-        case .cinema: return "Un film ou une série : sa fiche et où le regarder."
-        case .translator: return "Traduis sur ton Mac, hors ligne, ou avec Claude."
+        case .wheel: return "Glisse un fichier : une roue pour convertir, recadrer, annoter, remplir ou signer, sans rien ouvrir."
+        case .media: return "Films et séries, vidéos sans pub et pubs bloquées pour tout le Mac."
         case .toolbox: return "Couleurs, mots de passe, Caféine et autres petits outils."
         case .clipboard: return "Retrouve tout ce que tu as copié : texte, liens et images."
-        case .network: return "Wi-Fi, débit, latence : ta connexion à la loupe."
-        case .adblock: return "Les pubs et les pisteurs bloqués pour tout le Mac."
-        case .darkmode: return "Les sites et les apps restés clairs passent en sombre."
         case .launcher: return "Une barre pour tout faire, d'un raccourci, depuis n'importe où."
-        case .hotkeys: return "Un raccourci clavier pour chaque app, dossier ou site."
-        case .windows: return "Moitiés, tiers et quarts d'écran au clavier."
+        case .hotkeys: return "Un raccourci pour chaque app, dossier ou site, et tes fenêtres rangées au clavier."
         case .automation: return "Ton Mac s'entretient tout seul, selon tes règles."
         case .assistant: return "Pose tes questions sur ton Mac, Claude te répond."
         case .menubar: return "Processeur, mémoire et actions express dans la barre des menus."
@@ -112,8 +88,8 @@ enum Page: String, CaseIterable, Identifiable {
         ("Accueil", [.dashboard, .refuge]),
         ("Entretien", [.cleanup, .protection, .performance, .battery, .updates]),
         ("Espace", [.apps, .storage, .phone]),
-        ("Outils", [.converter, .wheel, .fillsign, .youtube, .cinema, .translator, .toolbox, .clipboard, .network, .adblock, .darkmode]),
-        ("Contrôle", [.launcher, .hotkeys, .windows, .automation]),
+        ("Outils", [.wheel, .media, .toolbox, .clipboard]),
+        ("Contrôle", [.launcher, .hotkeys, .automation]),
         ("Claude", [.assistant]),
         ("En continu", [.menubar])
     ]
@@ -178,7 +154,8 @@ final class AppModel {
     let hotkeys = HotkeysModel()
     let battery = BatteryModel()
     let adblock = AdBlockModel()
-    let darkmode = DarkModeModel()
+    /// The Multimédia page: Films et séries and the ad blocker together.
+    let media = MediaModel()
     let phone = PhoneModel()
     /// The chamois and its Refuge: blueberries, stages, notebook, badges, moods.
     let refuge = RefugeModel()
@@ -260,7 +237,6 @@ final class AppModel {
         guard on != mainWindowOnScreen else { return }
         mainWindowOnScreen = on
         performance.setWindowOnScreen(on)
-        network.setWindowOnScreen(on)
     }
 
     func refreshPermissions() {
@@ -298,14 +274,14 @@ final class AppModel {
     // MARK: Modules
 
     /// The modules started so far.
-    @ObservationIgnored private(set) var startedModules: Set<Page> = []
+    @ObservationIgnored private(set) var startedModules: Set<String> = []
 
     /// Starts the modules at launch. While the first-launch cards are up only the launcher starts (its shortcut, the
     /// list of apps): the others wait for the last card, so that nothing they do at launch (file index, folder
     /// watchers, automations, clipboard) brings a macOS question before the Autorisations card has explained it.
     func startModules() {
-        let pages: Set<Page> = showOnboarding ? [.launcher] : Set(ModuleRegistry.modules(self).map(\.page))
-        let new = pages.subtracting(startedModules)
+        let ids: Set<String> = showOnboarding ? ["launcher"] : Set(ModuleRegistry.modules(self).map(\.id))
+        let new = ids.subtracting(startedModules)
         guard !new.isEmpty else { return }
         startedModules.formUnion(new)
         ModuleRegistry.startAll(self, only: new)

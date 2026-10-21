@@ -8,8 +8,8 @@ struct ToolboxPage: View {
         @Bindable var model = app.toolbox
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "wrench.and.screwdriver", title: "Boîte à outils",
-                     subtitle: "Les petits outils du quotidien : couleurs, mots de passe, empreintes, texte, dates, Caféine et curseur caché. Tout se calcule sur ton Mac, et presque tout répond aussi dans le lanceur.",
-                     tint: Theme.palette[7], seed: 71) {
+                     subtitle: "Les petits outils du quotidien, calculés sur ton Mac.",
+                     tint: Theme.palette[7], seed: 71, tip: Self.tip(model.tab)) {
                 ToolboxCaffeinePill()
             }
             PillPicker(options: ToolboxTab.allCases, selection: $model.tab, label: { $0.title }, badge: { tab in
@@ -30,6 +30,33 @@ struct ToolboxPage: View {
             case .caffeine: ToolboxCaffeineTab()
             case .cursor: ToolboxCursorTab()
             }
+        }
+    }
+
+    /// One tip per tool: the first visit to a tab explains it once.
+    static func tip(_ tab: ToolboxTab) -> HelpTip {
+        switch tab {
+        case .colors:
+            return HelpTip(id: "toolbox.colors", title: "Couleurs",
+                           text: "« Choisir à l'écran » ouvre une loupe : clique sur n'importe quel pixel, Échap pour annuler. Clique sur une nuance pour la reprendre ; un clic droit sur une couleur de l'historique la copie dans un autre format.")
+        case .passwords:
+            return HelpTip(id: "toolbox.passwords", title: "Mots de passe",
+                           text: "Tirés par le générateur sécurisé de macOS, ils ne sont enregistrés nulle part. À la copie, ils sont marqués confidentiels : les historiques du presse-papiers, dont celui de Chamois, les ignorent. Dans le lanceur, tape « mdp » ou « phrase ».")
+        case .hashes:
+            return HelpTip(id: "toolbox.hashes", title: "Empreintes",
+                           text: "SHA-256, SHA-384, SHA-512, SHA-1 et MD5 en une seule lecture du fichier. Colle l'empreinte publiée par le site de téléchargement : elle est comparée à chaque fichier. MD5 et SHA-1 détectent une corruption, pas une falsification.")
+        case .text:
+            return HelpTip(id: "toolbox.text", title: "Texte",
+                           text: "Choisis une transformation, colle ton texte à gauche : le résultat s'affiche à droite. Dans le lanceur, « json », « b64 » ou « url » suivis d'un texte font la même chose.")
+        case .time:
+            return HelpTip(id: "toolbox.time", title: "Dates et UUID",
+                           text: "Colle un horodatage (secondes, millisecondes, microsecondes) ou une date (ISO 8601, 2026-10-18 14:30, 18/10/2026…) : il est converti dans tous les formats. Dans le lanceur, tape « uuid » ou « ts ».")
+        case .caffeine:
+            return HelpTip(id: "toolbox.caffeine", title: "Caféine",
+                           text: "Ton Mac ne s'endort pas tout seul pendant la durée choisie, même sans toucher au clavier. Le bouton Caféine du menu d'état, ou « caféine 1h » dans le lanceur, l'allume aussi. Rabattre l'écran d'un portable le met quand même en veille, sauf avec un écran externe et sur secteur.")
+        case .cursor:
+            return HelpTip(id: "toolbox.cursor", title: "Curseur caché",
+                           text: "Il disparaît quand la souris ne bouge plus, et revient dès qu'elle bouge ou clique ; faire défiler ou taper au clavier ne le fait pas revenir. Le menu d'état, ou « curseur 10 s » dans le lanceur, l'allume aussi.")
         }
     }
 }
@@ -139,8 +166,7 @@ struct ToolboxColorsTab: View {
                     }
                 }
                 .frame(width: 370)
-                Panel(title: "Formats", subtitle: "Prêts à coller dans ton code ou ta feuille de style", symbol: "chevron.left.forwardslash.chevron.right",
-                      tint: Theme.palette[7]) {
+                Panel(title: "Formats", symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.palette[7]) {
                     VStack(spacing: 2) {
                         ToolboxValueRow(label: "HEX", value: c.hex)
                         ToolboxValueRow(label: "RGB", value: c.rgbString)
@@ -168,8 +194,7 @@ struct ToolboxColorsTab: View {
                     }
                 }
             }
-            Panel(title: "Historique", subtitle: "Les couleurs choisies à l'écran ou cliquées, gardées sur ce Mac", symbol: "clock.arrow.circlepath",
-                  tint: Theme.palette[7]) {
+            Panel(title: "Historique", symbol: "clock.arrow.circlepath", tint: Theme.palette[7]) {
                 if !m.settings.colors.isEmpty {
                     Button("Effacer") { m.settings.colors.removeAll() }.buttonStyle(SoftButtonStyle(small: true))
                 }
@@ -224,7 +249,7 @@ struct ToolboxPasswordsTab: View {
         @Bindable var m = app.toolbox
         VStack(alignment: .leading, spacing: 14) {
             TileRow {
-                Panel(title: "Mot de passe", subtitle: "Aléatoire, tiré par le générateur sécurisé de macOS", symbol: "key.fill", tint: Theme.palette[7]) {
+                Panel(title: "Mot de passe", symbol: "key.fill", tint: Theme.palette[7]) {
                     ToolboxSecretText(text: m.password)
                     ToolboxStrength(bits: ToolboxPassword.entropy(m.settings.password))
                     HStack(spacing: 8) {
@@ -245,11 +270,11 @@ struct ToolboxPasswordsTab: View {
                         ToolboxSwitch(title: "Minuscules (a–z)", isOn: $m.settings.password.lower)
                         ToolboxSwitch(title: "Chiffres (0–9)", isOn: $m.settings.password.digits)
                         ToolboxSwitch(title: "Symboles (! # $ % & * + = ? @…)", isOn: $m.settings.password.symbols)
-                        ToolboxSwitch(title: "Sans caractères ambigus", detail: "Ni 0 ni O, ni 1, l ou I, ni guillemets : plus simple à recopier à la main.",
-                                      isOn: $m.settings.password.avoidAmbiguous)
+                        ToolboxSwitch(title: "Sans caractères ambigus (0 O, 1 l I…)", isOn: $m.settings.password.avoidAmbiguous)
+                            .help("Ni 0 ni O, ni 1, l ou I, ni guillemets : plus simple à recopier à la main.")
                     }
                 }
-                Panel(title: "Phrase de passe", subtitle: "Des mots tirés au hasard : facile à retenir, difficile à deviner", symbol: "text.word.spacing",
+                Panel(title: "Phrase de passe", subtitle: "Facile à retenir, difficile à deviner", symbol: "text.word.spacing",
                       tint: Theme.palette[7]) {
                     ToolboxSecretText(text: m.passphrase, words: true)
                     ToolboxStrength(bits: ToolboxPassword.passphraseEntropy(m.settings.passphrase))
@@ -280,23 +305,21 @@ struct ToolboxPasswordsTab: View {
                         ToolboxSwitch(title: "Une majuscule à chaque mot", isOn: $m.settings.passphrase.capitalize)
                         ToolboxSwitch(title: "Ajouter un chiffre", isOn: $m.settings.passphrase.addNumber)
                     }
-                    Text("\(Fmt.int(ToolboxWords.list.count)) mots français sans accents, faciles à taper sur tous les claviers.")
-                        .font(.ui(11)).foregroundStyle(Theme.text3)
+                    .help("\(Fmt.int(ToolboxWords.list.count)) mots français sans accents, faciles à taper sur tous les claviers.")
                 }
             }
-            Card(padding: 16) {
-                HStack(alignment: .top, spacing: 14) {
-                    IconBadge(symbol: "lock.shield", tint: Theme.good, size: 30)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Rien ne quitte ton Mac").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                        Text("Les mots de passe sont tirés par SecRandomCopyBytes et ne sont enregistrés nulle part. À la copie, ils sont marqués confidentiels : les historiques de presse-papiers, dont celui de Chamois, les ignorent.")
-                            .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 20)
-                    ToolboxSwitch(title: "Effacer après 90 s", detail: "Si rien d'autre n'a été copié entre-temps", isOn: $m.settings.clearSecrets)
-                        .frame(width: 250)
+            HStack(spacing: 10) {
+                if Theme.icons != .hidden {
+                    Image(systemName: "lock.shield").font(.ui(12, .medium)).foregroundStyle(Theme.icons == .tinted ? Theme.good : Theme.text2)
                 }
+                Text("Enregistrés nulle part, ignorés par les historiques du presse-papiers.")
+                    .font(.ui(12)).foregroundStyle(Theme.text2)
+                Spacer(minLength: 20)
+                ToolboxSwitch(title: "Effacer du presse-papiers après 90 s", isOn: $m.settings.clearSecrets)
+                    .help("Si rien d'autre n'a été copié entre-temps")
+                    .fixedSize()
             }
+            .padding(.horizontal, 4)
         }
         .onChange(of: m.settings.password) { _, _ in m.regeneratePassword() }
         .onChange(of: m.settings.passphrase) { _, _ in m.regeneratePassphrase() }
@@ -347,13 +370,13 @@ struct ToolboxHashesTab: View {
         let guess = ToolboxHash.guess(m.expectedHash)
         VStack(alignment: .leading, spacing: 14) {
             ToolboxDropZone(title: "Dépose des fichiers pour calculer leurs empreintes",
-                     subtitle: "ou clique pour les choisir · SHA-256, SHA-384, SHA-512, SHA-1 et MD5 en une seule lecture",
+                     subtitle: "ou clique pour les choisir",
                      symbol: "number.square") { m.hash($0) }
             VStack(alignment: .leading, spacing: 6) {
-                ToolboxField(placeholder: "Empreinte attendue : colle celle du site de téléchargement pour vérifier le fichier", text: $m.expectedHash,
+                ToolboxField(placeholder: "Empreinte attendue, pour vérifier un téléchargement", text: $m.expectedHash,
                              mono: true, symbol: "checkmark.seal")
                 if !m.expectedHash.isEmpty {
-                    Text(guess.map { "Ça ressemble à du \($0.title) : elle est comparée à chaque fichier ci-dessous." }
+                    Text(guess.map { "Ça ressemble à du \($0.title)." }
                          ?? "Ce n'est pas une empreinte hexadécimale (32, 40, 64, 96 ou 128 caractères 0-9 a-f).")
                         .font(.ui(11)).foregroundStyle(guess == nil ? Theme.warn : Theme.text3)
                 }
@@ -367,9 +390,9 @@ struct ToolboxHashesTab: View {
                 let anyMatch = m.hashJobs.contains { $0.state == .done && ToolboxHash.match(m.expectedHash, in: $0.results) != nil }
                 ForEach(m.hashJobs) { job in ToolboxHashCard(job: job, expected: m.expectedHash, anotherMatches: anyMatch) }
             }
-            Panel(title: "Empreinte d'un texte", subtitle: "Calculée sur les octets UTF-8 du texte, sans retour à la ligne final", symbol: "text.cursor",
-                  tint: Theme.palette[7]) {
+            Panel(title: "Empreinte d'un texte", symbol: "text.cursor", tint: Theme.palette[7]) {
                 ToolboxField(placeholder: "Tape ou colle un texte", text: $m.hashText, mono: true)
+                    .help("Calculée sur les octets UTF-8 du texte, sans retour à la ligne final")
                 if !m.hashText.isEmpty {
                     let r = ToolboxHash.digests(of: Data(m.hashText.utf8))
                     let match = ToolboxHash.match(m.expectedHash, in: r)
@@ -443,8 +466,8 @@ struct ToolboxHashCard: View {
                     }
                 }
                 if !expected.isEmpty && (match != nil || !anotherMatches) {
-                    Text(match.map { "L'empreinte \($0.title) correspond : le fichier est bien celui annoncé." + ($0.isWeak ? " (\($0.title) détecte une corruption, pas une falsification : préfère SHA-256 quand il est proposé.)" : "") }
-                         ?? "Aucune empreinte ne correspond : le fichier est différent, incomplet ou corrompu. Ne l'ouvre pas s'il vient d'Internet.")
+                    Text(match.map { "L'empreinte \($0.title) correspond : le fichier est bien celui annoncé." + ($0.isWeak ? " Préfère SHA-256 quand il est proposé." : "") }
+                         ?? "Aucune empreinte ne correspond : fichier différent, incomplet ou corrompu. Ne l'ouvre pas s'il vient d'Internet.")
                         .font(.ui(11.5)).foregroundStyle(match != nil ? Theme.good : Theme.bad)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -502,7 +525,7 @@ struct ToolboxTextTab: View {
                 }
             }
             TileRow {
-                Panel(title: "Compteur", subtitle: "Le texte de l'entrée, à la loupe", symbol: "textformat.123", tint: Theme.palette[7]) {
+                Panel(title: "Compteur", symbol: "textformat.123", tint: Theme.palette[7]) {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                         stat("Mots", Fmt.int(counts.words))
                         stat("Caractères", Fmt.int(counts.characters))
@@ -554,7 +577,7 @@ struct ToolboxLoremPanel: View {
     var body: some View {
         @Bindable var m = app.toolbox
         let text = ToolboxText.lorem(m.loremCount, unit: m.loremUnit, seed: m.loremSeed)
-        Panel(title: "Lorem ipsum", subtitle: "Du faux texte pour remplir une maquette", symbol: "text.alignleft", tint: Theme.palette[7]) {
+        Panel(title: "Lorem ipsum", symbol: "text.alignleft", tint: Theme.palette[7]) {
             HStack(spacing: 8) {
                 HStack(spacing: 5) {
                     ForEach(ToolboxText.LoremUnit.allCases) { u in
@@ -589,7 +612,7 @@ struct ToolboxTimeTab: View {
         let shown = m.settings.uuidLowercase ? m.uuid.lowercased() : m.uuid
         VStack(alignment: .leading, spacing: 14) {
             TileRow {
-                Panel(title: "UUID", subtitle: "Un identifiant unique et aléatoire (version 4)", symbol: "number", tint: Theme.palette[7]) {
+                Panel(title: "UUID", subtitle: "Aléatoire, version 4", symbol: "number", tint: Theme.palette[7]) {
                     Text(shown)
                         .font(.mono(16, .medium))
                         .foregroundStyle(Theme.text)
@@ -614,7 +637,7 @@ struct ToolboxTimeTab: View {
                     }
                     ToolboxSwitch(title: "En minuscules", isOn: $m.settings.uuidLowercase)
                 }
-                Panel(title: "Maintenant", subtitle: "L'heure Unix, seconde après seconde", symbol: "clock", tint: Theme.palette[7]) {
+                Panel(title: "Maintenant", subtitle: "Heure Unix", symbol: "clock", tint: Theme.palette[7]) {
                     ToolboxEverySecond { date in
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(alignment: .firstTextBaseline) {
@@ -630,8 +653,7 @@ struct ToolboxTimeTab: View {
                     }
                 }
             }
-            Panel(title: "Convertir une date", subtitle: "Un horodatage (secondes, millisecondes, microsecondes) ou une date ISO 8601, 2026-10-18 14:30, 18/10/2026…",
-                  symbol: "calendar", tint: Theme.palette[7]) {
+            Panel(title: "Convertir une date", symbol: "calendar", tint: Theme.palette[7]) {
                 ToolboxField(placeholder: "1792326600, 2026-10-18T14:30:00Z, 18/10/2026 14:30…", text: $m.dateInput, mono: true, symbol: "calendar")
                 if let p = ToolboxTime.parse(m.dateInput) {
                     Tag(text: p.source, symbol: "checkmark", tint: Theme.good, filled: true)
@@ -707,21 +729,12 @@ struct ToolboxCaffeineTab: View {
                             }
                         }
                         ToolboxSwitch(title: "Garder aussi l'écran allumé",
-                                      detail: "Sinon l'écran peut s'éteindre, mais ton Mac continue ses tâches : téléchargements, rendus, sauvegardes.",
                                       isOn: Binding(get: { m.settings.caffeineDisplay }, set: { m.setCaffeineDisplay($0) }))
-                            .frame(maxWidth: 520)
+                            .help("Sinon l'écran peut s'éteindre, mais ton Mac continue ses tâches : téléchargements, rendus, sauvegardes.")
+                            .frame(maxWidth: 360)
                     }
                     Spacer(minLength: 0)
                 }
-            }
-            TileRow {
-                Callout(symbol: "menubar.rectangle", title: "Dans la barre des menus",
-                        text: "Le bouton « Caféine » du menu d'état l'allume pour ta dernière durée (\(m.settings.caffeineMinutes == 0 ? "sans limite" : ToolboxTime.durationLabel(m.settings.caffeineMinutes))) et l'éteint d'un clic.",
-                        tint: Theme.brand)
-                Callout(symbol: "command", title: "Depuis le lanceur",
-                        text: "Tape « caféine 1h », « caféine 45 min », « caféine indéfiniment » ou « caféine off ».", tint: Theme.brand)
-                Callout(symbol: "laptopcomputer", title: "Bon à savoir",
-                        text: "Rabattre l'écran d'un portable le met quand même en veille, sauf avec un écran externe et sur secteur.", tint: Theme.brand)
             }
         }
     }
@@ -734,11 +747,9 @@ struct ToolboxCaffeineTab: View {
     }
 
     private func subtitle(_ m: ToolboxModel) -> String {
-        guard m.caffeineActive else {
-            return "Choisis une durée : pendant ce temps, ton Mac ne s'endormira pas tout seul, même sans toucher au clavier ni à la souris."
-        }
+        guard m.caffeineActive else { return "Choisis combien de temps il doit rester éveillé." }
         let what = m.settings.caffeineDisplay ? "Ni le Mac ni l'écran ne se mettront en veille" : "Le Mac ne se mettra pas en veille (l'écran peut s'éteindre)"
-        if let end = m.caffeineEnd { return "\(what) jusqu'à \(Fmt.clock(end)), puis tout reprendra son cours." }
+        if let end = m.caffeineEnd { return "\(what) jusqu'à \(Fmt.clock(end))." }
         return "\(what) tant que tu n'arrêtes pas Caféine."
     }
 }

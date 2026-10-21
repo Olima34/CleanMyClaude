@@ -48,36 +48,51 @@ extension AppModule {
     func dump() -> [String] { [] }
 }
 
-/// The single list of modules. Adding a module means adding it here, in `Page`, `AppModel`, `PageView`, `BottomBar` and the
-/// profiles that need it (`ToolProfileKind.pages`);
+/// A module in the registry: its name for `--dump --only`, its label in the self-tests and the page that shows it.
+struct ModuleEntry {
+    /// `--dump --only <id>` (launcher, converter, youtube…).
+    let id: String
+    let title: String
+    /// The sidebar page that shows it, or nil for a module without a page of its own: it lives in the launcher
+    /// (YouTube, Traducteur), the settings (Réseau) or the windows of the Convertisseur (Remplir et signer).
+    let page: Page?
+    let module: any AppModule
+}
+
+/// The single list of modules. Adding a module means adding it here, in `AppModel`, and if it has a page in `Page`,
+/// `PageView`, `BottomBar` and the profiles that need it (`ToolProfileKind.pages`);
 /// everything else (launcher, demo, self-tests, snapshots, menu bar) goes through this registry.
 @MainActor
 enum ModuleRegistry {
-    static func modules(_ app: AppModel) -> [(page: Page, module: any AppModule)] {
+    static func modules(_ app: AppModel) -> [ModuleEntry] {
         // One append per module: a single literal of existentials takes Xcode 16's type checker too long.
-        var list: [(page: Page, module: any AppModule)] = []
-        list.append((.performance, app.performance))
-        list.append((.battery, app.battery))
-        list.append((.phone, app.phone))
-        list.append((.launcher, app.launcher))
-        list.append((.hotkeys, app.hotkeys))
-        list.append((.converter, app.converter))
-        list.append((.wheel, app.wheel))
-        list.append((.fillsign, app.fillSign))
-        list.append((.youtube, app.youtube))
-        list.append((.cinema, app.cinema))
-        list.append((.translator, app.translator))
-        list.append((.toolbox, app.toolbox))
-        list.append((.clipboard, app.clipboard))
-        list.append((.updates, app.updates))
-        list.append((.network, app.network))
-        list.append((.adblock, app.adblock))
-        list.append((.darkmode, app.darkmode))
-        list.append((.windows, app.windows))
-        list.append((.automation, app.automation))
-        list.append((.assistant, app.assistant))
-        list.append((.protection, app.protection))
-        list.append((.refuge, app.refuge))
+        // A page's first module gives its sidebar badge.
+        var list: [ModuleEntry] = []
+        func add(_ id: String, _ title: String, _ page: Page?, _ module: any AppModule) {
+            list.append(ModuleEntry(id: id, title: title, page: page, module: module))
+        }
+        add("performance", Page.performance.title, .performance, app.performance)
+        add("battery", Page.battery.title, .battery, app.battery)
+        add("phone", Page.phone.title, .phone, app.phone)
+        add("launcher", Page.launcher.title, .launcher, app.launcher)
+        add("hotkeys", Page.hotkeys.title, .hotkeys, app.hotkeys)
+        add("windows", "Fenêtres", .hotkeys, app.windows)
+        add("wheel", Page.wheel.title, .wheel, app.wheel)
+        add("converter", "Conversions", .wheel, app.converter)
+        add("fillsign", "Remplir et signer", nil, app.fillSign)
+        add("youtube", "Vidéos YouTube", nil, app.youtube)
+        add("media", Page.media.title, .media, app.media)
+        add("cinema", "Films et séries", .media, app.cinema)
+        add("adblock", "Bloqueur de pub", .media, app.adblock)
+        add("translator", "Traducteur", nil, app.translator)
+        add("toolbox", Page.toolbox.title, .toolbox, app.toolbox)
+        add("clipboard", Page.clipboard.title, .clipboard, app.clipboard)
+        add("updates", Page.updates.title, .updates, app.updates)
+        add("network", "Réseau", nil, app.network)
+        add("automation", Page.automation.title, .automation, app.automation)
+        add("assistant", Page.assistant.title, .assistant, app.assistant)
+        add("protection", Page.protection.title, .protection, app.protection)
+        add("refuge", Page.refuge.title, .refuge, app.refuge)
         return list
     }
 
@@ -85,26 +100,26 @@ enum ModuleRegistry {
         modules(app).first { $0.page == page }?.module
     }
 
-    /// `only`: just these pages' modules (`AppModel.startModules` holds the others back during the first-launch cards).
-    static func startAll(_ app: AppModel, only pages: Set<Page>? = nil) {
+    /// `only`: just these modules (`AppModel.startModules` holds the others back during the first-launch cards).
+    static func startAll(_ app: AppModel, only ids: Set<String>? = nil) {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
-        for (page, m) in modules(app) where pages?.contains(page) ?? true { m.start(app: app) }
+        for e in modules(app) where ids?.contains(e.id) ?? true { e.module.start(app: app) }
     }
 
     /// Called when the app quits: modules release what they hold (Caféine, timers) and save their data.
     /// `only`: the modules that were started.
-    static func stopAll(_ app: AppModel, only pages: Set<Page>? = nil) {
+    static func stopAll(_ app: AppModel, only ids: Set<String>? = nil) {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
-        for (page, m) in modules(app) where pages?.contains(page) ?? true { m.stop() }
+        for e in modules(app) where ids?.contains(e.id) ?? true { e.module.stop() }
     }
 
     static func loadDemo(_ app: AppModel) {
-        for (_, m) in modules(app) { m.loadDemo() }
+        for e in modules(app) { e.module.loadDemo() }
     }
 
     /// `only`: the page being captured, so that a tab name shared by two modules reaches the right one.
     static func applySnapshotTab(_ tab: String, only: Page? = nil, app: AppModel) {
-        for (page, m) in modules(app) where only == nil || only == page { m.applySnapshotTab(tab) }
+        for e in modules(app) where only == nil || only == e.page { e.module.applySnapshotTab(tab) }
     }
 
     static func quickToggles(_ app: AppModel) -> [QuickToggle] {
@@ -122,8 +137,8 @@ enum ModuleRegistry {
     /// Module self-tests plus the rules every command must follow.
     static func selfTest(_ app: AppModel) -> [String] {
         var failures: [String] = []
-        for (page, m) in modules(app) {
-            failures += m.selfTest().map { "[\(page.title)] \($0)" }
+        for e in modules(app) {
+            failures += e.module.selfTest().map { "[\(e.title)] \($0)" }
         }
         // Each floating window keeps to its own job: the launcher, the file window, the clipboard history.
         if DemoData.isEnabled { failures += LauncherModel.windowChecks(app).map { "[Lanceur] \($0)" } }

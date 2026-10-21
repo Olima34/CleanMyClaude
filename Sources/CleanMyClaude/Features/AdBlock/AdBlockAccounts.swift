@@ -212,15 +212,15 @@ struct AdBlockAccountsPanel: View {
 
     var body: some View {
         let m = app.adblock
-        Panel(title: "Tes comptes dans le lecteur", subtitle: "Connecte-toi une fois : le lecteur sans pub s'en souvient, comme ton navigateur",
-              symbol: "person.2", tint: AdBlockPage.tint) {
+        Panel(title: "Tes comptes dans le lecteur", subtitle: "Connecte-toi une fois, le lecteur s'en souvient",
+              symbol: "person.2", tint: AdBlockStyle.tint) {
+            HelpTipButton(tip: AdBlockTips.accounts, opensByItself: false)
+        } content: {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(AdBlockAccount.all) { account in
                     row(account, m)
                     if account != AdBlockAccount.all.last { Divider().overlay(Theme.border) }
                 }
-                Text("Ta connexion reste dans Chamois, sur ce Mac, comme dans Safari : Chamois ne voit ni ton mot de passe ni ton compte. Google te propose une clé d'identification ? Choisis « Essayer une autre méthode » puis ton mot de passe : les clés ne marchent que dans les navigateurs.")
-                    .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
             }
         }
         .onAppear { if m.player.isOpen { m.refreshAccounts() } }
@@ -229,15 +229,11 @@ struct AdBlockAccountsPanel: View {
     private func row(_ account: AdBlockAccount, _ m: AdBlockModel) -> some View {
         let state = m.accounts[account.key] ?? .signedOut
         return HStack(alignment: .center, spacing: 10) {
-            IconBadge(symbol: account.symbol, tint: AdBlockPage.tint, size: 26)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(account.name).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                    if case .signedIn(let name) = state {
-                        Tag(text: name.map { "Connecté · \($0)" } ?? "Connecté", symbol: "checkmark", tint: Theme.good, filled: true)
-                    }
-                }
-                Text(account.serves).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            IconBadge(symbol: account.symbol, tint: AdBlockStyle.tint, size: 26)
+            Text(account.name).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
+                .help(account.serves)
+            if case .signedIn(let name) = state {
+                Tag(text: name.map { "Connecté · \($0)" } ?? "Connecté", symbol: "checkmark", tint: Theme.good, filled: true)
             }
             Spacer(minLength: 8)
             if state.isSignedIn {
@@ -246,8 +242,9 @@ struct AdBlockAccountsPanel: View {
                 Button("Se déconnecter") { m.signOut(account) }
                     .buttonStyle(SoftButtonStyle(small: true))
             } else {
-                Button("Se connecter à \(account.name)") { m.signIn(account) }
+                Button("Se connecter") { m.signIn(account) }
                     .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                    .help(account.serves)
             }
         }
     }

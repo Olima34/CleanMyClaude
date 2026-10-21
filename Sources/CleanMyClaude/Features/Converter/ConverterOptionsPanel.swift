@@ -1,308 +1,176 @@
 import SwiftUI
 
-/// The settings of the selected operation.
-struct ConverterOptionsPanel: View {
-    @Environment(AppModel.self) private var app
+/// The settings of the operation chosen in the Convertisseur's window: a label on the left, chips and sliders on the right.
+struct ConverterOptionsForm: View {
+    @Bindable var model: ConverterModel
+    var op: ConverterOperation
 
     var body: some View {
-        let model = app.converter
-        if let op = model.operation {
+        VStack(alignment: .leading, spacing: 12) {
             let count = model.targets(for: op).count
-            Panel(title: op.commandTitle, subtitle: op.explanation, symbol: op.symbol, tint: op.family.tint) {
-                VStack(alignment: .leading, spacing: 16) {
-                    if count < op.minimumCount {
-                        Callout(symbol: "tray", title: count == 0 ? "Aucun fichier pour cette opération" : "Il en faut au moins \(op.minimumCount)",
-                                text: "Ajoute des \(acceptedText(op)) à la liste.", tint: Theme.warn)
-                    }
-                    options(op)
-                    if count >= op.minimumCount && op != .rename {
-                        HStack(spacing: 6) {
-                            Image(systemName: "arrow.turn.down.right").font(.ui(10.5, .semibold)).foregroundStyle(Theme.text3)
-                            Text("\(op.isBatch ? Fmt.plural(count, "fichier", "fichiers") + " → 1 résultat" : Fmt.plural(count, "fichier", "fichiers")) · \(ConverterModel.summary(op, model.options, qualityApplies: model.qualityApplies(op)))")
-                                .font(.ui(11.5)).foregroundStyle(Theme.text3)
-                        }
-                    }
-                }
+            if count < op.minimumCount {
+                ConverterNote(symbol: "exclamationmark.triangle", text: "Il en faut au moins \(op.minimumCount).", tint: Theme.warn)
             }
+            options
         }
     }
 
-    private func acceptedText(_ op: ConverterOperation) -> String {
-        let kinds = ConverterKind.allCases.filter { op.accepts.contains($0) }
-        return kinds.count > 4 ? "fichiers" : kinds.map(\.plural).joined(separator: " ou ")
-    }
-
     @ViewBuilder
-    private func options(_ op: ConverterOperation) -> some View {
-        @Bindable var model = app.converter
+    private var options: some View {
         switch op {
         case .imageConvert:
-            ConverterOptionRow(label: "Format") {
-                formatChips(selection: $model.options.imageFormat, includeSame: false)
-            }
+            ConverterOptionRow(label: "Format") { formatChips(selection: $model.options.imageFormat, includeSame: false) }
             if model.options.imageFormat?.lossy ?? true { qualityRow($model.options.imageQuality) }
-            Toggle(isOn: $model.options.stripOnConvert) {
-                Text("Retirer aussi la localisation et les métadonnées").font(.ui(12)).foregroundStyle(Theme.text)
+            ConverterOptionRow(label: "Métadonnées") {
+                ConverterChips(options: [false, true], selection: $model.options.stripOnConvert) { $0 ? "Sans GPS ni métadonnées" : "Gardées" }
             }
-            .switchToggles()
         case .imageResize:
-            ConverterOptionRow(label: "Côté le plus long", hint: "les images plus petites ne sont pas agrandies") {
-                FlowLayout(spacing: 6, lineSpacing: 6) {
-                    ForEach([4096, 3000, 2048, 1600, 1280, 1024, 800, 512], id: \.self) { n in
-                        ConverterChip(title: "\(Fmt.int(n)) px", selected: model.options.maxSide == n) { model.options.maxSide = n }
-                    }
-                }
+            ConverterOptionRow(label: "Côté le plus long") {
+                ConverterChips(options: [4096, 3000, 2048, 1600, 1280, 1024, 800, 512], selection: $model.options.maxSide) { "\(Fmt.int($0)) px" }
             }
             ConverterOptionRow(label: "Format") { formatChips(selection: $model.options.resizeFormat, includeSame: true) }
             if model.qualityApplies(op) { qualityRow($model.options.imageQuality) }
         case .imageCompress:
             if model.qualityApplies(op) { qualityRow($model.options.imageQuality) }
-            ConverterOptionRow(label: "Format", hint: "le HEIC est deux fois plus léger que le JPEG") {
-                formatChips(selection: $model.options.compressFormat, includeSame: true, lossyOnly: true)
-            }
-            losslessNote(op)
-            ConverterOptionRow(label: "Réduire aussi la taille") {
-                FlowLayout(spacing: 6, lineSpacing: 6) {
-                    ForEach([0, 3000, 2048, 1600, 1280], id: \.self) { n in
-                        ConverterChip(title: n == 0 ? "Non" : "\(Fmt.int(n)) px", selected: model.options.compressMaxSide == n) {
-                            model.options.compressMaxSide = n
-                        }
-                    }
+            ConverterOptionRow(label: "Format") {
+                VStack(alignment: .leading, spacing: 5) {
+                    formatChips(selection: $model.options.compressFormat, includeSame: true, lossyOnly: true)
+                    losslessNote
                 }
+            }
+            ConverterOptionRow(label: "Taille") {
+                ConverterChips(options: [0, 3000, 2048, 1600, 1280], selection: $model.options.compressMaxSide) { $0 == 0 ? "D'origine" : "\(Fmt.int($0)) px" }
             }
         case .imageStrip:
-            ConverterOptionRow(label: "Ce qui part") {
-                HStack(spacing: 8) {
-                    ConverterChoiceCard(title: ConverterStripMode.gps.title, subtitle: "La position GPS ; le reste (date, appareil) reste",
-                                        selected: model.options.stripMode == .gps) { model.options.stripMode = .gps }
-                    ConverterChoiceCard(title: ConverterStripMode.all.title, subtitle: "GPS, appareil, date, logiciel… seule l'orientation reste",
-                                        selected: model.options.stripMode == .all) { model.options.stripMode = .all }
-                }
+            ConverterOptionRow(label: "Retirer") {
+                ConverterChips(options: ConverterStripMode.allCases, selection: $model.options.stripMode) { $0 == .gps ? "La position GPS" : "Toutes les métadonnées" }
             }
-            note("checkmark.seal", "Sans recompression quand le format le permet (JPEG, PNG, TIFF, HEIC pour le GPS) : les pixels restent identiques. Sinon, réencodage en qualité maximale, et je vérifie toujours le résultat.")
         case .imagesToPDF:
             ConverterOptionRow(label: "Pages") {
-                HStack(spacing: 6) {
-                    ForEach(ConverterPageSize.allCases) { s in
-                        ConverterChip(title: s.title, selected: model.options.pageSize == s) { model.options.pageSize = s }
-                    }
-                }
+                ConverterChips(options: ConverterPageSize.allCases, selection: $model.options.pageSize) { $0.title }
             }
             qualityRow($model.options.imageQuality, label: "Qualité des photos")
         case .videoCompress:
-            ConverterOptionRow(label: "Réglage") {
-                VStack(spacing: 8) {
-                    ForEach(Array(stride(from: 0, to: ConverterVideoPreset.allCases.count, by: 2)), id: \.self) { i in
-                        HStack(spacing: 8) {
-                            ForEach(ConverterVideoPreset.allCases[i..<min(i + 2, ConverterVideoPreset.allCases.count)]) { p in
-                                ConverterChoiceCard(title: p.title, subtitle: p.subtitle, selected: model.options.videoPreset == p,
-                                                    tint: op.family.tint) { model.options.videoPreset = p }
-                            }
-                        }
-                    }
-                }
+            ConverterOptionRow(label: "Réglage", hint: model.options.videoPreset.subtitle) {
+                ConverterChips(options: ConverterVideoPreset.allCases, selection: $model.options.videoPreset) { $0.title }
             }
             ConverterOptionRow(label: "Fichier") {
-                HStack(spacing: 6) {
-                    ForEach([ConverterVideoContainer.mp4, .mov]) { c in
-                        ConverterChip(title: c.name, selected: model.options.compressContainer == c) { model.options.compressContainer = c }
-                    }
-                }
+                ConverterChips(options: [ConverterVideoContainer.mp4, .mov], selection: $model.options.compressContainer) { $0.name }
             }
         case .videoContainer:
             ConverterOptionRow(label: "Convertir en") {
-                HStack(spacing: 6) {
-                    ForEach(model.containers) { c in
-                        ConverterChip(title: c.name + (c.viaFFmpeg ? " · ffmpeg" : ""), selected: model.options.container == c) {
-                            model.options.container = c
-                        }
-                    }
+                VStack(alignment: .leading, spacing: 5) {
+                    ConverterChips(options: model.containers, selection: $model.options.container) { $0.name }
+                    if model.ffmpegPath == nil && !DemoData.isEnabled { ConverterNote(symbol: "shippingbox", text: "MKV et WebM : installe ffmpeg (brew install ffmpeg).") }
                 }
             }
-            if model.ffmpegPath == nil && !DemoData.isEnabled {
-                note("shippingbox", "MKV et WebM arrivent si tu installes ffmpeg (brew install ffmpeg).")
-            }
-        case .videoAudio:
-            note("music.note", "La piste son est copiée en AAC (.m4a), lisible par Musique, iPhone et tous les lecteurs.")
         case .videoGIF:
             ConverterOptionRow(label: "Largeur") {
-                HStack(spacing: 6) {
-                    ForEach([320, 480, 640, 800], id: \.self) { w in
-                        ConverterChip(title: "\(w) px", selected: model.options.gifWidth == w) { model.options.gifWidth = w }
-                    }
-                }
+                ConverterChips(options: [320, 480, 640, 800], selection: $model.options.gifWidth) { "\($0) px" }
             }
             ConverterOptionRow(label: "Images par seconde") {
-                HStack(spacing: 6) {
-                    ForEach([8, 12, 15, 24], id: \.self) { f in
-                        ConverterChip(title: "\(f)", selected: model.options.gifFPS == f) { model.options.gifFPS = f }
-                    }
-                }
+                ConverterChips(options: [8, 12, 15, 24], selection: $model.options.gifFPS) { "\($0)" }
             }
-            ConverterOptionRow(label: "Durée", hint: "depuis le début de la vidéo") {
-                HStack(spacing: 6) {
-                    ForEach([5, 10, 30, 0], id: \.self) { s in
-                        ConverterChip(title: s == 0 ? "Toute la vidéo" : "\(s) s", selected: model.options.gifSeconds == s) { model.options.gifSeconds = s }
-                    }
-                }
+            ConverterOptionRow(label: "Durée", hint: "depuis le début") {
+                ConverterChips(options: [5, 10, 30, 0], selection: $model.options.gifSeconds) { $0 == 0 ? "Toute la vidéo" : "\($0) s" }
             }
         case .audioConvert:
             ConverterOptionRow(label: "Format") {
-                FlowLayout(spacing: 6, lineSpacing: 6) {
-                    ForEach(model.audioFormats) { f in
-                        ConverterChip(title: f.name, selected: model.options.audioFormat == f) { model.options.audioFormat = f }
-                    }
+                VStack(alignment: .leading, spacing: 5) {
+                    ConverterChips(options: model.audioFormats, selection: $model.options.audioFormat) { $0.name }
+                    if model.ffmpegPath == nil && !DemoData.isEnabled { ConverterNote(symbol: "shippingbox", text: "MP3 : installe ffmpeg (brew install ffmpeg).") }
                 }
             }
             if model.options.audioFormat.lossy {
                 ConverterOptionRow(label: "Débit") {
-                    HStack(spacing: 6) {
-                        ForEach([128, 192, 256, 320], id: \.self) { b in
-                            ConverterChip(title: "\(b) kb/s", selected: model.options.audioBitrate == b) { model.options.audioBitrate = b }
-                        }
-                    }
+                    ConverterChips(options: [128, 192, 256, 320], selection: $model.options.audioBitrate) { "\($0) kb/s" }
                 }
             }
-            if model.ffmpegPath == nil && !DemoData.isEnabled {
-                note("shippingbox", "Le MP3 arrive si tu installes ffmpeg (brew install ffmpeg) : macOS ne sait pas en créer seul.")
-            }
         case .pdfMerge:
-            ConverterMergeOptions()
+            ConverterMergeOptions(model: model)
         case .pdfSplit:
             pagesRow(required: true)
             ConverterOptionRow(label: "Résultat") {
-                HStack(spacing: 6) {
-                    ForEach(ConverterSplitMode.allCases) { m in
-                        ConverterChip(title: m.title, selected: model.options.splitMode == m) { model.options.splitMode = m }
-                    }
-                }
+                ConverterChips(options: ConverterSplitMode.allCases, selection: $model.options.splitMode) { $0.title }
             }
         case .pdfRotate:
             ConverterOptionRow(label: "Sens") {
-                HStack(spacing: 6) {
-                    ConverterChip(title: "90° à droite", symbol: "rotate.right", selected: model.options.rotation == 90) { model.options.rotation = 90 }
-                    ConverterChip(title: "180°", symbol: "arrow.uturn.down", selected: model.options.rotation == 180) { model.options.rotation = 180 }
-                    ConverterChip(title: "90° à gauche", symbol: "rotate.left", selected: model.options.rotation == 270) { model.options.rotation = 270 }
+                ConverterChips(options: [90, 180, 270], selection: $model.options.rotation,
+                               symbol: { $0 == 90 ? "rotate.right" : ($0 == 180 ? "arrow.uturn.down" : "rotate.left") }) {
+                    $0 == 90 ? "90° à droite" : ($0 == 180 ? "180°" : "90° à gauche")
                 }
             }
             pagesRow(required: false)
         case .pdfCompress:
-            ConverterOptionRow(label: "Niveau") {
-                HStack(spacing: 8) {
-                    ForEach(ConverterPDFCompression.allCases) { c in
-                        ConverterChoiceCard(title: c.title, subtitle: c.subtitle, selected: model.options.pdfCompression == c,
-                                            tint: op.family.tint) { model.options.pdfCompression = c }
-                    }
-                }
+            ConverterOptionRow(label: "Niveau", hint: model.options.pdfCompression.subtitle) {
+                ConverterChips(options: ConverterPDFCompression.allCases, selection: $model.options.pdfCompression) { $0.title }
             }
         case .pdfToImages:
             ConverterOptionRow(label: "Format") {
-                HStack(spacing: 6) {
-                    ForEach(ConverterRasterFormat.allCases) { f in
-                        ConverterChip(title: f.name, selected: model.options.rasterFormat == f) { model.options.rasterFormat = f }
-                    }
-                }
+                ConverterChips(options: ConverterRasterFormat.allCases, selection: $model.options.rasterFormat) { $0.name }
             }
             ConverterOptionRow(label: "Résolution") {
-                HStack(spacing: 6) {
-                    ForEach([72, 150, 300], id: \.self) { d in
-                        ConverterChip(title: "\(d) ppp", selected: model.options.rasterDPI == d) { model.options.rasterDPI = d }
-                    }
-                }
+                ConverterChips(options: [72, 150, 300], selection: $model.options.rasterDPI) { "\($0) ppp" }
             }
             pagesRow(required: false)
         case .documentConvert:
             ConverterOptionRow(label: "Convertir en") {
-                FlowLayout(spacing: 6, lineSpacing: 6) {
-                    ForEach(ConverterDocFormat.allCases) { f in
-                        ConverterChip(title: f.name, selected: model.options.docFormat == f) { model.options.docFormat = f }
-                    }
-                }
-            }
-            if model.targets(for: op).contains(where: { $0.kind == .markdown }) {
-                note("number", "Le Markdown devient une page HTML soignée (thème clair et sombre) ou un PDF A4 mis en page.")
+                ConverterChips(options: ConverterDocFormat.allCases, selection: $model.options.docFormat) { $0.name }
             }
         case .archiveZip:
             ConverterOptionRow(label: "Archives") {
-                HStack(spacing: 6) {
-                    ForEach(ConverterZipMode.allCases) { m in
-                        ConverterChip(title: m.title, selected: model.options.zipMode == m) { model.options.zipMode = m }
-                    }
-                }
+                ConverterChips(options: ConverterZipMode.allCases, selection: $model.options.zipMode) { $0.title }
             }
-        case .archiveExtract:
-            note("folder.badge.plus", "ZIP, TAR, GZ, BZ2, XZ, 7Z et RAR : chaque archive s'ouvre dans un nouveau dossier, rien n'est écrasé.")
         case .rename:
-            ConverterRenameOptions()
-        case .ocr:
-            note("character.bubble", "Reconnaissance sur ton Mac (rien n'est envoyé), en français et en anglais. Les PDF qui contiennent déjà du texte le donnent directement.")
-        case .qrRead:
-            note("qrcode.viewfinder", "QR codes, codes-barres EAN, Aztec, PDF417… Le contenu s'affiche avec un bouton pour le copier.")
-        case .qrGenerate:
+            ConverterRenameOptions(model: model)
+        case .videoAudio, .archiveExtract, .ocr, .qrRead, .qrGenerate:
             EmptyView()
         }
     }
 
     /// "Même format" on a PNG (or a TIFF, a GIF…): lossless, the quality changes nothing. Said instead of a useless slider.
     @ViewBuilder
-    private func losslessNote(_ op: ConverterOperation) -> some View {
-        let model = app.converter
+    private var losslessNote: some View {
         let formats = model.writtenFormats(op)
         let lossless = formats.filter { !$0.lossy }
         if model.chosenImageFormat(op) == nil, !lossless.isEmpty {
             let names = lossless.map(\.name).reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }.joined(separator: ", ")
-            let n = lossless.count
-            note("info.circle", n == formats.count
-                 ? "\(names) : format sans perte, la qualité n'y change rien. Choisis JPEG ou HEIC pour vraiment alléger."
-                 : "La qualité ne s'applique pas \(n == 1 ? "à l'image" : "aux \(n) images") en \(names), sans perte : choisis JPEG ou HEIC pour vraiment \(n == 1 ? "l'alléger" : "les alléger").")
-        }
-    }
-
-    private func note(_ symbol: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Image(systemName: symbol).font(.ui(11.5, .medium)).foregroundStyle(Theme.text3).frame(width: 16)
-            Text(text).font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            ConverterNote(symbol: "info.circle", text: "\(names) : sans perte, la qualité n'y change rien. JPEG ou HEIC pour vraiment alléger.")
         }
     }
 
     private func qualityRow(_ value: Binding<Double>, label: String = "Qualité") -> some View {
-        ConverterOptionRow(label: label, hint: "\(Int((value.wrappedValue * 100).rounded())) %") {
+        ConverterOptionRow(label: label) {
             HStack(spacing: 10) {
                 Text("Léger").font(.ui(11)).foregroundStyle(Theme.text3)
                 ConverterSlider(value: value, range: 0.3...1)
                 Text("Fidèle").font(.ui(11)).foregroundStyle(Theme.text3)
+                Text(Fmt.pct(value.wrappedValue)).font(.ui(11).monospacedDigit()).foregroundStyle(Theme.text2).frame(width: 40, alignment: .trailing)
             }
         }
     }
 
     private func formatChips(selection: Binding<ConverterImageFormat?>, includeSame: Bool, lossyOnly: Bool = false) -> some View {
-        let formats = app.converter.imageFormats.filter { !lossyOnly || $0.lossy }
-        return FlowLayout(spacing: 6, lineSpacing: 6) {
-            if includeSame {
-                ConverterChip(title: "Même format", selected: selection.wrappedValue == nil) { selection.wrappedValue = nil }
-            }
-            ForEach(formats) { f in
-                ConverterChip(title: f.name + (f.viaFFmpeg ? " · ffmpeg" : ""), selected: selection.wrappedValue == f) { selection.wrappedValue = f }
-            }
-        }
+        let formats: [ConverterImageFormat?] = (includeSame ? [nil] : []) + model.imageFormats.filter { !lossyOnly || $0.lossy }.map { $0 }
+        return ConverterChips(options: formats, selection: selection) { $0?.name ?? "Même format" }
     }
 
     private func pagesRow(required: Bool) -> some View {
-        @Bindable var model = app.converter
         let files = model.targets(for: .pdfSplit)
         let counts = files.compactMap(\.pages)
         let smallest = counts.min()
         let parsed = smallest.flatMap { ConverterPDFEngine.parsePages(model.options.pdfPages, count: $0) }
         let empty = model.options.pdfPages.trimmingCharacters(in: .whitespaces).isEmpty
-        return ConverterOptionRow(label: "Pages", hint: empty ? (required ? "toutes, ou par exemple 1-3, 5, 8-" : "toutes") : nil) {
+        return ConverterOptionRow(label: "Pages") {
             VStack(alignment: .leading, spacing: 5) {
-                ConverterTextField(text: $model.options.pdfPages, prompt: "Toutes les pages · ex. 1-3, 5, 8-", symbol: "number", mono: true)
+                ConverterTextField(text: $model.options.pdfPages, prompt: required ? "ex. 1-3, 5, 8-" : "Toutes · ex. 1-3, 5, 8-", symbol: "number", mono: true)
+                    .frame(maxWidth: 260)
                 if !empty {
                     if let parsed, !parsed.isEmpty {
                         Text("\(Fmt.plural(parsed.count, "page", "pages")) : \(ConverterPDFEngine.describePages(parsed))")
                             .font(.ui(11)).foregroundStyle(Theme.good)
-                    } else if smallest != nil {
-                        Text("Je ne comprends pas cette liste (le PDF le plus court a \(Fmt.plural(smallest!, "page", "pages"))).")
+                    } else if let smallest {
+                        Text("Je ne comprends pas cette liste (\(Fmt.plural(smallest, "page", "pages")) au plus).")
                             .font(.ui(11)).foregroundStyle(Theme.warn)
                     }
                 }
@@ -313,12 +181,11 @@ struct ConverterOptionsPanel: View {
 
 /// Pattern, numbering, find and replace, case.
 struct ConverterRenameOptions: View {
-    @Environment(AppModel.self) private var app
+    @Bindable var model: ConverterModel
 
     var body: some View {
-        @Bindable var model = app.converter
-        VStack(alignment: .leading, spacing: 16) {
-            ConverterOptionRow(label: "Nouveau nom", hint: "l'extension est gardée") {
+        VStack(alignment: .leading, spacing: 12) {
+            ConverterOptionRow(label: "Nouveau nom", hint: "l'extension reste") {
                 VStack(alignment: .leading, spacing: 7) {
                     ConverterTextField(text: $model.options.rename.pattern, prompt: "{nom}", symbol: "character.cursor.ibeam", mono: true)
                     FlowLayout(spacing: 5, lineSpacing: 5) {
@@ -337,31 +204,68 @@ struct ConverterRenameOptions: View {
                     }
                 }
             }
-            HStack(alignment: .top, spacing: 16) {
-                ConverterOptionRow(label: "Remplacer") {
+            ConverterOptionRow(label: "Remplacer") {
+                HStack(spacing: 8) {
                     ConverterTextField(text: $model.options.rename.find, prompt: "ce texte…")
-                }
-                ConverterOptionRow(label: "Par") {
+                    Text("par").font(.ui(11.5)).foregroundStyle(Theme.text3)
                     ConverterTextField(text: $model.options.rename.replace, prompt: "(rien)")
                 }
             }
-            HStack(alignment: .top, spacing: 16) {
-                ConverterOptionRow(label: "Premier numéro") {
-                    ConverterStepper(value: $model.options.rename.start, range: 0...9999)
+            ConverterOptionRow(label: "Premier numéro") {
+                ConverterStepper(value: $model.options.rename.start, range: 0...9999)
+            }
+            ConverterOptionRow(label: "Casse") {
+                ConverterChips(options: ConverterCase.allCases, selection: $model.options.rename.caseMode) { $0.title }
+            }
+            ConverterOptionRow(label: "Extension") {
+                ConverterChips(options: [false, true], selection: $model.options.rename.lowercaseExtension) { $0 ? "En minuscules" : "Inchangée" }
+            }
+        }
+    }
+}
+
+/// The new names, before anything is renamed.
+struct ConverterRenameList: View {
+    let model: ConverterModel
+
+    var body: some View {
+        let preview = model.renamePreview
+        let conflicts = preview.filter(\.conflict).count
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("APERÇU").font(.ui(10, .semibold)).tracking(0.6).foregroundStyle(Theme.text3)
+                if conflicts > 0 {
+                    Text("\(Fmt.plural(conflicts, "nom déjà pris", "noms déjà pris")) : un numéro sera ajouté").font(.ui(11)).foregroundStyle(Theme.warn)
                 }
-                .fixedSize()
-                ConverterOptionRow(label: "Casse") {
-                    FlowLayout(spacing: 6, lineSpacing: 6) {
-                        ForEach(ConverterCase.allCases) { c in
-                            ConverterChip(title: c.title, selected: model.options.rename.caseMode == c) { model.options.rename.caseMode = c }
+            }
+            let rows = VStack(spacing: 1) {
+                ForEach(preview.prefix(300)) { p in
+                    HStack(spacing: 8) {
+                        Text(p.url.lastPathComponent)
+                            .font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Image(systemName: "arrow.right").font(.ui(9.5, .semibold)).foregroundStyle(p.unchanged ? Theme.text3 : Theme.accent)
+                        HStack(spacing: 5) {
+                            Text(p.newName)
+                                .font(.ui(11.5, p.unchanged ? .regular : .medium))
+                                .foregroundStyle(p.unchanged ? Theme.text3 : Theme.text)
+                                .lineLimit(1).truncationMode(.middle)
+                            if p.conflict { Image(systemName: "exclamationmark.triangle.fill").font(.ui(9.5)).foregroundStyle(Theme.warn) }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
                 }
             }
-            Toggle(isOn: $model.options.rename.lowercaseExtension) {
-                Text("Extension en minuscules (.JPG → .jpg)").font(.ui(12)).foregroundStyle(Theme.text)
+            Group {
+                if preview.count > 8 {
+                    ScrollArea { rows }.frame(height: 200)
+                } else {
+                    rows
+                }
             }
-            .switchToggles()
+            .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.bg.opacity(0.5)))
         }
     }
 }

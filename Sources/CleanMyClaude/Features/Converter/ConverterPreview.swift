@@ -340,19 +340,60 @@ final class ConverterPreviewer {
     // MARK: Demo
 
     func loadDemo(_ model: ConverterModel) {
-        guard let op = model.operation, let file = model.targets(for: op).first else { return }
+        guard let op = model.operation, ConverterPreviewer.previews(op), let file = model.targets(for: op).first else {
+            state = .idle
+            return
+        }
         let all = op.isBatch ? model.targets(for: op) : [file]
         var r = ConverterPreviewResult(operation: op, sources: all.map(\.url), demo: true)
         r.sourceSize = all.reduce(0) { $0 + $1.size }
         r.sourceDetail = file.detail
         let ext: String
-        switch op.family {
-        case .images: ext = "jpg"
-        case .videos: ext = "mp4"
-        case .pdf: ext = "pdf"
-        default: ext = file.url.pathExtension
+        switch op {
+        case .imageConvert: ext = model.options.imageFormat?.ext ?? file.url.pathExtension
+        case .audioConvert: ext = model.options.audioFormat.ext
+        case .documentConvert: ext = model.options.docFormat.ext
+        default:
+            switch op.family {
+            case .images: ext = "jpg"
+            case .videos: ext = "mp4"
+            case .pdf: ext = "pdf"
+            default: ext = file.url.pathExtension
+            }
         }
         r.outputs = [URL(fileURLWithPath: FS.home + "/Downloads/" + file.url.deletingPathExtension().lastPathComponent + "." + ext)]
+        switch op {
+        case .ocr:
+            r.outputs = []
+            r.text = ConverterDemo.ticket
+            state = .ready(r)
+            return
+        case .qrRead:
+            r.outputs = []
+            r.codes = ["https://exemple.fr/billetterie/concert-plage"]
+            state = .ready(r)
+            return
+        case .archiveExtract:
+            r.outputs = []
+            r.listing = ["Photos du mariage/", "Photos du mariage/Cérémonie/", "Photos du mariage/Cérémonie/IMG_0012.jpg",
+                         "Photos du mariage/Cérémonie/IMG_0013.jpg", "Photos du mariage/Vin d'honneur/IMG_0088.jpg",
+                         "Photos du mariage/Vin d'honneur/IMG_0091.jpg", "Photos du mariage/Soirée/IMG_0140.jpg", "Photos du mariage/Liste des invités.pdf"]
+            r.listingTotal = 214
+            state = .ready(r)
+            return
+        case .audioConvert:
+            r.outputSize = Int64(Double(file.size) * 1.15)
+            r.outputDetail = "12:40 · \(model.options.audioFormat.short)"
+            state = .ready(r)
+            return
+        case .documentConvert:
+            r.outputSize = Int64(Double(file.size) * 2.6)
+            r.outputDetail = "3 pages"
+            state = .ready(r)
+            return
+        default:
+            break
+        }
         switch op.family {
         case .images:
             r.outputSize = Int64(Double(file.size) * 0.43)

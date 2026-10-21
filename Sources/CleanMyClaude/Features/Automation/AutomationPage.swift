@@ -8,8 +8,8 @@ struct AutomationPage: View {
         let model = app.automation
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: Page.automation.symbol, title: "Automatisations",
-                     subtitle: "Ton Mac s'entretient tout seul, selon tes règles. Tout est éteint au départ, chaque règle montre d'abord ce qu'elle ferait, et tout se coupe d'un clic.",
-                     tint: Theme.warn, seed: 73) {
+                     subtitle: "Ton Mac s'entretient tout seul, selon tes règles.",
+                     tint: Theme.warn, seed: 73, tip: Self.tip(model.tab)) {
                 PillPicker(options: AutomationTab.allCases, selection: Binding(get: { model.tab }, set: { model.tab = $0 }),
                            label: { $0.title })
             }
@@ -19,6 +19,21 @@ struct AutomationPage: View {
             case .health: AutomationHealthView()
             case .journal: AutomationJournalTab()
             }
+        }
+    }
+
+    /// The first visit to each tab explains it once.
+    static func tip(_ tab: AutomationTab) -> HelpTip {
+        switch tab {
+        case .rules, .journal:
+            return HelpTip(id: "automation.rules", title: "Tes automatisations",
+                           text: "Tout est éteint au départ. Avant d'activer une règle, tu vois ce qu'elle ferait maintenant, sans que rien ne bouge ; ensuite elle passe toute seule, et se coupe d'un clic. Chaque passage est noté dans le Journal.")
+        case .downloads:
+            return HelpTip(id: "automation.downloads", title: "Ranger les téléchargements",
+                           text: "Seul le premier niveau du dossier est regardé. Les téléchargements en cours (.crdownload, .part, .download), les fichiers cachés, les dossiers et ce qui a bougé il y a moins de 10 minutes sont laissés tranquilles. La première règle qui correspond s'applique ; un fichier déplacé ne remplace jamais un fichier existant (« photo.jpg » devient « photo 2.jpg »).")
+        case .health:
+            return HelpTip(id: "automation.health", title: "L'historique de santé",
+                           text: "Un instantané par jour où le Mac a servi : espace libre, mémoire, batterie, score de santé et fichiers inutiles. Il pèse quelques centaines d'octets et reste sur ton Mac, dans le dossier de données de l'app.")
         }
     }
 }
@@ -110,16 +125,14 @@ private struct AutomationRulesTab: View {
                         .buttonStyle(SoftButtonStyle(small: true))
                 }
             }
-            TileRow(spacing: 12) {
-                StatTile(symbol: "bolt.badge.clock", value: "\(model.activeCount) sur \(AutomationKind.allCases.count)",
-                         label: "Automatisations actives",
-                         detail: model.activeCount == 0 ? "Tout est éteint pour l'instant" : "Coupe-les ici quand tu veux", tint: Theme.warn)
-                StatTile(symbol: "clock", value: next.map { AutomationUI.until($0.1) } ?? "—", label: "Prochain passage",
-                         detail: next?.0.title ?? "Rien de prévu", tint: Theme.accent)
-                StatTile(symbol: "arrow.down.to.line", value: Fmt.bytes(model.handled(days: 30)), label: "Rangé ou libéré",
-                         detail: "Ces 30 derniers jours", tint: Theme.good)
-                StatTile(symbol: "list.bullet.rectangle", value: last.map { Fmt.relative($0.date) } ?? "—", label: "Dernier passage",
-                         detail: last?.title ?? "Pas encore", tint: Theme.palette[4])
+            // One strip instead of four tiles: the numbers, without the boxes.
+            Card(padding: 12) {
+                HStack(spacing: 0) {
+                    figure("\(model.activeCount) sur \(AutomationKind.allCases.count)", "actives")
+                    figure(next.map { AutomationUI.until($0.1) } ?? "—", next.map { "prochain passage · \($0.0.title)" } ?? "prochain passage")
+                    figure(Fmt.bytes(model.handled(days: 30)), "rangés ou libérés en 30 jours")
+                    figure(last.map { Fmt.relative($0.date) } ?? "—", last.map { "dernier passage · \($0.title)" } ?? "dernier passage")
+                }
             }
             HStack(alignment: .top, spacing: 14) {
                 VStack(spacing: 14) {
@@ -133,6 +146,15 @@ private struct AutomationRulesTab: View {
                 }
             }
         }
+    }
+
+    private func figure(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(value).font(.serif(18)).foregroundStyle(Theme.text).monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
+            Text(label).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
+        }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -276,7 +298,7 @@ private struct AutomationCleanupCard: View {
         let showPreview = model.pending == .cleanup || model.shownPreviews.contains(.cleanup)
         Card {
             AutomationCardHeader(kind: .cleanup,
-                                 text: "Les caches et journaux que la page Nettoyage coche par défaut, rien de plus. Jamais la Corbeille ni tes fichiers personnels.")
+                                 text: "Les caches et journaux cochés par défaut dans Nettoyage. Jamais la Corbeille ni tes fichiers.")
             HStack {
                 Text("Fréquence").font(.ui(12)).foregroundStyle(Theme.text2)
                 Spacer()
@@ -322,7 +344,7 @@ private struct AutomationTrashCard: View {
         let showPreview = model.pending == .trash || model.shownPreviews.contains(.trash)
         Card {
             AutomationCardHeader(kind: .trash,
-                                 text: "Supprime définitivement ce qui dort dans la Corbeille depuis plus de \(days) jours. Ce que tu y as mis récemment reste récupérable.")
+                                 text: "Supprime définitivement ce qui dort dans la Corbeille depuis plus de \(days) jours.")
             HStack {
                 Text("Plus ancien que").font(.ui(12)).foregroundStyle(Theme.text2)
                 Spacer()
@@ -337,9 +359,8 @@ private struct AutomationTrashCard: View {
                                reason: "macOS protège la Corbeille : sans l'accès complet au disque, impossible de savoir depuis quand chaque élément y est.")
             }
             if Preferences.alwaysTrash && !DemoData.isEnabled {
-                Callout(symbol: "hand.raised", title: "En pause",
-                        text: "Ton réglage « Toujours passer par la Corbeille » interdit les suppressions définitives : cette règle ne fera rien tant qu'il est actif.",
-                        tint: Theme.warn)
+                Text("En pause : ton réglage « Toujours passer par la Corbeille » interdit les suppressions définitives.")
+                    .font(.ui(11.5)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
             }
             if showPreview {
                 let preview = model.trashPreview
@@ -382,7 +403,7 @@ private struct AutomationDownloadsCard: View {
         let showPreview = model.pending == .downloads || model.shownPreviews.contains(.downloads)
         Card {
             AutomationCardHeader(kind: .downloads,
-                                 text: "Range ou met à la Corbeille les fichiers de \(AutomationUI.folderName(model.downloadsFolder)) selon tes règles. Les téléchargements en cours et ce qui a bougé il y a moins de 10 minutes sont laissés tranquilles.")
+                                 text: "Range ou met à la Corbeille les fichiers de \(AutomationUI.folderName(model.downloadsFolder)) selon tes règles.")
             HStack {
                 Text("Fréquence").font(.ui(12)).foregroundStyle(Theme.text2)
                 Spacer()
@@ -439,7 +460,7 @@ private struct AutomationHealthCard: View {
         let recent = AutomationHealth.window(model.samples, range: .month, now: Date())
         Card {
             AutomationCardHeader(kind: .health,
-                                 text: "Un instantané par jour : espace libre, mémoire, santé et cycles de la batterie, score de santé et fichiers inutiles. Rien ne quitte ton Mac.")
+                                 text: "Un instantané par jour de l'espace, de la mémoire, de la batterie et du score de santé.")
             if recent.count > 1 {
                 HStack(spacing: 12) {
                     // From 50 to 100: the part of the scale where the score actually moves.
@@ -489,8 +510,7 @@ private struct AutomationAlertsCard: View {
     var body: some View {
         let model = app.automation
         let available = Alerts.available || DemoData.isEnabled
-        Panel(title: "Alertes et notifications", subtitle: "Au plus une alerte de chaque sorte toutes les 6 heures.",
-              symbol: "bell.badge", tint: Theme.bad) {
+        Panel(title: "Alertes et notifications", symbol: "bell.badge", tint: Theme.bad) {
             VStack(alignment: .leading, spacing: 10) {
                 Toggle(isOn: Binding(get: { DemoData.isEnabled || alerts }, set: { on in
                     // The demo never writes the real preferences.
@@ -498,15 +518,13 @@ private struct AutomationAlertsCard: View {
                     alerts = on
                     if on { Alerts.requestPermission() }
                 })) {
-                    Text("M'alerter quand mon Mac est en difficulté").font(.ui(12.5)).foregroundStyle(Theme.text)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("M'alerter quand mon Mac est en difficulté").font(.ui(12.5)).foregroundStyle(Theme.text)
+                        Text("Disque plein, mémoire saturée, chaleur critique").font(.ui(11)).foregroundStyle(Theme.text3)
+                    }
                 }
                 .disabled(!available)
-                VStack(alignment: .leading, spacing: 5) {
-                    alertLine("internaldrive", "Disque plein à plus de 92 %")
-                    alertLine("memorychip", "Mémoire saturée (pression critique)")
-                    alertLine("thermometer.high", "Chaleur critique, processeur ralenti")
-                }
-                .padding(.leading, 2)
+                .help("Disque plein à plus de 92 %, mémoire saturée (pression critique), chaleur critique qui ralentit le processeur. Au plus une alerte de chaque sorte toutes les 6 heures.")
                 Rectangle().fill(Theme.border).frame(height: 1)
                 Toggle(isOn: Binding(get: { model.settings.notify }, set: { model.settings.notify = $0 })) {
                     Text("Me prévenir après chaque passage automatique").font(.ui(12.5)).foregroundStyle(Theme.text)
@@ -520,13 +538,6 @@ private struct AutomationAlertsCard: View {
         }
         .fixedSize(horizontal: false, vertical: true)
     }
-
-    private func alertLine(_ symbol: String, _ text: String) -> some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol).font(.ui(10.5)).foregroundStyle(Theme.text3).frame(width: 16)
-            Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2)
-        }
-    }
 }
 
 // MARK: - Downloads tab
@@ -537,8 +548,7 @@ private struct AutomationDownloadsTab: View {
     var body: some View {
         let model = app.automation
         VStack(alignment: .leading, spacing: 14) {
-            Panel(title: "Dossier surveillé", subtitle: "Seul son premier niveau est regardé : les sous-dossiers ne sont jamais touchés.",
-                  symbol: "folder", tint: Theme.warn) {
+            Panel(title: "Dossier surveillé", symbol: "folder", tint: Theme.warn) {
                 HStack(spacing: 8) {
                     if model.settings.downloadsFolder.isEmpty == false {
                         Button("Téléchargements") { model.settings.downloadsFolder = "" }
@@ -561,12 +571,13 @@ private struct AutomationDownloadsTab: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(AutomationUI.folderName(model.downloadsFolder)).font(.ui(12.5, .medium)).foregroundStyle(Theme.text)
                             .help(model.downloadsFolder)
-                        Text("Ignorés : .crdownload, .part, .download (en cours), les fichiers cachés, les dossiers et tout ce qui a bougé il y a moins de 10 minutes.")
+                        Text("Son premier niveau seulement, sans les téléchargements en cours")
                             .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                            .help("Ignorés : .crdownload, .part, .download (en cours), les fichiers cachés, les dossiers et tout ce qui a bougé il y a moins de 10 minutes.")
                     }
                 }
             }
-            Panel(title: "Règles", subtitle: "Dans l'ordre : la première règle qui correspond à un fichier s'applique. Rien n'est supprimé définitivement.",
+            Panel(title: "Règles", subtitle: "Dans l'ordre : la première qui correspond s'applique. Rien n'est supprimé définitivement.",
                   symbol: "list.number", tint: Theme.warn) {
                 Button {
                     model.addRule()
@@ -716,8 +727,6 @@ private struct AutomationRuleEditor: View {
                 }
             }
             HStack {
-                Text("Les fichiers déplacés ne remplacent jamais un fichier existant : « photo.jpg » devient « photo 2.jpg ».")
-                    .font(.ui(10.5)).foregroundStyle(Theme.text3)
                 Spacer()
                 Button("Terminé") { app.automation.editingRule = nil }
                     .buttonStyle(SoftButtonStyle(prominent: true, small: true))
@@ -747,7 +756,7 @@ private struct AutomationDownloadsPreviewPanel: View {
         let model = app.automation
         let preview = model.downloadsPreview
         let moves = preview?.moves ?? []
-        Panel(title: "Aperçu à blanc", subtitle: "Ce que les règles actives feraient maintenant. Rien n'est touché tant que tu ne cliques pas sur « Ranger maintenant ».",
+        Panel(title: "Aperçu à blanc", subtitle: "Ce que tes règles feraient maintenant, sans rien toucher",
               symbol: "eye", tint: Theme.warn) {
             Button {
                 Task { await model.preview(.downloads) }
@@ -759,11 +768,10 @@ private struct AutomationDownloadsPreviewPanel: View {
         } content: {
             VStack(spacing: 2) {
                 if preview?.unreadable == true {
-                    Callout(symbol: "lock", title: "Dossier illisible",
-                            text: "macOS n'a pas encore autorisé \(AppEdition.name) à lire ce dossier. Accepte la demande d'accès, ou accorde l'accès complet au disque.",
-                            tint: Theme.warn)
+                    Text("Dossier illisible : accepte la demande d'accès de macOS, ou accorde l'accès complet au disque.")
+                        .font(.ui(12)).foregroundStyle(Theme.warn).frame(maxWidth: .infinity, alignment: .leading)
                 } else if preview == nil {
-                    EmptyHint(text: "Clique sur « Actualiser » pour voir ce que tes règles feraient.\nmacOS te demandera peut-être d'autoriser l'accès au dossier.", symbol: "eye")
+                    EmptyHint(text: "« Actualiser » montre ce que tes règles feraient. macOS peut te demander l'accès au dossier.", symbol: "eye")
                 } else if moves.isEmpty {
                     EmptyHint(text: "Rien à ranger parmi les \(Fmt.plural(preview?.files ?? 0, "élément", "éléments")) du dossier : tout est en ordre.",
                               symbol: "checkmark.circle")
@@ -803,14 +811,14 @@ private struct AutomationJournalTab: View {
 
     var body: some View {
         let model = app.automation
-        Panel(title: "Dernières exécutions", subtitle: "Automatiques et manuelles. Chaque fichier supprimé ou déplacé est aussi noté dans le journal détaillé.",
-              symbol: "list.bullet.rectangle", tint: Theme.palette[4]) {
+        Panel(title: "Dernières exécutions", symbol: "list.bullet.rectangle", tint: Theme.palette[4]) {
             HStack(spacing: 8) {
                 Button("Journal détaillé") {
                     if FS.exists(ActionLog.file) { NSWorkspace.shared.open(URL(fileURLWithPath: ActionLog.file)) } else { Finder.reveal(ActionLog.folder) }
                 }
                 .buttonStyle(SoftButtonStyle(small: true))
                 .disabled(DemoData.isEnabled)
+                .help("Chaque fichier supprimé ou déplacé, un par ligne")
                 Button("Effacer") {
                     if CommandRunner.confirm("Effacer ce journal ?", "Seul ce résumé est effacé ; le journal détaillé reste.", button: "Effacer") {
                         model.clearJournal()

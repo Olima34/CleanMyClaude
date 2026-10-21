@@ -1,14 +1,28 @@
 import SwiftUI
 
-struct CinemaPage: View {
+/// What Films et séries explains once, in its « ? ».
+enum CinemaTips {
+    static let search = HelpTip(
+        id: "media.cinema", title: "Films et séries",
+        text: "Sa fiche, sa bande-annonce sans pub et où le regarder. Depuis le lanceur aussi : tape « film », « série » ou « regarder » puis le titre. Coche tes plateformes en bas : elles passent en tête de chaque fiche, et ⌘↩ ouvre la première.")
+
+    static let key = HelpTip(
+        id: "media.tmdbKey", title: "Ta clé TMDB",
+        text: "The Movie Database est la grande base ouverte des films et des séries. Seuls les titres que tu cherches lui sont envoyés ; ta clé reste dans le Trousseau de ton Mac.",
+        steps: [
+            "Crée un compte gratuit sur themoviedb.org.",
+            "Dans Paramètres › API, demande une clé « Developer » (usage personnel).",
+            "Copie la « Clé d'API » ou le « Jeton d'accès en lecture » et colle-le ici."
+        ])
+}
+
+/// « Films et séries » on the Multimédia page.
+struct CinemaTab: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let model = app.cinema
         VStack(alignment: .leading, spacing: 18) {
-            PageHero(symbol: Page.cinema.symbol, title: "Films et séries",
-                     subtitle: "Cherche un film ou une série : sa fiche, sa bande-annonce sans pub et les plateformes où le regarder. Depuis le lanceur aussi : tape « film », « série » ou « regarder » puis le titre.",
-                     tint: CinemaStyle.tint, seed: 61)
             if !model.hasKey {
                 CinemaKeySetup()
             } else {
@@ -65,6 +79,7 @@ struct CinemaSearchCard: View {
                         }
                 }
                 CinemaKindPicker(kind: $model.pageKind)
+                HelpTipButton(tip: CinemaTips.search)
             }
         }
         .fixedSize(horizontal: false, vertical: true)
@@ -183,7 +198,7 @@ struct CinemaPlatformsPanel: View {
 
     var body: some View {
         let model = app.cinema
-        Panel(title: "Tes plateformes", subtitle: "Coche celles où tu as un abonnement : elles passent en tête de chaque fiche et ↩ les ouvre en premier.",
+        Panel(title: "Tes plateformes", subtitle: "Coche tes abonnements : ils passent en tête de chaque fiche",
               symbol: "checkmark.rectangle.stack", tint: CinemaStyle.tint) {
             BorderlessMenu {
                 ForEach(CinemaRegion.choices, id: \.self) { code in
@@ -215,91 +230,62 @@ struct CinemaPlatformsPanel: View {
     }
 }
 
-/// Where the data comes from (TMDB asks for this mention), and the key.
+/// Where the data comes from (TMDB asks for this mention), and the key, in a line.
 struct CinemaCredit: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let model = app.cinema
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Fiches, affiches et disponibilités : The Movie Database (TMDB), avec les données de JustWatch. Cette app utilise l'API de TMDB sans être approuvée ni certifiée par TMDB. Liens directs vers les plateformes : Wikidata. Seules des offres légales sont listées : rien n'est lu ni téléchargé par l'app.")
-                .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 6) {
-                Image(systemName: "key").font(.ui(10.5)).foregroundStyle(Theme.text3)
-                Text("Clé TMDB dans le Trousseau de ton Mac").font(.ui(11)).foregroundStyle(Theme.text3)
-                Button("Retirer la clé") { model.removeKey() }
-                    .buttonStyle(.plain).font(.ui(11, .medium)).foregroundStyle(Theme.accent)
-            }
+        HStack(spacing: 6) {
+            Text("Données TMDB et JustWatch, liens Wikidata. Cette app utilise l'API de TMDB sans être approuvée ni certifiée par TMDB.")
+                .font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
+            Spacer(minLength: 8)
+            Button("Retirer la clé TMDB") { model.removeKey() }
+                .buttonStyle(.plain).font(.ui(11, .medium)).foregroundStyle(Theme.accent)
+                .help("Ta clé est dans le Trousseau de ton Mac")
         }
     }
 }
 
 // MARK: - Key
 
+/// Before the first search: the free TMDB key. The steps wait in the « ? », which opens by itself the first time.
 struct CinemaKeySetup: View {
     @Environment(AppModel.self) private var app
     @State private var key = ""
 
     var body: some View {
         let model = app.cinema
-        TileRow {
-            Card(padding: 22) {
-                VStack(alignment: .leading, spacing: 12) {
+        Card(padding: 22) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Text("Branche The Movie Database").font(.serif(22)).foregroundStyle(Theme.text)
-                    Text("TMDB est la grande base ouverte des films et des séries : fiches, affiches, bandes-annonces, et pour chaque pays les plateformes qui les proposent. Sa clé est gratuite pour un usage personnel.")
-                        .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    VStack(alignment: .leading, spacing: 5) {
-                        step(1, "Crée un compte gratuit sur themoviedb.org.")
-                        step(2, "Dans Paramètres › API, demande une clé « Developer » (usage personnel).")
-                        step(3, "Copie la « Clé d'API » ou le « Jeton d'accès en lecture » et colle-le ici.")
-                    }
-                    Button("Ouvrir la page des clés TMDB") { Finder.open(CinemaTMDB.signupURL) }
-                        .buttonStyle(.plain).font(.ui(12.5, .medium)).foregroundStyle(Theme.accent)
-                    HStack(spacing: 8) {
-                        if Snapshot.isActive {
-                            Text("Clé d'API ou jeton").font(.mono(12.5)).foregroundStyle(Theme.text3)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(8).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.card))
-                        } else {
-                            SecureField("Clé d'API ou jeton", text: $key)
-                                .textFieldStyle(.roundedBorder)
-                                .onSubmit { model.saveKey(key) }
-                        }
-                        Button(model.keyChecking ? "Vérification…" : "Enregistrer") { model.saveKey(key) }
-                            .buttonStyle(SoftButtonStyle(prominent: true))
-                            .disabled(model.keyChecking)
-                    }
-                    if let error = model.keyError {
-                        Text(error).font(.ui(11.5)).foregroundStyle(Theme.bad).fixedSize(horizontal: false, vertical: true)
-                    }
+                    HelpTipButton(tip: CinemaTips.key, size: 15)
                 }
-            }
-            Card(padding: 22) {
-                VStack(alignment: .leading, spacing: 12) {
-                    promise("hand.raised", "Rien ne part sans toi", "Seuls les titres que tu cherches sont envoyés à TMDB, quand tu les cherches. La clé reste dans le Trousseau.")
-                    promise("checkmark.seal", "Que des offres légales", "Abonnements, gratuit, location et achat, pays par pays : un clic ouvre la plateforme.")
-                    promise("play.rectangle", "Bandes-annonces sans pub", "Elles s'ouvrent dans le lecteur sans pub de l'app.")
+                Text("Sa clé est gratuite pour un usage personnel : deux minutes, une seule fois.")
+                    .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    if Snapshot.isActive {
+                        Text("Clé d'API ou jeton").font(.mono(12.5)).foregroundStyle(Theme.text3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.cardRaised))
+                    } else {
+                        SecureField("Clé d'API ou jeton", text: $key)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit { model.saveKey(key) }
+                    }
+                    Button(model.keyChecking ? "Vérification…" : "Enregistrer") { model.saveKey(key) }
+                        .buttonStyle(SoftButtonStyle(prominent: true))
+                        .disabled(model.keyChecking)
                 }
+                if let error = model.keyError {
+                    Text(error).font(.ui(11.5)).foregroundStyle(Theme.bad).fixedSize(horizontal: false, vertical: true)
+                }
+                Button("Ouvrir la page des clés TMDB") { Finder.open(CinemaTMDB.signupURL) }
+                    .buttonStyle(.plain).font(.ui(12.5, .medium)).foregroundStyle(Theme.accent)
             }
         }
-    }
-
-    private func step(_ n: Int, _ text: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text("\(n)").font(.ui(11, .bold)).foregroundStyle(Theme.onAccent)
-                .frame(width: 18, height: 18).background(Circle().fill(Theme.accent))
-            Text(text).font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func promise(_ symbol: String, _ title: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol).font(.ui(13, .medium)).foregroundStyle(Theme.good).frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        .frame(maxWidth: 640, alignment: .leading)
     }
 }
 

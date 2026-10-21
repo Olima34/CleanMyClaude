@@ -3,12 +3,15 @@ import SwiftUI
 struct CleanupPage: View {
     @Environment(AppModel.self) private var app
 
+    static let tip = HelpTip(id: "cleanup.page", title: "Le nettoyage",
+                             text: "Je mesure chaque catégorie sans rien toucher, puis tu coches ce qui part. Caches et journaux se reconstruisent seuls ; tes fichiers personnels passent par la Corbeille, et ce qu'utilise une app ouverte reste verrouillé. Je garde exprès tes transcripts de Claude Code et ce que l'app Claude gère elle-même.")
+
     var body: some View {
         let model = app.cleanup
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "sparkles", title: "Nettoyage du système",
-                     subtitle: "Caches, journaux, restes de développement, fichiers oubliés : je trouve ce qui encombre ton Mac, tu choisis ce qui part.",
-                     seed: 21) {
+                     subtitle: "Je trouve ce qui encombre ton Mac, tu choisis ce qui part.",
+                     seed: 21, tip: Self.tip) {
                 ScanButton(title: model.hasResults ? "Relancer l'analyse" : "Analyser", running: model.isScanning, activity: .sweeping) {
                     Task { await model.scan() }
                 }
@@ -23,40 +26,25 @@ struct CleanupPage: View {
                 if let r = model.lastReport {
                     Callout(symbol: r.failures.isEmpty ? "checkmark.seal" : "exclamationmark.triangle",
                             title: r.freed > 0 ? "\(Fmt.bytes(r.freed)) libérés" : "Nettoyage terminé",
-                            text: r.summary + " Le détail est dans ~/Library/Logs/CleanMyClaude/actions.log.",
+                            text: r.summary,
                             tint: r.failures.isEmpty ? Theme.good : Theme.warn)
                 }
-                ForEach(CleanupGroup.allCases) { g in
-                    if !model.targets(in: g).isEmpty {
-                        CleanupGroupPanel(group: g)
-                    }
-                }
-                if model.claude.transcripts + model.claude.vm > 0 {
-                    claudeKept(model.claude)
-                }
+                CleanupGroupList()
             }
         }
     }
 
     private func summary(_ model: CleanupModel) -> some View {
-        TileRow {
-            StatTile(symbol: "magnifyingglass", value: Fmt.bytes(model.totalSize), label: "Trouvé",
-                     detail: "\(Fmt.plural(model.targets.reduce(0) { $0 + $1.items.count }, "élément", "éléments")) dans \(Fmt.plural(CleanupGroup.allCases.filter { !model.targets(in: $0).isEmpty }.count, "catégorie", "catégories"))")
-            StatTile(symbol: "checkmark.circle", value: Fmt.bytes(model.selectedSize), label: "Sélectionné",
-                     detail: "\(Fmt.plural(model.selectedCount, "élément coché", "éléments cochés"))", tint: Theme.good)
-            StatTile(symbol: "hand.thumbsup", value: Fmt.bytes(model.recommendedSize), label: "Sans risque",
-                     detail: "Ce que je coche d'office : tout se reconstruit seul", tint: Theme.brand)
-            StatTile(symbol: "leaf", value: Fmt.bytes(app.history.totalFreed), label: "Libéré au total",
-                     detail: app.history.runs > 0 ? "En \(Fmt.plural(app.history.runs, "nettoyage", "nettoyages"))" : "Ton premier nettoyage t'attend",
-                     tint: Theme.palette[2])
-        }
-    }
-
-    private func claudeKept(_ c: ClaudeFootprint) -> some View {
-        Callout(symbol: "lock.shield",
-                title: "Ce que je garde exprès côté Claude",
-                text: "Tes transcripts Claude Code (\(Fmt.bytes(c.transcripts))) servent à reprendre tes sessions et à ClaudeStats. La machine virtuelle de Cowork (\(Fmt.bytes(c.vm))) et les versions de Claude Code (\(Fmt.bytes(c.codeVersions))) sont gérées par l'app Claude elle-même : je n'y touche pas.",
-                tint: Theme.brand)
+        let items = model.targets.reduce(0) { $0 + $1.items.count }
+        return DashboardMetricStrip(metrics: [
+            DashboardMetric(symbol: "magnifyingglass", value: Fmt.bytes(model.totalSize), label: "Trouvé",
+                            detail: Fmt.plural(items, "élément", "éléments")),
+            DashboardMetric(symbol: "hand.thumbsup", value: Fmt.bytes(model.recommendedSize), label: "Sans risque",
+                            detail: "se reconstruit seul", tint: Theme.brand),
+            DashboardMetric(symbol: "leaf", value: Fmt.bytes(app.history.totalFreed), label: "Libéré au total",
+                            detail: app.history.runs > 0 ? "en \(Fmt.plural(app.history.runs, "nettoyage", "nettoyages"))" : nil,
+                            tint: Theme.palette[2])
+        ])
     }
 }
 
@@ -64,47 +52,21 @@ struct CleanupPage: View {
 
 struct CleanupIntro: View {
     var body: some View {
-        Card(padding: 24) {
-            HStack(alignment: .top, spacing: 28) {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Prêt quand tu l'es")
-                        .font(.serif(24))
-                        .foregroundStyle(Theme.text)
-                    Text("Lance l'analyse : je mesure chaque catégorie sans rien toucher. Ensuite, tu coches, je nettoie.")
-                        .font(.ui(13))
-                        .foregroundStyle(Theme.text2)
-                    VStack(alignment: .leading, spacing: 10) {
-                        promise("hand.raised", "Rien n'est supprimé sans ton accord, et seulement dans ton dossier personnel.")
-                        promise("trash", "Tes fichiers personnels passent toujours par la Corbeille.")
-                        promise("app.badge.checkmark", "Les caches d'une app ouverte sont laissés tranquilles.")
-                        promise("doc.text", "Chaque suppression est notée dans un journal lisible.")
-                    }
-                    .padding(.top, 4)
-                }
-                Spacer(minLength: 0)
-                PixelMascot(pixel: 5)
-                    .padding(.top, 20)
-                    .padding(.trailing, 12)
-            }
-            Divider().padding(.vertical, 6)
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], alignment: .leading, spacing: 14) {
-                ForEach(CleanupGroup.allCases) { g in
-                    HStack(alignment: .top, spacing: 10) {
-                        IconBadge(symbol: g.symbol, tint: Theme.color(index: g.tint), size: 26)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(g.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                            Text(g.blurb).font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+        Card(padding: 22) {
+            HStack(alignment: .center, spacing: 20) {
+                PixelMascot(pixel: 3)
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Prêt quand tu l'es").font(.serif(22)).foregroundStyle(Theme.text)
+                    Text("Je mesure tout sans rien toucher, puis tu choisis.").font(.ui(13)).foregroundStyle(Theme.text2)
+                    FlowLayout(spacing: 6, lineSpacing: 6) {
+                        ForEach(CleanupGroup.allCases) { g in
+                            Tag(text: g.title, symbol: g.symbol, tint: Theme.color(index: g.tint))
+                                .help(g.blurb)
                         }
                     }
                 }
+                Spacer(minLength: 0)
             }
-        }
-    }
-
-    private func promise(_ symbol: String, _ text: String) -> some View {
-        HStack(spacing: 9) {
-            Image(systemName: symbol).font(.ui(11.5, .medium)).foregroundStyle(Theme.good).frame(width: 18)
-            Text(text).font(.ui(12.5)).foregroundStyle(Theme.text2)
         }
     }
 }
@@ -154,43 +116,91 @@ struct ScanIndeterminateBar: View {
 
 // MARK: - Groups
 
-struct CleanupGroupPanel: View {
+/// Every category in one card, one line each: a click unfolds its contents.
+struct CleanupGroupList: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let groups = CleanupGroup.allCases.filter { !app.cleanup.targets(in: $0).isEmpty }
+        Card(padding: 0) {
+            VStack(spacing: 0) {
+                ForEach(groups) { g in
+                    CleanupGroupRow(group: g)
+                    if g != groups.last {
+                        Rectangle().fill(Theme.border).frame(height: max(1, Theme.line))
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct CleanupGroupRow: View {
     @Environment(AppModel.self) private var app
     var group: CleanupGroup
+    @State private var hovering = false
 
     var body: some View {
         let model = app.cleanup
         let tint = Theme.color(index: group.tint)
-        Card(padding: 0) { VStack(spacing: 0) {
+        let targets = model.targets(in: group)
+        let open = model.openGroups.contains(group) || targets.contains { model.expanded.contains($0.id) }
+        VStack(spacing: 0) {
             HStack(spacing: 12) {
-                CheckBox(state: model.state(of: group), disabled: model.targets(in: group).allSatisfy { $0.cleanable.isEmpty }) {
+                CheckBox(state: model.state(of: group), disabled: targets.allSatisfy { $0.cleanable.isEmpty }) {
                     model.toggle(group)
                 }
-                IconBadge(symbol: group.symbol, tint: tint, size: 30)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(group.title).font(.ui(14, .semibold)).foregroundStyle(Theme.text)
-                    Text(group.blurb).font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(2)
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        if open {
+                            model.openGroups.remove(group)
+                            for t in targets { model.expanded.remove(t.id) }
+                        } else {
+                            model.openGroups.insert(group)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 12) {
+                        IconBadge(symbol: group.symbol, tint: tint, size: 28)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(group.title).font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                            Text(group.blurb).font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
+                        }
+                        .help(group.blurb)
+                        Spacer(minLength: 10)
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text(Fmt.bytes(model.size(of: group))).font(.serif(18)).foregroundStyle(Theme.text).monospacedDigit()
+                            let sel = model.selectedSize(of: group)
+                            Text(sel > 0 ? "\(Fmt.bytes(sel)) cochés" : "rien de coché")
+                                .font(.ui(11)).foregroundStyle(sel > 0 ? Theme.good : Theme.text3)
+                        }
+                        Image(systemName: "chevron.right")
+                            .font(.ui(11, .semibold))
+                            .foregroundStyle(Theme.text3)
+                            .rotationEffect(.degrees(open ? 90 : 0))
+                            .frame(width: 24, height: 24)
+                    }
+                    .contentShape(Rectangle())
                 }
-                Spacer(minLength: 10)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(Fmt.bytes(model.size(of: group))).font(.serif(20)).foregroundStyle(Theme.text).monospacedDigit()
-                    let sel = model.selectedSize(of: group)
-                    Text(sel > 0 ? "\(Fmt.bytes(sel)) cochés" : "rien de coché")
-                        .font(.ui(11)).foregroundStyle(sel > 0 ? Theme.good : Theme.text3)
-                }
+                .buttonStyle(.plain)
+                .help(open ? "Replier" : "Voir le détail")
             }
-            .padding(16)
-            Rectangle().fill(Theme.border).frame(height: 1)
-            VStack(spacing: 0) {
-                ForEach(model.targets(in: group)) { t in
-                    CleanupTargetRow(target: t, tint: tint)
-                    if t.id != model.targets(in: group).last?.id {
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(hovering ? Theme.hover.opacity(0.35) : .clear)
+            .onHover { hovering = $0 }
+
+            if open {
+                VStack(spacing: 0) {
+                    ForEach(targets) { t in
                         Rectangle().fill(Theme.border.opacity(0.6)).frame(height: 1).padding(.leading, 52)
+                        CleanupTargetRow(target: t, tint: tint)
                     }
                 }
+                .padding(.leading, 24)
+                .padding(.bottom, 4)
             }
-            .padding(.vertical, 4)
-        } }
+        }
     }
 }
 
@@ -215,7 +225,7 @@ struct CleanupTargetRow: View {
                         Text(target.title).font(.ui(13, .medium)).foregroundStyle(Theme.text)
                         if target.mode == .trash { Tag(text: "Corbeille", symbol: "arrow.uturn.backward", tint: Theme.text3) }
                     }
-                    Text(target.explanation).font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(2)
+                    Text(target.explanation).font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(1).help(target.explanation)
                 }
                 Spacer(minLength: 8)
                 if target.needsFullDiskAccess {

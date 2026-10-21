@@ -53,6 +53,21 @@ enum HotkeysOwner: Equatable {
     }
 }
 
+/// The parts of the Raccourcis page: the user's shortcuts, the window layouts (`WindowsModel`), Chamois' own keys.
+enum HotkeysTab: String, CaseIterable, Identifiable {
+    case apps, windows = "fenetres", chamois
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .apps: return "Apps et actions"
+        case .windows: return "Fenêtres"
+        case .chamois: return "Chamois"
+        }
+    }
+}
+
 struct HotkeysBinding: Codable, Identifiable, Equatable {
     var id = UUID()
     var target: HotkeysTarget
@@ -73,7 +88,9 @@ final class HotkeysModel: AppModule {
     var refused: Set<UUID> = []
     /// What a shortcut takes from the apps or from macOS while it is on (⌘Q no longer quits…), by binding: a warning, not a refusal.
     var takeovers: [UUID: String] = [:]
-    var siteDraft = ""
+    var tab: HotkeysTab = .apps
+    /// What the user typed in the page's search: filters the shortcuts and finds apps, actions or a site to bind.
+    var search = ""
     var showCommandPicker = false
 
     @ObservationIgnored private weak var app: AppModel?
@@ -119,12 +136,24 @@ final class HotkeysModel: AppModule {
         for b in bindings { takeovers[b.id] = b.combo.flatMap { Self.takeoverNote($0, system: []) } }
     }
 
+    /// `--tab fenetres`, `chamois`; `recherche` types a search; `autoriser` shows Fenêtres without the permission.
+    func applySnapshotTab(_ tab: String) {
+        if let t = HotkeysTab(rawValue: tab) { self.tab = t }
+        if tab == "recherche" { search = "mo" }
+        if tab == "autoriser" { self.tab = .windows }
+    }
+
+    /// Opens the main window on this part of the page.
+    func show(_ tab: HotkeysTab, app: AppModel) {
+        self.tab = tab
+        LauncherAppActions.openMain(app, .hotkeys)
+    }
+
     func commands(app: AppModel) -> [AppCommand] {
         var out = [
             AppCommand(id: "hk_new", title: "Créer un raccourci pour une app", subtitle: "Ouvre n'importe quelle app d'un raccourci clavier",
                        keywords: ["raccourci", "clavier", "hotkey", "shortcut"], icon: .symbol("keyboard", Theme.brand), group: .tools, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
-                ctx.app.page = .hotkeys
-                NotificationCenter.default.post(name: .openMainWindow, object: nil)
+                ctx.app.hotkeys.show(.apps, app: ctx.app)
                 return .done
             }
         ]
@@ -199,6 +228,16 @@ final class HotkeysModel: AppModule {
             failures.append("raccourcis : lecture des raccourcis de macOS (\(Self.systemShortcuts(from: symbolic).map(\.display)))")
         }
         if Self.normalizedURL("javascript:alert(1)") != nil { failures.append("raccourcis : seules les adresses web sont acceptées") }
+        // The search offers a site only for what looks like an address.
+        let sites: [(String, String?)] = [("claude.ai", "https://claude.ai"), ("http://exemple.fr/a", "http://exemple.fr/a"), ("notes", nil),
+                                          ("mail google com", nil), ("1.5", nil), ("", nil)]
+        for (typed, expected) in sites where Self.siteCandidate(typed) != expected {
+            failures.append("raccourcis : site proposé pour « \(typed) » (\(Self.siteCandidate(typed) ?? "aucun"))")
+        }
+        if Self.windowAction(WindowsAction.leftHalf.commandID) != .leftHalf || Self.windowAction("win_settings") != nil {
+            failures.append("raccourcis : actions de fenêtre mal reconnues")
+        }
+        if HotkeysTab(rawValue: "fenetres") != .windows { failures.append("raccourcis : onglet Fenêtres introuvable par son nom") }
         return failures
     }
 
@@ -428,13 +467,17 @@ final class HotkeysModel: AppModule {
         add(.folder(path: url.path))
     }
 
-    func addSite() {
-        guard let url = Self.normalizedURL(siteDraft) else {
-            HUD.show("Adresse web invalide", symbol: "xmark.octagon.fill")
-            return
-        }
-        add(.website(url: url))
-        siteDraft = ""
+    /// The window layout a launcher command runs (`win_left_half`…): it has its own keys, in the Fenêtres part.
+    static func windowAction(_ commandID: String) -> WindowsAction? {
+        commandID.hasPrefix("win_") ? WindowsAction(rawValue: String(commandID.dropFirst(4))) : nil
+    }
+
+    /// The site the search would bind: only what looks like an address (a dot, no space, a letter in the name).
+    static func siteCandidate(_ typed: String) -> String? {
+        let s = typed.trimmingCharacters(in: .whitespaces)
+        guard s.contains("."), !s.contains(" "), let url = normalizedURL(s), let host = URL(string: url)?.host,
+              host.contains("."), host.contains(where: \.isLetter) else { return nil }
+        return url
     }
 
     static func normalizedURL(_ raw: String) -> String? {

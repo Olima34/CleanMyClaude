@@ -51,12 +51,6 @@ struct AdBlockVideoBrowser: Equatable, Sendable {
         chromium ? "tell application id \"\(bundleID)\" to execute active tab of front window javascript \"\(AdBlockVideoOnly.pause)\""
                  : "tell application id \"\(bundleID)\" to do JavaScript \"\(AdBlockVideoOnly.pause)\" in front document"
     }
-
-    /// Where the user lets the app run that script.
-    var scriptsSetting: String {
-        chromium ? "dans \(name), menu Présentation › Options pour les développeurs › autorise JavaScript à partir des évènements Apple"
-                 : "dans \(name), Réglages… › Développeur, coche « Autoriser JavaScript à partir des évènements Apple » (\(name) demande ton mot de passe ; pas d'onglet Développeur ? Avancées › « Afficher les fonctionnalités pour les développeurs web »)"
-    }
 }
 
 /// Where the browser's video was when it was detached.
@@ -557,7 +551,8 @@ private struct AdBlockVideoHover: NSViewRepresentable {
 
 // MARK: - The page's panel
 
-/// « Vidéo seule » on the ad blocker's page: the button, a shortcut, and what lets Safari pause by itself.
+/// « Vidéo seule » on the player's tab: the button and its shortcut. The rest waits in its « ? », and comes back as a
+/// warning when Safari kept playing the last video detached.
 struct AdBlockVideoPanel: View {
     @Environment(AppModel.self) private var app
 
@@ -565,10 +560,11 @@ struct AdBlockVideoPanel: View {
         let m = app.adblock
         let target = HotkeysTarget.command(id: AdBlockVideoOnly.commandID, title: "Vidéo seule")
         let combo = app.hotkeys.binding(for: target)?.combo
-        let safari = AdBlockVideoBrowser.all[0]
-        Panel(title: "Vidéo seule", subtitle: "La vidéo ou le direct que tu regardes, seul dans une petite fenêtre au-dessus de tes autres fenêtres",
-              symbol: "pip", tint: AdBlockPage.tint) {
-            VStack(alignment: .leading, spacing: 12) {
+        Panel(title: "Vidéo seule", subtitle: "La vidéo de ton navigateur, seule dans une petite fenêtre au-dessus des autres",
+              symbol: "pip", tint: AdBlockStyle.tint) {
+            HelpTipButton(tip: AdBlockTips.videoOnly)
+        } content: {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 10) {
                     Button { Task { await m.player.detach() } } label: { label("Détacher la vidéo", "pip.enter") }
                         .buttonStyle(SoftButtonStyle(prominent: true))
@@ -581,8 +577,6 @@ struct AdBlockVideoPanel: View {
                     }
                     Spacer(minLength: 0)
                 }
-                Text("Une vidéo YouTube ou un direct Twitch tourne dans Safari : « Détacher la vidéo » (ici, par ton raccourci ou « vidéo seule » dans le lanceur) la reprend dans une petite fenêtre, sans pub, au-dessus de tes autres fenêtres et sur tous tes bureaux. Tire ses bords pour la redimensionner ; survole-la pour la déplacer par le haut, la ranger dans un coin, la laisser passer derrière ou revenir au lecteur complet (le chat, les commentaires). Dans le lecteur sans pub, le bouton à côté de Safari fait pareil.")
-                    .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 if let issue = m.player.detachIssue {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(issue).font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
@@ -592,16 +586,14 @@ struct AdBlockVideoPanel: View {
                                 .buttonStyle(SoftButtonStyle(small: true))
                         }
                     }
-                }
-                Divider().overlay(Theme.border)
-                if AdBlockVideoOnly.scriptsAllowed(safari) == true {
-                    Text("Safari se met en pause tout seul, et la vidéo reprend ici à la même seconde.")
-                        .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                } else {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Pour que Safari se mette en pause tout seul").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                        Text("Et que la vidéo reprenne ici à la même seconde : \(safari.scriptsSetting). Seules les apps que tu as autorisées à piloter Safari peuvent s'en servir. Sans ça, Safari continue de jouer la vidéo, et elle peut repartir du début ici (un direct, lui, reprend en direct).")
-                            .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                } else if m.safariRefusedPause {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        if Theme.icons != .hidden {
+                            Image(systemName: "exclamationmark.triangle.fill").font(.ui(10.5)).foregroundStyle(Theme.warn)
+                        }
+                        Text("Safari ne s'est pas mis en pause tout seul").font(.ui(11.5, .medium)).foregroundStyle(Theme.warn)
+                        HelpTipButton(tip: AdBlockTips.safariPause, size: 12)
+                        Spacer(minLength: 0)
                     }
                 }
             }

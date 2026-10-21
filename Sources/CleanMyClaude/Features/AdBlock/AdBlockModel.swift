@@ -71,6 +71,13 @@ final class AdBlockModel: AppModule {
 
     var measure: AdBlockMeasure? { settings.lastMeasure }
 
+    /// Safari kept playing the last video detached (it does not let the app run its pause script): the page says so.
+    var safariRefusedPause: Bool {
+        snapshotSafariRefused || AdBlockVideoOnly.scriptsAllowed(AdBlockVideoBrowser.all[0]) == false
+    }
+    /// `--tab safari`: that warning, without touching the preferences.
+    @ObservationIgnored private var snapshotSafariRefused = false
+
     /// A profile was opened for installation by Clean My Claude.
     var installed: Bool { settings.installedLevel != nil }
 
@@ -171,6 +178,9 @@ final class AdBlockModel: AppModule {
         case "video":
             // « Vidéo seule » : the small window, its buttons shown.
             player.previewVideoOnly()
+        case "safari":
+            // Safari kept playing the last video detached: the warning under « Vidéo seule ».
+            snapshotSafariRefused = true
         case "comptes":
             // Both accounts signed in.
             accounts = ["google": .signedIn(nil), "twitch": .signedIn("chamois_des_cimes")]
@@ -467,9 +477,9 @@ final class AdBlockModel: AppModule {
         Finder.open(Self.profilesPane)
     }
 
-    func openPage() {
+    /// The Multimédia page on one of the blocker's tabs (`.blocker` or `.player`).
+    func openPage(_ tab: MediaTab = .blocker) {
         guard let app = app ?? AppContext.model else { return }
-        app.page = .adblock
-        NotificationCenter.default.post(name: .openMainWindow, object: nil)
+        app.media.show(tab, app: app)
     }
 }

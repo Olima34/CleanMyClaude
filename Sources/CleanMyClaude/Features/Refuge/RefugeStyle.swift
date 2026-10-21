@@ -162,9 +162,9 @@ enum RefugePath: String, CaseIterable, Codable {
 
     var pages: [Page] {
         switch self {
-        case .gardien: return [.protection, .updates, .network, .adblock]
-        case .artiste: return [.converter, .wheel, .fillsign, .translator, .youtube, .cinema, .darkmode]
-        case .guide: return [.launcher, .hotkeys, .windows, .clipboard, .toolbox]
+        case .gardien: return [.protection, .updates]
+        case .artiste: return [.wheel, .media]
+        case .guide: return [.launcher, .hotkeys, .clipboard, .toolbox]
         case .fee: return [.cleanup, .storage, .apps, .phone, .automation, .performance, .battery]
         }
     }
@@ -181,7 +181,7 @@ enum RefugePath: String, CaseIterable, Codable {
     var who: String {
         switch self {
         case .gardien: return "Pour ceux qui soignent la sécurité : bilan, protection, menaces."
-        case .artiste: return "Convertisseur, Remplir et signer, traducteur, vidéos."
+        case .artiste: return "Convertisseur et Multimédia."
         case .guide: return "Lanceur, raccourcis, fenêtres, presse-papiers."
         case .fee: return "Nettoyage, stockage, apps, automatisations."
         }
@@ -439,8 +439,8 @@ enum RefugeStyle {
         if Set(items.map(\.id)).count != items.count { f.append("Refuge : deux objets du même nom") }
 
         // Path.
-        if suggestedPath(days: [.protection: 5, .converter: 3]) != .gardien || suggestedPath(days: [:]) != .fee
-            || suggestedPath(days: [.launcher: 2, .cleanup: 2]) != .fee || suggestedPath(days: [.youtube: 9]) != .artiste {
+        if suggestedPath(days: [.protection: 5, .wheel: 3]) != .gardien || suggestedPath(days: [:]) != .fee
+            || suggestedPath(days: [.launcher: 2, .cleanup: 2]) != .fee || suggestedPath(days: [.media: 9]) != .artiste {
             f.append("Refuge : voie mal choisie")
         }
         let all = RefugePath.allCases.flatMap(\.pages)
@@ -450,9 +450,9 @@ enum RefugeStyle {
         if canChangePath(s, on: date(2026, 11, 1), calendar: cal) || !canChangePath(s, on: date(2027, 1, 5), calendar: cal) { f.append("Refuge : changement de voie mal limité") }
 
         // The round.
-        let r = makeRound(day: "2026-10-20", candidates: ["scan", "update", "clean", "discover:cinema", "feed"])
+        let r = makeRound(day: "2026-10-20", candidates: ["scan", "update", "clean", "discover:media", "feed"])
         if r.tasks.count != 3 || r.tasks.first != "feed" || Set(r.tasks).count != 3 { f.append("Refuge : tournée mal tirée \(r.tasks)") }
-        if makeRound(day: "2026-10-20", candidates: ["scan", "update", "clean", "discover:cinema"]) != r { f.append("Refuge : la tournée change dans la journée") }
+        if makeRound(day: "2026-10-20", candidates: ["scan", "update", "clean", "discover:media"]) != r { f.append("Refuge : la tournée change dans la journée") }
         if makeRound(day: "2026-10-20", candidates: []).tasks != ["feed"] { f.append("Refuge : tournée vide mal tirée") }
         var t = RefugeState()
         let now = date(2026, 10, 20)
@@ -462,7 +462,7 @@ enum RefugeStyle {
         _ = RefugeRules.earn(&t, .scan, now: now, calendar: cal)
         if !done("feed", t, now: now, calendar: cal) || !done("scan", t, now: now, calendar: cal) { f.append("Refuge : mission faite non reconnue") }
         if done("feed", t, now: date(2026, 10, 21), calendar: cal) { f.append("Refuge : la mission d'hier compte aujourd'hui") }
-        for id in ["feed", "scan", "clean", "update", "fix", "tool", "discover:cinema"] where task(id).page == nil {
+        for id in ["feed", "scan", "clean", "update", "fix", "tool", "discover:media"] where task(id).page == nil {
             f.append("Refuge : mission \(id) sans page")
         }
         return f

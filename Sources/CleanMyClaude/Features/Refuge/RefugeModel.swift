@@ -562,14 +562,14 @@ final class RefugeModel: AppModule {
         s.recentDays = (0..<7).filter { $0 != 2 && $0 != 5 }.map { RefugeRules.dayKey(ago($0)) }
         s.totals = ["visit": 41, "scan": 22, "cleaning": 34, "fix": 3, "threat": 1, "update": 46, "tool": 182, "discovery": 14,
                     "automation": 1, "round": 5, "fed": 38, "welcome": 10]
-        let visited: [Page] = [.dashboard, .cleanup, .protection, .performance, .updates, .apps, .storage, .converter, .youtube,
-                               .translator, .clipboard, .launcher, .windows, .automation]
+        let visited: [Page] = [.dashboard, .cleanup, .protection, .performance, .updates, .apps, .storage, .wheel, .media,
+                               .clipboard, .launcher, .hotkeys, .automation]
         s.claimed = Set(visited.map { "page:" + $0.rawValue } + ["fix:firewall", "fix:filevault", "fix:gatekeeper", "auto:trash", "seen:voie"])
         s.owned = ["confiture", "plante", "tableau", "bonnet", "lanterne", RefugeCoat.chocolat.shopID]
         s.worn = ["confiture", "plante", "tableau", "lanterne"]
         s.path = RefugePath.fee.rawValue
         s.pathSeason = RefugeSeason.key(ago(9))
-        s.round = RefugeRound(day: RefugeRules.dayKey(now), tasks: ["feed", "scan", "discover:cinema"])
+        s.round = RefugeRound(day: RefugeRules.dayKey(now), tasks: ["feed", "scan", "discover:media"])
         let badges = ["repas", "chiffon", "lynx", "explorateur", "mainverte", "coquet", "moutons", "mites", "ajour", "gourmand", "fidele"]
         for (i, b) in badges.enumerated() { s.badges[b] = ago(62 - i * 5) }
         s.journal = [

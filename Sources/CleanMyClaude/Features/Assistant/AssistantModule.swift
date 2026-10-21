@@ -106,10 +106,21 @@ final class AssistantModel: AppModule {
     }
 
     func applySnapshotTab(_ tab: String) {
-        guard tab == "attente" else { return }
-        // A question asked, Claude thinking it over.
-        entries = [AssistantEntry(kind: .user("Pourquoi mon ventilateur souffle-t-il autant ?"))]
-        isThinking = true
+        switch tab {
+        case "attente":
+            // A question asked, Claude thinking it over.
+            entries = [AssistantEntry(kind: .user("Pourquoi mon ventilateur souffle-t-il autant ?"))]
+            isThinking = true
+        case "connexion":
+            // The subscription chosen, Claude Code not connected yet.
+            codeStatus?.loggedIn = false
+        case "cle":
+            // An API key chosen, none saved yet.
+            provider = .apiKey
+            hasKey = false
+        default:
+            break
+        }
     }
 
     func results(for query: String, app: AppModel) -> [AppCommand] {

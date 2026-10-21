@@ -5,70 +5,46 @@ import ImageIO
 /// The settings of a merge: the order (dragged by the handle, or the arrows), the pages kept from each PDF, the name,
 /// a bookmark per document and the blank pages for double-sided printing.
 struct ConverterMergeOptions: View {
-    @Environment(AppModel.self) private var app
+    @Bindable var model: ConverterModel
     @State private var dragged: UUID?
     @State private var dragOffset: CGFloat = 0
 
     /// Height of a row plus the space under it: what a drag has to cover to move a document by one place.
-    static let step: CGFloat = 62
+    static let step: CGFloat = 52
 
     var body: some View {
-        @Bindable var model = app.converter
         let parts = model.targets(for: .pdfMerge)
         let first = parts.first?.url
-        VStack(alignment: .leading, spacing: 16) {
-            ConverterOptionRow(label: "Ordre et pages", hint: parts.count > 1 ? "glisse par la poignée pour changer l'ordre" : nil) {
-                VStack(spacing: 6) {
-                    ForEach(Array(parts.enumerated()), id: \.element.id) { index, file in
-                        ConverterMergeRow(file: file, index: index, count: parts.count, dragging: dragged == file.id,
-                                          drag: drag(file, index: index, count: parts.count))
-                            .offset(y: dragged == file.id ? dragOffset : 0)
-                            .zIndex(dragged == file.id ? 1 : 0)
-                    }
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 6) {
+                ForEach(Array(parts.enumerated()), id: \.element.id) { index, file in
+                    ConverterMergeRow(model: model, file: file, index: index, count: parts.count, dragging: dragged == file.id,
+                                      drag: drag(file, index: index, count: parts.count))
+                        .offset(y: dragged == file.id ? dragOffset : 0)
+                        .zIndex(dragged == file.id ? 1 : 0)
                 }
             }
-            ConverterOptionRow(label: "Nom du PDF", hint: "enregistré " + model.destinationLabel.prefix(1).lowercased() + model.destinationLabel.dropFirst()) {
+            ConverterOptionRow(label: "Nom du PDF") {
                 ConverterTextField(text: $model.options.mergeName,
                                    prompt: first.map { ConverterPDFEngine.mergeName("", first: $0) } ?? "Document fusionné", symbol: "doc")
             }
-            VStack(alignment: .leading, spacing: 9) {
-                Toggle(isOn: $model.options.mergeBookmarks) {
-                    label("Un signet par document", "Le nom de chaque fichier dans la barre latérale d'Aperçu, ses propres signets dessous.")
-                }
-                Toggle(isOn: $model.options.mergeDuplex) {
-                    label("Chaque document commence sur une nouvelle feuille",
-                          "Une page blanche après un document impair, pour l'imprimer en recto verso.")
-                }
+            ConverterOptionRow(label: "Signets") {
+                ConverterChips(options: [true, false], selection: $model.options.mergeBookmarks) { $0 ? "Un par document" : "Aucun" }
             }
-            .switchToggles()
+            ConverterOptionRow(label: "Recto verso") {
+                ConverterChips(options: [false, true], selection: $model.options.mergeDuplex) { $0 ? "Chaque document sur une nouvelle feuille" : "Non" }
+            }
             if parts.contains(where: { $0.kind == .image }) {
                 ConverterOptionRow(label: "Pages des images") {
-                    HStack(spacing: 6) {
-                        ConverterChip(title: "Taille de l'image", selected: model.options.pageSize == .image) { model.options.pageSize = .image }
-                        ConverterChip(title: "A4 avec marges", selected: model.options.pageSize == .a4) { model.options.pageSize = .a4 }
-                    }
+                    ConverterChips(options: ConverterPageSize.allCases, selection: $model.options.pageSize) { $0 == .image ? "Taille de l'image" : "A4 avec marges" }
                 }
             }
             if let problem = model.mergeProblem {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle").font(.ui(11.5, .medium)).foregroundStyle(Theme.warn)
-                    Text(problem).font(.ui(12)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
-                }
+                ConverterNote(symbol: "exclamationmark.triangle", text: problem, tint: Theme.warn)
             } else if let total = model.mergePageCount {
-                HStack(spacing: 8) {
-                    Image(systemName: "doc.on.doc").font(.ui(11.5, .medium)).foregroundStyle(Theme.text3)
-                    Text("\(Fmt.plural(total, "page", "pages")) au total"
-                         + (model.options.mergeBookmarks ? " · \(Fmt.plural(parts.count, "signet", "signets"))" : ""))
-                        .font(.ui(12)).foregroundStyle(Theme.text2)
-                }
+                ConverterNote(symbol: "doc.on.doc", text: "\(Fmt.plural(total, "page", "pages")) au total"
+                              + (model.options.mergeBookmarks ? " · \(Fmt.plural(parts.count, "signet", "signets"))" : ""))
             }
-        }
-    }
-
-    private func label(_ title: String, _ detail: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title).font(.ui(12)).foregroundStyle(Theme.text)
-            Text(detail).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -83,7 +59,7 @@ struct ConverterMergeOptions: View {
             .onEnded { value in
                 let moved = Int((dragOffset / Self.step).rounded())
                 withAnimation(.easeOut(duration: 0.18)) {
-                    app.converter.move(file.id, to: index + moved, among: .pdfMerge)
+                    model.move(file.id, to: index + moved, among: .pdfMerge)
                     dragged = nil
                     dragOffset = 0
                 }
@@ -93,7 +69,7 @@ struct ConverterMergeOptions: View {
 
 /// A document of the merge: its place, its first page, and for a PDF the pages it brings.
 struct ConverterMergeRow<Drag: Gesture>: View {
-    @Environment(AppModel.self) private var app
+    let model: ConverterModel
     var file: ConverterFile
     var index: Int
     var count: Int
@@ -101,13 +77,12 @@ struct ConverterMergeRow<Drag: Gesture>: View {
     var drag: Drag
 
     var body: some View {
-        let model = app.converter
         let spec = model.mergePages(file)
         let kept = file.pages.flatMap { ConverterPDFEngine.parsePages(spec, count: $0) }
         HStack(spacing: 10) {
             Image(systemName: "line.3.horizontal")
                 .font(.ui(11, .semibold)).foregroundStyle(Theme.text3)
-                .frame(width: 18, height: 40)
+                .frame(width: 18, height: 34)
                 .contentShape(Rectangle())
                 .gesture(drag)
                 .help("Glisse pour changer l'ordre")
@@ -116,7 +91,7 @@ struct ConverterMergeRow<Drag: Gesture>: View {
                 .frame(width: 20, height: 20)
                 .background(Circle().fill(Theme.track))
             ConverterPageThumb(url: file.url, kind: file.kind)
-                .frame(width: 30, height: 40)
+                .frame(width: 26, height: 34)
             VStack(alignment: .leading, spacing: 3) {
                 Text(file.name).font(.ui(12.5, .medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
                 Group {
@@ -140,7 +115,7 @@ struct ConverterMergeRow<Drag: Gesture>: View {
             if file.kind == .pdf {
                 ConverterTextField(text: Binding(get: { model.mergePages(file) }, set: { model.setMergePages(file, $0) }),
                                    prompt: "Toutes", symbol: "number", mono: true)
-                    .frame(width: 128)
+                    .frame(width: 112)
                     .help("Les pages à garder, par exemple 1-3, 5, 8-")
             }
             HStack(spacing: 2) {
@@ -150,7 +125,7 @@ struct ConverterMergeRow<Drag: Gesture>: View {
         }
         .padding(.horizontal, 8)
         .frame(height: ConverterMergeOptions.step - 6)
-        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(dragging ? Theme.cardRaised : Theme.bg))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(dragging ? Theme.cardRaised : Theme.bg.opacity(0.6)))
         .overlay(RoundedRectangle(cornerRadius: Theme.r(10)).strokeBorder(dragging ? Theme.accent.opacity(0.6) : Theme.border, lineWidth: Theme.line))
         .themedShadow(color: .black.opacity(dragging ? 0.18 : 0), radius: 8, y: 3)
     }

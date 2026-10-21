@@ -1,27 +1,29 @@
 import SwiftUI
 import AppKit
 
-/// An open document: its name, the tools, the pages (thumbnails on the left) and the settings of what is selected.
+/// The open document, in its window: its name, the tools, the pages (thumbnails on the left) and, on the right, what
+/// is selected, the signatures and how the copy is saved. The window's close button closes the document.
 struct FillSignWorkspace: View {
     @Environment(AppModel.self) private var app
     var document: FillSignDocument
 
     var body: some View {
         let model = app.fillSign
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
-                FileIcon(path: document.url?.path ?? "/document.pdf", size: 34)
+                FileIcon(path: document.url?.path ?? "/document.pdf", size: 30)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(document.name).font(.serif(24)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                    Text(document.name).font(.serif(21)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
                     Text(details(model)).font(.ui(12)).foregroundStyle(Theme.text3).lineLimit(1)
                 }
                 Spacer(minLength: 12)
                 Button("Ouvrir un autre…") { model.choose() }.buttonStyle(SoftButtonStyle(small: true))
-                Button("Fermer") { model.close() }.buttonStyle(SoftButtonStyle(small: true))
             }
             if let message = model.message {
                 Callout(symbol: "exclamationmark.triangle", title: "À savoir", text: message, tint: Theme.warn)
             }
+            // « Ouvrir un autre… »: the next document on its way, its password or its conversion.
+            FillSignStatus(showsMessage: false)
             VStack(spacing: 0) {
                 FillSignToolbar()
                 Rectangle().fill(Theme.border).frame(height: 1)
@@ -40,7 +42,7 @@ struct FillSignWorkspace: View {
             .background(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).fill(Theme.card))
             .clipShape(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.r(14), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
-            .modifier(FillSignEditorHeight())
+            .frame(maxHeight: .infinity)
         }
     }
 
@@ -55,17 +57,6 @@ struct FillSignWorkspace: View {
         }
         if let url = document.url { parts.append(FS.pretty(url.deletingLastPathComponent().path)) }
         return parts.joined(separator: " · ")
-    }
-}
-
-/// The editor takes the height of the window (a fixed height in snapshots, which have no window).
-struct FillSignEditorHeight: ViewModifier {
-    func body(content: Content) -> some View {
-        if Snapshot.isActive {
-            content.frame(height: 860)
-        } else {
-            content.containerRelativeFrame(.vertical) { height, _ in max(520, height - 170) }
-        }
     }
 }
 
@@ -599,8 +590,8 @@ struct FillSignInspector: View {
                 if let item = model.selected {
                     selection(item)
                 }
-                section("Signer") {
-                    FillSignSignaturesPanel(compact: true)
+                section("Signer", tip: FillSignModel.tip) {
+                    FillSignSignaturesPanel()
                 }
                 if let doc = model.document, doc.hasForm {
                     section("Formulaire") {
@@ -642,9 +633,9 @@ struct FillSignInspector: View {
                     }
                     .switchToggles()
                 } else if doc.hasForm && !model.items.isEmpty {
-                    note("lock.doc", "Avec une signature ou du texte ajouté, tout est intégré aux pages : rien ne pourra plus bouger.")
+                    note("lock.doc", "Tout sera intégré aux pages : plus rien ne bougera.")
                 }
-                note("folder", "Une copie « \(FillSignExport.outputName(doc.name, signed: model.signatureCount > 0)).pdf » \(doc.url.map { _ in "à côté de l'original" } ?? "dans Téléchargements"). L'original ne change pas.")
+                note("folder", doc.url != nil ? "La copie va à côté de l'original." : "La copie va dans Téléchargements.")
                 if doc.password != nil {
                     note("lock", "La copie garde le mot de passe de l'original.")
                 }
@@ -659,9 +650,12 @@ struct FillSignInspector: View {
         }
     }
 
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+    private func section<Content: View>(_ title: String, tip: HelpTip? = nil, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title.uppercased()).font(.ui(10, .semibold)).tracking(0.7).foregroundStyle(Theme.text3)
+            HStack(spacing: 6) {
+                Text(title.uppercased()).font(.ui(10, .semibold)).tracking(0.7).foregroundStyle(Theme.text3)
+                if let tip { HelpTipButton(tip: tip, size: 11.5) }
+            }
             content()
         }
     }

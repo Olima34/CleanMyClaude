@@ -45,7 +45,7 @@ struct PermissionsSettings: View {
                     }
                 }
                 if !stable {
-                    Label("Cette copie de l'app est signée « ad hoc » : macOS oubliera ces autorisations à la prochaine compilation. Lance une fois ./scripts/setup_signing.sh, puis recompile.",
+                    Label("Copie signée « ad hoc » : macOS oubliera ces autorisations à la prochaine compilation (./scripts/setup_signing.sh).",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.caption).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
                 }
@@ -63,7 +63,7 @@ struct PermissionsSettings: View {
                     }
                 }
             } footer: {
-                Text("Chaque autorisation ne sert qu'à ce qui est indiqué. L'accès complet au disque et l'accessibilité se donnent dans Réglages Système : la fenêtre s'ouvre au bon endroit, active \(AppEdition.name) puis reviens ici.")
+                Text("Chacune ne sert qu'à ce qui est écrit. Certaines se donnent dans Réglages Système : active \(AppEdition.name), puis reviens ici.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -88,11 +88,11 @@ struct PermissionsSettings: View {
     private var statusLine: String {
         if center.isRunning, let k = center.current {
             return center.waitingForSettings
-                ? "Active \(AppEdition.name) dans la fenêtre Réglages Système qui vient de s'ouvrir (\(k.title))."
+                ? "Active \(AppEdition.name) dans Réglages Système (\(k.title))."
                 : "Je demande : \(k.title)…"
         }
         return stable
-            ? "Signature stable : une fois accordées, elles restent acquises après chaque mise à jour de l'app."
+            ? "Elles restent acquises après chaque mise à jour."
             : "Un clic, et macOS pose ses questions l'une après l'autre."
     }
 }
@@ -116,7 +116,7 @@ private struct PermissionSettingsRow: View {
                 trailing
             }
             if isCurrent, center.waitingForSettings, center.addBack == kind {
-                Text("\(AppEdition.name) n'est plus dans la liste ? Glisse-la depuis la fenêtre du Finder qui vient de s'ouvrir dans la liste de Réglages Système (ou clique sur + et choisis-la), puis active l'interrupteur.")
+                Text("Pas dans la liste ? Glisse \(AppEdition.name) depuis le Finder dans Réglages Système, puis active-la.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     .padding(.leading, 30)
             } else if isCurrent, center.waitingForSettings {
@@ -124,7 +124,7 @@ private struct PermissionSettingsRow: View {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     if let since = center.waitingSince, context.date.timeIntervalSince(since) > 5 {
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("Déjà activé dans Réglages Système ? macOS se souvient d'une ancienne version de l'app : réinitialise, puis réactive l'interrupteur.")
+                            Text("Déjà activée ? macOS garde une ancienne version de l'app : réinitialise, puis réactive.")
                                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                             Spacer()
                             Button("Réinitialiser") { Task { await center.reset(kind) } }.controlSize(.small)

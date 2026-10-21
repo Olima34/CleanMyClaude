@@ -111,7 +111,7 @@ struct FillSignPadOverlay: View {
             }
             HStack(alignment: .top, spacing: 7) {
                 Image(systemName: "lock").font(.ui(10.5)).foregroundStyle(Theme.text3)
-                Text("Gardée sur ce Mac seulement, dans le dossier privé de Chamois, pour la prochaine fois. Tu peux la supprimer quand tu veux.")
+                Text("Gardée sur ce Mac seulement, pour la prochaine fois.")
                     .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
             }
         }

@@ -246,16 +246,7 @@ enum LauncherAppActions {
 
     static func commands(_ app: AppModel) -> [AppCommand] {
         var list: [AppCommand] = Page.allCases.map { p in
-            if p == .translator {
-                // Translates right in the launcher panel; ⌘↩ opens the full page.
-                return AppCommand(id: "open_translator", title: p.title, subtitle: "Traduire ici, sans ouvrir la fenêtre · ⌘↩ ouvre la page",
-                                  keywords: ["traduire", "traduction", "translate", "langue"], icon: .symbol(p.symbol, Theme.palette[1]),
-                                  group: .actions, assistantSafe: true, urlSafe: true, hint: "Traduire", staysInLauncher: true) { ctx in
-                    if ctx.alternate { openMain(ctx.app, p) } else { ctx.app.launcher.showTranslator() }
-                    return .done
-                }
-            }
-            return AppCommand(id: "open_\(p.rawValue)", title: p.title, subtitle: "Ouvrir dans Chamois",
+            AppCommand(id: "open_\(p.rawValue)", title: p.title, subtitle: "Ouvrir dans Chamois",
                               keywords: ["clean my claude", "ouvrir"], icon: .symbol(p.symbol), group: .actions,
                               assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
                 openMain(ctx.app, p)
@@ -263,6 +254,13 @@ enum LauncherAppActions {
             }
         }
         list += [
+            // The translator has no page: it translates right in the launcher panel.
+            AppCommand(id: "open_translator", title: "Traducteur", subtitle: "Traduire ici, sans ouvrir la fenêtre",
+                       keywords: ["traduire", "traduction", "translate", "langue"], icon: .symbol("character.bubble", Theme.palette[1]),
+                       group: .actions, assistantSafe: true, urlSafe: true, hint: "Traduire", staysInLauncher: true) { ctx in
+                ctx.app.launcher.showTranslator()
+                return .done
+            },
             // Opens the profile panel over the page already open: it only changes what the sidebar shows.
             AppCommand(id: "act_profile", title: "Choisir mon profil", subtitle: "Les outils mis en avant dans la barre latérale",
                        keywords: ["profil", "personnaliser", "barre latérale", "outils", "autres outils"],

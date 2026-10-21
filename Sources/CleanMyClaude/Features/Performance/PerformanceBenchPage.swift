@@ -41,6 +41,7 @@ struct PerformanceBenchHero: View {
                     .padding(14)
                 }
                 .frame(width: 112, height: 112)
+                .help("1 000 points = un MacBook Air M2 au calme, sur secteur.")
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Benchmark de ton Mac").font(.serif(22)).foregroundStyle(Theme.text)
@@ -48,8 +49,6 @@ struct PerformanceBenchHero: View {
                          : bench.latest.map { "Dernière mesure \(Fmt.relative($0.date)), \($0.context)." }
                             ?? "Processeur, graphisme, mémoire, disque et réactivité, mesurés en 25 secondes.")
                         .font(.ui(12.5)).foregroundStyle(Theme.text2)
-                    Text("1 000 points = un MacBook Air M2 au calme, sur secteur. Ferme les apps lourdes pour un score stable.")
-                        .font(.ui(11)).foregroundStyle(Theme.text3)
                     HStack(spacing: 10) {
                         ScanButton(title: bench.latest == nil ? "Lancer le benchmark" : "Mesurer à nouveau", symbol: "speedometer",
                                    running: running, runningTitle: "Mesure…", activity: .lifting) {
@@ -123,9 +122,9 @@ struct PerformanceBenchCard: View {
                 Text(score.map { Fmt.int($0) } ?? "—").font(.serif(28)).foregroundStyle(Theme.text).monospacedDigit()
                 Text(detail(raw, result: latest)).font(.ui(11.5)).foregroundStyle(Theme.text2).lineLimit(1)
                 UsageBar(fraction: (score ?? 0) / 2500, tint: Theme.accent, height: 5)
-                Text(test.detail).font(.ui(10.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
             }
         }
+        .help(test.detail)
     }
 
     private func detail(_ raw: Double?, result: PerformanceBenchResult?) -> String {
@@ -150,10 +149,12 @@ struct PerformanceBoostTestPanel: View {
     var body: some View {
         let bench = app.performance.bench
         let running = bench.job == .boostDemo
-        Panel(title: "Test du Boost", subtitle: "Ce que le Boost change sur ton Mac, mesuré en 10 secondes.", symbol: "bolt.badge.checkmark") {
+        Panel(title: "Test du Boost", subtitle: "Ce que le Boost change sur ton Mac, en 10 secondes.", symbol: "bolt.badge.checkmark") {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Une app au premier plan travaille seule, puis avec des tâches lourdes en arrière-plan, puis avec ces tâches déplacées par le Boost sur les cœurs économes.")
-                    .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                if bench.boostDemo == nil && !running {
+                    Text("Ton app seule, puis avec des tâches lourdes en fond, puis avec le Boost.")
+                        .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
                 if let r = bench.boostDemo, !running {
                     VStack(spacing: 8) {
                         bar("Ton app seule", 1, tint: Theme.text3)
@@ -207,7 +208,7 @@ struct PerformanceEndurancePanel: View {
         let bench = app.performance.bench
         let running = bench.job == .endurance
         let windows = running ? bench.liveWindows : (bench.endurance?.windows ?? [])
-        Panel(title: "Endurance thermique", subtitle: "Trois minutes à plein régime : quand ton Mac commence-t-il à ralentir pour refroidir ?",
+        Panel(title: "Endurance thermique", subtitle: "Trois minutes à plein régime : quand ralentit-il pour refroidir ?",
               symbol: "thermometer.high") {
             VStack(alignment: .leading, spacing: 12) {
                 if windows.count >= 2 {
@@ -220,7 +221,7 @@ struct PerformanceEndurancePanel: View {
                         Text(summary(e)).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     }
                 } else if !running {
-                    Text("Un Mac sans ventilateur, ou mal refroidi, finit par brider sa puce : ce test le montre, à 100 % c'est qu'il tient le rythme.")
+                    Text("À 100 % de stabilité, ton Mac tient le rythme sans brider sa puce.")
                         .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                 }
                 if running {
@@ -302,7 +303,7 @@ struct PerformanceBenchHistory: View {
 
     var body: some View {
         let history = app.performance.bench.history
-        Panel(title: "Historique", subtitle: "Chaque mesure avec le mode du Boost actif : la preuve qu'une optimisation a changé quelque chose.",
+        Panel(title: "Historique", subtitle: "Chaque mesure, avec le mode du Boost actif.",
               symbol: "chart.bar") {
             if history.isEmpty {
                 EmptyHint(text: "Lance un premier benchmark : les suivants s'y compareront.", symbol: "speedometer")

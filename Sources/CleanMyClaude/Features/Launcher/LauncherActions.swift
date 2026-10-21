@@ -1044,19 +1044,14 @@ extension LauncherModel {
     private func convert(_ path: String, with op: ConverterOperation) {
         guard let app = app ?? AppContext.model else { return }
         hide()
-        app.converter.receive([URL(fileURLWithPath: path)])
-        app.converter.focus(op)
-        app.page = .converter
-        NotificationCenter.default.post(name: .openMainWindow, object: nil)
+        app.converter.present([URL(fileURLWithPath: path)], focus: op)
     }
 
-    /// The document opens in « Remplir et signer », ready to be filled in and signed (a copy is saved, never the original).
+    /// The document opens in the window of « Remplir et signer », ready to be filled in and signed (a copy is saved, never the original).
     private func fillSign(_ path: String) {
         guard let app = app ?? AppContext.model else { return }
         hide()
-        app.fillSign.open(URL(fileURLWithPath: path))
-        app.page = .fillsign
-        NotificationCenter.default.post(name: .openMainWindow, object: nil)
+        app.fillSign.openWindow(URL(fileURLWithPath: path))
     }
 
     /// Puts the file's text in the message being written to Claude, then shows the conversation: nothing leaves before the user sends it.

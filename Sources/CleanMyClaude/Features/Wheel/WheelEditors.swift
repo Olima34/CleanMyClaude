@@ -30,11 +30,11 @@ final class WheelEditorContext {
             HUD.show(DemoData.refusal, symbol: "info.circle.fill")
             return
         }
-        let destination = model.settings.destination
+        let destination = model.settings.destination, custom = model.settings.folder
         let input = file.url
         close()
         model.runner.run(action, files: files, at: point) { control, _ in
-            let place = WheelJobs.folder(for: input, destination: destination)
+            let place = WheelJobs.folder(for: input, destination: destination, custom: custom)
             let outputs = try await work(place.folder, control)
             return WheelResult(outputs: outputs, note: place.note)
         }

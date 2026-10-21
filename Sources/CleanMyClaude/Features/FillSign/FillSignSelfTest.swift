@@ -236,6 +236,47 @@ extension FillSignModel {
         m.copyToAllPages()
         expect(m.items.count == 4, "sur toutes les pages : \(m.items.count) éléments au lieu de 4")
         expect(m.hasChanges, "document modifié vu comme intact")
+        failures += windowChecks()
+        return failures
+    }
+
+    /// The window: its size on small and large screens, the document that moves into it, what closing it leaves.
+    private func windowChecks() -> [String] {
+        var failures: [String] = []
+        func expect(_ condition: Bool, _ what: @autoclosure () -> String) {
+            if !condition { failures.append(what()) }
+        }
+        let big = CGRect(x: 0, y: 0, width: 2560, height: 1415)
+        let wide = FillSignWindow.frame(wanted: FillSignWindow.size, in: big)
+        expect(wide.size == FillSignWindow.size && abs(wide.midX - big.midX) <= 1 && abs(wide.midY - big.midY) <= 1,
+               "fenêtre sur un grand écran : \(wide)")
+        let laptop = CGRect(x: 0, y: 38, width: 1440, height: 837)
+        let small = FillSignWindow.frame(wanted: FillSignWindow.size, in: laptop)
+        expect(laptop.contains(small) && small.height >= laptop.height - 13 && small.width == FillSignWindow.size.width,
+               "fenêtre sur un petit écran : \(small) dans \(laptop)")
+        let tiny = FillSignWindow.frame(wanted: CGSize(width: 3000, height: 3000), in: CGRect(x: 0, y: 0, width: 700, height: 500))
+        expect(tiny.width <= 700 && tiny.height <= 500, "fenêtre plus grande que l'écran : \(tiny)")
+
+        guard let data = FillSignDemo.contract() else { return failures }
+        let url = URL(fileURLWithPath: "/tmp/Contrat essai.pdf")
+        guard let doc = try? FillSignDocument(url: url, name: "Contrat essai", data: data, password: nil, fromImage: false) else { return failures }
+        let m = FillSignModel()
+        m.show(doc)
+        m.tool = .check
+        m.tap(at: CGPoint(x: 100, y: 100), page: 0)
+        expect(m.windowKeeps(URL(fileURLWithPath: "/tmp/./Contrat essai.pdf")), "le document ouvert est relu en passant dans sa fenêtre")
+        expect(!m.windowKeeps(URL(fileURLWithPath: "/tmp/Autre.pdf")), "un autre document pris pour celui qui est ouvert")
+        expect(!m.isIdle, "fenêtre avec un document vue comme vide")
+        m.passwordFor = url
+        m.windowDidClose()
+        expect(m.document == nil && m.items.isEmpty && m.passwordFor == nil && m.undoCount == 0 && m.isIdle,
+               "fenêtre fermée : le document reste ouvert (\(m.document?.name ?? "aucun"), \(m.items.count) ajouts)")
+        expect(m.windowMayClose(), "fenêtre sans document : sa fermeture demande confirmation")
+        // A password given up with no document behind it: the window has nothing left and closes.
+        m.passwordFor = url
+        expect(!m.isIdle, "mot de passe demandé : fenêtre vue comme vide")
+        m.passwordFor = nil
+        expect(m.isIdle, "mot de passe abandonné : la fenêtre resterait ouverte à vide")
         return failures
     }
 }

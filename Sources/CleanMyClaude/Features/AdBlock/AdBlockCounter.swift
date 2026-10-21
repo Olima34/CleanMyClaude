@@ -260,6 +260,9 @@ struct AdBlockEquivalence: Identifiable, Equatable {
     var id: String
     var symbol: String
     var value: String
+    /// After the value, on the page ("de pub télé").
+    var label: String
+    /// The whole comparison, on hover and in the command line.
     var text: String
 }
 
@@ -268,13 +271,13 @@ enum AdBlockFun {
     static func equivalences(_ n: Int) -> [AdBlockEquivalence] {
         let grams = Double(n) * 5, meters = Double(n) * 0.0001, megabytes = Double(n) * 0.05
         return [
-            AdBlockEquivalence(id: "tv", symbol: "tv", value: duration(seconds: n * 30),
+            AdBlockEquivalence(id: "tv", symbol: "tv", value: duration(seconds: n * 30), label: "de pub télé",
                                text: "de coupures pub à la télé, si chaque pub arrêtée était un spot de 30 secondes"),
-            AdBlockEquivalence(id: "paper", symbol: "newspaper", value: mass(grams),
+            AdBlockEquivalence(id: "paper", symbol: "newspaper", value: mass(grams), label: "de prospectus",
                                text: "de prospectus de 5 g, " + compare(grams / 1000, lead: "le poids", to: weights)),
-            AdBlockEquivalence(id: "pile", symbol: "ruler", value: length(meters),
+            AdBlockEquivalence(id: "pile", symbol: "ruler", value: length(meters), label: "de pile",
                                text: "de pile, un prospectus sur l'autre, " + compare(meters, lead: "la hauteur", to: heights)),
-            AdBlockEquivalence(id: "data", symbol: "arrow.down.circle", value: Fmt.bytes(Int64(megabytes * 1_000_000)),
+            AdBlockEquivalence(id: "data", symbol: "arrow.down.circle", value: Fmt.bytes(Int64(megabytes * 1_000_000)), label: "de données en moins",
                                text: "de données en moins (≈ 50 Ko par pub ou pisteur), " + compare(megabytes, lead: "l'équivalent", to: data))
         ]
     }
@@ -345,7 +348,7 @@ enum AdBlockFun {
     }
 }
 
-/// The counter on the page: the number, the curve of the last two weeks, the orders of magnitude and the apps.
+/// The counter on the blocker's tab: the number and its curve, what it amounts to, and the apps that tried.
 struct AdBlockCounterPanel: View {
     @Environment(AppModel.self) private var app
 
@@ -353,64 +356,73 @@ struct AdBlockCounterPanel: View {
         let m = app.adblock
         let t = m.tally
         let step = AdBlockFun.milestone(t.total)
+        let apps = t.apps.sorted { $0.value > $1.value }.prefix(4)
         Card(padding: 22) {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 20) {
+                HStack(alignment: .top, spacing: 28) {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(alignment: .firstTextBaseline, spacing: 12) {
                             Text(Fmt.int(t.total))
-                                .font(.serif(52)).foregroundStyle(Theme.text).monospacedDigit()
+                                .font(.serif(48)).foregroundStyle(Theme.text).monospacedDigit()
                                 .contentTransition(.numericText())
                                 .animation(.easeOut(duration: 0.6), value: t.total)
                             PixelMascot(pixel: 2)
+                            Spacer(minLength: 0)
+                            VStack(alignment: .trailing, spacing: 4) {
+                                Sparkline(values: t.series(14), tint: AdBlockStyle.tint).frame(width: 180, height: 46)
+                                Text("14 derniers jours").font(.ui(10.5)).foregroundStyle(Theme.text3)
+                            }
                         }
                         Text("pubs et pisteurs arrêtés" + (t.since.map { " depuis le \($0.formatted(.dateTime.day().month(.wide).locale(Fmt.fr)))" } ?? ""))
                             .font(.ui(13)).foregroundStyle(Theme.text2)
-                        HStack(spacing: 14) {
+                            .help(AdBlockTips.counted)
+                        HStack(alignment: .bottom, spacing: 14) {
                             figure(Fmt.int(t.count(lastDays: 1)), "aujourd'hui")
                             figure(Fmt.int(t.count(lastDays: 7)), "sur 7 jours")
                             if let next = step.next {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text("Prochain palier : \(Fmt.int(next.0)) · « \(next.1) »").font(.ui(11)).foregroundStyle(Theme.text3)
-                                    UsageBar(fraction: step.progress, tint: AdBlockPage.tint, height: 5).frame(width: 180)
+                                    UsageBar(fraction: step.progress, tint: AdBlockStyle.tint, height: 5).frame(width: 180)
                                 }
+                            }
+                            if let reached = step.reached {
+                                Tag(text: reached.1, symbol: "trophy", tint: Theme.good, filled: true)
                             }
                         }
                         .padding(.top, 6)
                     }
-                    Spacer(minLength: 0)
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Sparkline(values: t.series(14), tint: AdBlockPage.tint).frame(width: 220, height: 56)
-                        Text("14 derniers jours").font(.ui(10.5)).foregroundStyle(Theme.text3)
-                        if let reached = step.reached {
-                            Tag(text: reached.1, symbol: "trophy", tint: Theme.good, filled: true)
-                        }
-                    }
-                }
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: 4), alignment: .leading, spacing: 12) {
-                    ForEach(AdBlockFun.equivalences(t.total)) { e in
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    if !apps.isEmpty {
                         VStack(alignment: .leading, spacing: 6) {
-                            IconBadge(symbol: e.symbol, tint: AdBlockPage.tint, size: 26)
-                            Text(e.value).font(.serif(22)).foregroundStyle(Theme.text).monospacedDigit()
-                            Text(e.text).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                            Text("Qui essayait de joindre des régies").font(.ui(12, .semibold)).foregroundStyle(Theme.text)
+                            ForEach(Array(apps), id: \.key) { name, n in
+                                RankRow(name: name, value: Fmt.int(n), fraction: Double(n) / Double(max(1, apps.first?.value ?? 1)), tint: AdBlockStyle.tint)
+                            }
                         }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, minHeight: 130, alignment: .topLeading)
-                        .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.cardRaised))
+                        .frame(width: 330)
                     }
                 }
-                let apps = t.apps.sorted { $0.value > $1.value }.prefix(5)
-                if !apps.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Qui essayait de joindre des régies").font(.ui(12, .semibold)).foregroundStyle(Theme.text)
-                        ForEach(Array(apps), id: \.key) { name, n in
-                            RankRow(name: name, value: Fmt.int(n), fraction: Double(n) / Double(max(1, apps.first?.value ?? 1)), tint: AdBlockPage.tint)
+                if t.total > 0 {
+                    FlowLayout(spacing: 8, lineSpacing: 8) {
+                        ForEach(AdBlockFun.equivalences(t.total)) { e in
+                            HStack(spacing: 6) {
+                                if Theme.icons != .hidden {
+                                    Image(systemName: e.symbol).font(.ui(11, .medium))
+                                        .foregroundStyle(Theme.icons == .tinted ? AdBlockStyle.tint : Theme.text3)
+                                }
+                                Text(e.value).font(.ui(12, .semibold)).foregroundStyle(Theme.text).monospacedDigit()
+                                Text(e.label).font(.ui(11.5)).foregroundStyle(Theme.text3)
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(PillShape().fill(Theme.track))
+                            .help(e.value + " " + e.text)
                         }
                     }
                 }
-                Text(m.countError.map { "Compteur en pause : \($0)" }
-                     ?? "Compté sur ce Mac, en direct dans le journal de macOS, pendant que Chamois tourne : les noms des sites y sont masqués, Chamois voit seulement qu'une réponse a été « bloquée ». Les pubs vidéo coupées par le lecteur sans pub sont comptées aussi ; celles qu'une extension de Safari coupe ne le sont pas.")
-                    .font(.ui(11)).foregroundStyle(m.countError == nil ? Theme.text3 : Theme.warn).fixedSize(horizontal: false, vertical: true)
+                if let error = m.countError {
+                    Text("Compteur en pause : \(error)")
+                        .font(.ui(11)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

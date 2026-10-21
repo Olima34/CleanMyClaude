@@ -15,22 +15,20 @@ struct RefugeChalet: View {
     /// Where each room's window is, in the chalet's coordinates.
     private static let windows: [(page: Page, rect: CGRect)] = {
         var out: [(Page, CGRect)] = [
-            (.adblock, CGRect(x: 152, y: 90, width: 38, height: 28)),
             (.menubar, CGRect(x: 251, y: 62, width: 38, height: 32)),
-            (.network, CGRect(x: 401, y: 38, width: 30, height: 30)),
-            (.storage, CGRect(x: 120, y: 136, width: 76, height: 42)),
-            (.darkmode, CGRect(x: 232, y: 136, width: 76, height: 42)),
-            (.translator, CGRect(x: 344, y: 136, width: 76, height: 42)),
+            (.wheel, CGRect(x: 401, y: 38, width: 30, height: 30)),
+            (.storage, CGRect(x: 176, y: 136, width: 76, height: 42)),
+            (.media, CGRect(x: 288, y: 136, width: 76, height: 42)),
         ]
-        let floor2: [Page] = [.launcher, .hotkeys, .clipboard, .fillsign, .converter, .toolbox]
-        let floor1: [Page] = [.dashboard, .assistant, .youtube, .cinema, .performance, .protection]
-        for (i, p) in floor2.enumerated() { out.append((p, CGRect(x: 84 + CGFloat(i) * 63, y: 196, width: 54, height: 44))) }
-        for (i, p) in floor1.enumerated() { out.append((p, CGRect(x: 84 + CGFloat(i) * 63, y: 262, width: 54, height: 44))) }
+        let floor2: [Page] = [.launcher, .hotkeys, .clipboard, .toolbox]
+        let floor1: [Page] = [.dashboard, .assistant, .performance, .protection]
+        // Four windows a floor, centred where six used to be.
+        for (i, p) in floor2.enumerated() { out.append((p, CGRect(x: 147 + CGFloat(i) * 63, y: 196, width: 54, height: 44))) }
+        for (i, p) in floor1.enumerated() { out.append((p, CGRect(x: 147 + CGFloat(i) * 63, y: 262, width: 54, height: 44))) }
         out += [
             (.cleanup, CGRect(x: 92, y: 330, width: 64, height: 46)),
             (.phone, CGRect(x: 170, y: 330, width: 56, height: 46)),
             (.updates, CGRect(x: 318, y: 346, width: 30, height: 26)),
-            (.windows, CGRect(x: 14, y: 312, width: 50, height: 66)),
             (.automation, CGRect(x: 478, y: 344, width: 52, height: 40)),
             (.battery, CGRect(x: 140, y: 408, width: 74, height: 38)),
             (.apps, CGRect(x: 326, y: 408, width: 74, height: 38)),

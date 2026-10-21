@@ -31,6 +31,11 @@ final class TranslatorModel: AppModule {
     var detectedCode: String?
     /// True while the translator is shown inside the launcher panel: on-device translations go through its channel.
     var panelActive = false
+    /// The panel shows its settings (the gear, ⌘,): engine, languages, history.
+    var showSettings = false
+    /// The language being downloaded in its window, and why the last download did not end well.
+    var downloading: String?
+    var downloadError: String?
     /// Who wrote the current result (shown as a badge in the panel).
     var resultEngine: TranslatorEngine?
     var resultText = ""
@@ -44,10 +49,10 @@ final class TranslatorModel: AppModule {
     var history: [TranslatorEntry] = []
 
     /// Bumped to make the on-device host translate (see `TranslatorHost`).
-    var pageTicket = 0
     var panelTicket = 0
     var launcherTicket = 0
-    @ObservationIgnored private var pageRequest: TranslatorRequest?
+    var downloadTicket = 0
+    @ObservationIgnored private var downloadRequest: TranslatorRequest?
     @ObservationIgnored private var panelRequest: TranslatorRequest?
     @ObservationIgnored private var launcherRequest: TranslatorRequest?
     @ObservationIgnored private var launcherCache: [String: String] = [:]
@@ -91,8 +96,6 @@ final class TranslatorModel: AppModule {
         store.flush()
     }
 
-    var sidebarBadge: String? { isTranslating ? "…" : nil }
-
     func loadDemo() {
         engine = .apple
         sourceText = "On se retrouve demain à 9 h devant l'atelier pour finir les maquettes de Boussole ? J'apporte les croissants."
@@ -122,11 +125,20 @@ final class TranslatorModel: AppModule {
         launcherCache["en|Bonjour"] = "Hello"
     }
 
+    /// The launcher's snapshots pass their own names (`--page launcher --tab traducteur:reglages`).
     func applySnapshotTab(_ tab: String) {
         if let e = TranslatorEngine(rawValue: tab) { engine = e }
-        if tab == "attente" {
+        switch tab {
+        case "attente":
             resultText = ""
             isTranslating = true
+        case "reglages":
+            showSettings = true
+        case "telechargement":
+            showSettings = true
+            downloading = "it"
+        default:
+            break
         }
     }
 
@@ -244,6 +256,10 @@ final class TranslatorModel: AppModule {
         if Self.cycled(chips, from: "en", by: -1, skipping: nil) != "de" { failures.append("⇧⇥ doit revenir à la dernière langue") }
         if Self.cycled(chips, from: "it", by: 1, skipping: nil) != "en" { failures.append("⇥ depuis une langue hors liste") }
         if Array(Self.panelTargets(installed: ["es", "ja"]).prefix(4)) != ["en", "fr", "es", "ja"] { failures.append("langues du panneau : installées en premier") }
+        let picked = Self.panelTargets(installed: [], current: "ko")
+        if picked.count != 8 || picked.last != "ko" || Self.panelTargets(installed: [], current: "es").contains("ko") {
+            failures.append("langues du panneau : une langue choisie dans « Autre » doit prendre la dernière place")
+        }
         let codes = TranslatorLanguage.all.map(\.code)
         if Set(codes).count != codes.count { failures.append("langue en double") }
         if !Self.claudeSystem(target: "en", source: nil, tone: .formal).contains("Anglais") { failures.append("consigne de Claude") }
@@ -267,6 +283,8 @@ final class TranslatorModel: AppModule {
     /// Called by the launcher when it shows the translator (prefilled from "trad …", the clipboard or a shortcut).
     func enterPanel(text: String?, target: String?, claude: Bool) {
         panelActive = true
+        showSettings = false
+        downloadError = nil
         if let target { targetCode = target }
         var known: String?
         if let text {
@@ -293,15 +311,18 @@ final class TranslatorModel: AppModule {
         }
     }
 
-    /// The languages offered as chips in the panel: English and French, then the ones on this Mac, then common ones.
+    /// The languages offered as chips in the panel: English and French, then the ones on this Mac, then common ones;
+    /// a language picked in the "Autre" menu takes the last place.
     var panelTargets: [String] {
-        Self.panelTargets(installed: TranslatorLanguage.all.map(\.code).filter { languageStatus[$0] == .installed })
+        Self.panelTargets(installed: TranslatorLanguage.all.map(\.code).filter { languageStatus[$0] == .installed }, current: targetCode)
     }
 
-    static func panelTargets(installed: [String]) -> [String] {
+    static func panelTargets(installed: [String], current: String? = nil) -> [String] {
         var list = ["en", "fr"]
         for code in installed + ["es", "de", "it", "pt", "ja", "zh-Hans"] where !list.contains(code) { list.append(code) }
-        return Array(list.prefix(8))
+        list = Array(list.prefix(8))
+        if let current, !list.contains(current) { list[list.count - 1] = current }
+        return list
     }
 
     /// ⇥ and ⇧⇥: the next or previous chip, skipping the language the text is already in.
@@ -316,18 +337,13 @@ final class TranslatorModel: AppModule {
         return choices[(i + delta % choices.count + choices.count) % choices.count]
     }
 
-    // MARK: Translating on the page
+    // MARK: Translating
 
-    /// Opens the page with a text (launcher, clipboard, "Demander à Claude").
+    /// Translates a text in the launcher (clipboard, "Demander à Claude").
     func open(_ text: String, target: String? = nil, engine: TranslatorEngine? = nil) {
         if let engine { self.engine = engine }
-        if let target { targetCode = target }
-        sourceCode = nil
-        sourceText = text
         guard let app = app ?? AppContext.model else { return }
-        app.page = .translator
-        NotificationCenter.default.post(name: .openMainWindow, object: nil)
-        if self.engine == .claude { Task { await translateWithClaude() } } else { translateSoon(delay: 0.05) }
+        app.launcher.showTranslator(text: text, target: target, claude: self.engine == .claude)
     }
 
     /// The text and its translation change sides, with their languages (the result keeps its engine: it is the same pair).
@@ -364,21 +380,21 @@ final class TranslatorModel: AppModule {
         if engine == .apple { translateOnDevice() } else { Task { await translateWithClaude() } }
     }
 
-    private func translateOnDevice(download: Bool = false) {
+    /// Only in the launcher panel, and only for languages already on the Mac: anything else (a download, a language to
+    /// pick) would open a system window that takes the keyboard and closes the panel. A download has its own window.
+    private func translateOnDevice() {
         let text = sourceText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || download else { resultText = ""; error = nil; return }
+        guard !text.isEmpty else { resultText = ""; error = nil; return }
+        guard panelActive else { return }
         guard TranslatorAvailability.isAvailable else {
-            error = "La traduction sur l'appareil demande macOS 15 : passe par Claude."
+            error = "La traduction sur ton Mac demande macOS 15 : ⌘↩ pour Claude."
             return
         }
         let source = effectiveSource ?? TranslatorLanguage.bestGuess(sourceText, preferring: installedCodes)
         let target = effectiveTarget
-        let inPanel = panelActive
         Task {
             let status = source == nil ? TranslatorPairStatus.unknown : await TranslatorAvailability.status(from: source!, to: target)
-            // In the launcher panel, Apple is only called for languages already on the Mac: anything else
-            // (a download, a language to pick) would open a system window that takes the keyboard and closes the panel.
-            if inPanel, status != .installed {
+            if status != .installed {
                 pairStatus = status == .unknown ? .unsupported : status
                 isTranslating = false
                 resultText = ""
@@ -387,60 +403,63 @@ final class TranslatorModel: AppModule {
                 } else if let source, status == .unsupported {
                     error = "Apple ne traduit pas \(TranslatorLanguage.named(source)) → \(TranslatorLanguage.named(target)) : ⌘↩ pour Claude."
                 } else {
-                    error = "Je ne reconnais pas la langue de ce texte : choisis-la dans le Traducteur, ou ⌘↩ pour Claude."
+                    error = "Je ne reconnais pas la langue de ce texte : choisis-la en haut à gauche, ou ⌘↩ pour Claude."
                 }
-                return
-            }
-            if !download, status == .downloadable {
-                pairStatus = .downloadable
-                error = nil
-                resultText = ""
-                return
-            }
-            if status == .unsupported {
-                pairStatus = .unsupported
-                error = "Apple ne traduit pas \(TranslatorLanguage.named(source)) → \(TranslatorLanguage.named(target)) : choisis Claude."
                 return
             }
             isTranslating = true
             error = nil
-            let request = TranslatorRequest(text: sourceText, source: source, target: target, download: download)
-            if panelActive {
-                panelRequest = request
-                panelTicket += 1
-            } else {
-                pageRequest = request
-                pageTicket += 1
-            }
+            panelRequest = TranslatorRequest(text: sourceText, source: source, target: target)
+            panelTicket += 1
         }
     }
 
-    /// Asks macOS to download the languages of the current pair (it shows its own confirmation).
+    /// The pair of the text being translated, when one of its languages is missing on the Mac.
     func downloadCurrentPair() {
-        translateOnDevice(download: true)
+        guard let source = effectiveSource else { return }
+        let target = effectiveTarget
+        // The language missing (French is on every Mac that translates): the one that is not installed.
+        let missing = [target, source].first { $0 != "fr" && languageStatus[$0] != .installed } ?? target
+        download(missing, with: missing == target ? source : target)
     }
 
-    /// Downloads French ↔ a language, from the list of languages.
-    func download(_ code: String) {
-        guard TranslatorAvailability.isAvailable else { return }
-        isTranslating = true
-        pageRequest = TranslatorRequest(text: "", source: code == "fr" ? "en" : "fr", target: code, download: true)
-        pageTicket += 1
+    /// Downloads a language (with French, or with `other`), in its own window where macOS asks to confirm.
+    func download(_ code: String, with other: String? = nil) {
+        guard TranslatorAvailability.isAvailable, downloading == nil else { return }
+        guard !DemoData.isEnabled, !Snapshot.isActive else {
+            HUD.show(DemoData.refusal, symbol: "info.circle.fill")
+            return
+        }
+        guard let app = app ?? AppContext.model else { return }
+        downloading = code
+        downloadError = nil
+        let partner = other.flatMap { $0 == code ? nil : $0 } ?? (code == "fr" ? "en" : "fr")
+        downloadRequest = TranslatorRequest(text: "", source: partner, target: code, download: true)
+        downloadTicket += 1
+        TranslatorDownloadWindow.show(app: app, language: code)
+    }
+
+    /// The download window was closed: a download still going is given up.
+    func downloadWindowClosed() {
+        guard downloading != nil else { return }
+        downloading = nil
+        downloadRequest = nil
+        downloadError = "Téléchargement annulé."
     }
 
     func request(for channel: TranslatorChannel) -> TranslatorRequest? {
         switch channel {
-        case .page: return pageRequest
         case .panel: return panelRequest
         case .launcher: return launcherRequest
+        case .download: return downloadRequest
         }
     }
 
     func ticket(for channel: TranslatorChannel) -> Int {
         switch channel {
-        case .page: return pageTicket
         case .panel: return panelTicket
         case .launcher: return launcherTicket
+        case .download: return downloadTicket
         }
     }
 
@@ -461,10 +480,12 @@ final class TranslatorModel: AppModule {
             }
             if isCurrent(request, channel), launcherAsked == key { launcherAsked = nil }
             refreshLauncher(for: request.text)
-        case .page, .panel:
+        case .download:
+            guard isCurrent(request, channel) else { return }
+            downloadDone(request, error: nil)
+        case .panel:
             guard isCurrent(request, channel) else { return }
             isTranslating = false
-            if request.download { Task { await refreshLanguageStatuses(); refreshPairStatus() } }
             guard let result, request.text == sourceText else { return }
             error = nil
             resultText = result
@@ -486,10 +507,29 @@ final class TranslatorModel: AppModule {
             if !replaced { note(key, TranslatorAvailability.message(error)) }
             if isCurrent(request, channel), launcherAsked == key { launcherAsked = nil }
             if !replaced { refreshLauncher(for: request.text) }
-        case .page, .panel:
+        case .download:
+            guard isCurrent(request, channel) else { return }
+            downloadDone(request, error: TranslatorAvailability.message(error))
+        case .panel:
             guard isCurrent(request, channel) else { return }
             isTranslating = false
             if !replaced { self.error = TranslatorAvailability.message(error) }
+        }
+    }
+
+    /// The language is on the Mac (or not): its window closes, the list and the translation follow.
+    private func downloadDone(_ request: TranslatorRequest, error message: String?) {
+        downloading = nil
+        downloadRequest = nil
+        downloadError = message
+        TranslatorDownloadWindow.close()
+        Task {
+            await refreshLanguageStatuses()
+            let installed = languageStatus[request.target] == .installed
+            if message == nil, installed {
+                HUD.show("\(Fmt.cap(TranslatorLanguage.withArticle(request.target))) est sur ton Mac", symbol: "checkmark.circle.fill")
+            }
+            if panelActive { translateSoon(delay: 0.05) }
         }
     }
 
@@ -522,7 +562,7 @@ final class TranslatorModel: AppModule {
                     guard self.launcherAsked == key else { return }
                     if status != .installed {
                         self.note(key, status == .downloadable
-                            ? "Télécharge \(TranslatorLanguage.withArticle(target)) dans le Traducteur (↩)"
+                            ? "\(Fmt.cap(TranslatorLanguage.withArticle(target))) n'est pas sur ton Mac : ↩ pour le télécharger"
                             : "Langue non reconnue ou non proposée par Apple : choisis Claude")
                         self.launcherAsked = nil
                         self.refreshLauncher(for: text)
@@ -610,7 +650,7 @@ final class TranslatorModel: AppModule {
     // MARK: Languages
 
     func refreshPairStatus() {
-        guard engine == .apple, !DemoData.isEnabled else { return }
+        guard engine == .apple, !DemoData.isEnabled, panelActive else { return }
         guard let source = effectiveSource else { pairStatus = .unknown; return }
         let target = effectiveTarget
         Task {
@@ -641,7 +681,9 @@ final class TranslatorModel: AppModule {
         store.value = history
     }
 
+    /// An entry of the history, back in the translator (from its settings: the translation shows again).
     func restore(_ entry: TranslatorEntry) {
+        showSettings = false
         autoWork?.cancel()
         sourceCode = nil
         sourceText = entry.source

@@ -8,8 +8,8 @@ struct PerformancePage: View {
         @Bindable var model = app.performance
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "bolt", title: "Optimisation et performances",
-                     subtitle: "Toute la puissance pour ce que tu fais, un Mac plus frais, et la preuve en chiffres : Boost, capteurs, benchmark, fluidité, démarrage et réparations.",
-                     tint: Theme.warn, seed: 45)
+                     subtitle: "Plus de puissance, un Mac plus frais, et la preuve en chiffres.",
+                     tint: Theme.warn, seed: 45, tip: model.tab.tip)
             PillPicker(options: PerformanceTab.allCases, selection: $model.tab, label: { $0.title }, badge: { tab in
                 switch tab {
                 case .startup: return app.startup.activeCount > 0 ? "\(app.startup.activeCount)" : nil
@@ -36,6 +36,32 @@ struct PerformancePage: View {
             case .startup: StartupTab()
             case .maintenance: MaintenanceTab()
             }
+        }
+    }
+}
+
+extension PerformanceTab {
+    /// The « ? » next to the page title follows the tab: each one is explained the first time it is opened.
+    var tip: HelpTip {
+        switch self {
+        case .boost:
+            return HelpTip(id: "performance.boost", title: "Le Boost",
+                           text: "Ce qui tourne en arrière-plan passe sur les cœurs économes de la puce : il continue, plus lentement et plus au frais, et retrouve toute sa vitesse dès que tu y reviens. L'app au premier plan, celles qui jouent du son, surveillent le clavier ou travaillent en fond pour toi (exports, enregistrements, machines virtuelles) ne sont jamais ralenties. Un clic droit sur une app change ses règles.")
+        case .monitor:
+            return HelpTip(id: "performance.monitor", title: "Le moniteur",
+                           text: "La puce, la mémoire et les capteurs en direct, mesurés seulement quand cet onglet est à l'écran. La croix d'une ligne quitte l'app ; un clic droit demande à Claude ce qu'est un processus inconnu.")
+        case .bench:
+            return HelpTip(id: "performance.bench", title: "Le benchmark",
+                           text: "Processeur, graphisme, mémoire, disque et réactivité, mesurés en 25 secondes : 1 000 points, c'est un MacBook Air M2 au calme, sur secteur. Ferme les apps lourdes pour un score stable ; chaque mesure retient le mode du Boost, pour comparer avant et après.")
+        case .tweaks:
+            return HelpTip(id: "performance.tweaks", title: "La fluidité",
+                           text: "Des réglages cachés de macOS qui raccourcissent ou suppriment les animations : chaque geste paraît plus rapide, et la puce graphique travaille moins. Chacun se rétablit exactement comme avant d'un clic.")
+        case .startup:
+            return HelpTip(id: "performance.startup", title: "Le démarrage",
+                           text: "Ces agents tournent en arrière-plan dès l'ouverture de session : mises à jour automatiques, synchronisation, assistants… Désactiver ceux dont tu ne te sers pas allège le démarrage, et c'est réversible à tout moment.")
+        case .maintenance:
+            return HelpTip(id: "performance.maintenance", title: "Les petites réparations",
+                           text: "Des remèdes ciblés pour des soucis précis : inutile de tout lancer « au cas où », macOS s'entretient très bien tout seul. Les tâches marquées d'un cadenas demandent ton mot de passe, dans la fenêtre de macOS.")
         }
     }
 }
@@ -163,7 +189,7 @@ struct ProcessTable: View {
 
     var body: some View {
         @Bindable var model = app.performance
-        Panel(title: "Qui consomme quoi", subtitle: "Les apps et leurs processus d'aide regroupés, mis à jour toutes les 3 secondes.", symbol: "list.bullet.rectangle") {
+        Panel(title: "Qui consomme quoi", subtitle: "Mis à jour toutes les 3 secondes", symbol: "list.bullet.rectangle") {
             PillPicker(options: ProcessSort.allCases, selection: $model.sort, label: { $0.title })
         } content: {
             VStack(spacing: 0) {
@@ -248,16 +274,15 @@ struct StartupTab: View {
     var body: some View {
         let startup = app.startup
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 14) {
-                Callout(symbol: "power", title: "Ce qui démarre avec ton Mac",
-                        text: "Ces agents tournent en arrière-plan dès l'ouverture de session : mises à jour automatiques, synchronisation, assistants… Désactiver ceux dont tu ne te sers pas allège le démarrage. C'est réversible à tout moment.")
-                VStack(alignment: .leading, spacing: 8) {
-                    ScanButton(title: startup.lastScan == nil ? "Analyser" : "Actualiser", symbol: "arrow.clockwise", running: startup.isScanning,
-                               activity: .searching) {
-                        Task { await startup.scan() }
-                    }
-                    Button("Apps ouvertes à la connexion…") { Finder.open(SettingsPane.loginItems) }
-                        .buttonStyle(SoftButtonStyle(small: true))
+            HStack(alignment: .center, spacing: 10) {
+                Text(startup.lastScan.map { "Analysé \(Fmt.relative($0))." } ?? "Pas encore analysé.")
+                    .font(.ui(12)).foregroundStyle(Theme.text3)
+                Spacer()
+                Button("Apps ouvertes à la connexion…") { Finder.open(SettingsPane.loginItems) }
+                    .buttonStyle(SoftButtonStyle())
+                ScanButton(title: startup.lastScan == nil ? "Analyser" : "Actualiser", symbol: "arrow.clockwise", running: startup.isScanning,
+                           activity: .searching) {
+                    Task { await startup.scan() }
                 }
             }
             if let msg = startup.message {
@@ -272,7 +297,7 @@ struct StartupTab: View {
                 }
             } else {
                 Panel(title: "\(Fmt.plural(startup.activeCount, "élément actif", "éléments actifs")) sur \(items.count)",
-                      subtitle: "Hors composants d'Apple. Les services système demandent ton mot de passe pour être modifiés.", symbol: "power") {
+                      subtitle: "Hors composants d'Apple. Les services système demandent ton mot de passe.", symbol: "power") {
                     LaunchItemList(items: items)
                 }
             }
@@ -287,12 +312,14 @@ struct MaintenanceTab: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Callout(symbol: "wrench.and.screwdriver", title: "Petites réparations",
-                    text: "Des remèdes ciblés pour des soucis précis. Inutile de tout lancer « au cas où » : macOS s'entretient très bien tout seul. Les tâches marquées d'un cadenas demandent ton mot de passe, saisi dans la fenêtre de macOS.")
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                ForEach(MaintenanceTask.all.filter(\.available)) { t in
-                    MaintenanceCard(task: t)
+        let tasks = MaintenanceTask.all.filter(\.available)
+        Card(padding: 6) {
+            VStack(spacing: 0) {
+                ForEach(tasks) { t in
+                    MaintenanceRow(task: t)
+                    if t.id != tasks.last?.id {
+                        Rectangle().fill(Theme.border).frame(height: max(1, Theme.line) * 0.5).padding(.leading, 56)
+                    }
                 }
             }
         }
@@ -300,17 +327,18 @@ struct MaintenanceTab: View {
     }
 }
 
-struct MaintenanceCard: View {
+/// One repair on one line: what it fixes, then its button on the right.
+struct MaintenanceRow: View {
     @Environment(AppModel.self) private var app
     var task: MaintenanceTask
 
     var body: some View {
         let model = app.performance
-        Card(padding: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                IconBadge(symbol: task.symbol, tint: Theme.warn, size: 32)
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
+        HoverRow {
+            HStack(alignment: .center, spacing: 12) {
+                IconBadge(symbol: task.symbol, tint: Theme.warn, size: 30)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
                         Text(task.title).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
                         if task.needsAdmin {
                             Image(systemName: "lock.fill").font(.ui(10)).foregroundStyle(Theme.text3).help("Demande ton mot de passe")
@@ -324,27 +352,27 @@ struct MaintenanceCard: View {
                     if let w = task.warning {
                         Label(w, systemImage: "exclamationmark.triangle").font(.ui(11)).foregroundStyle(Theme.warn)
                     }
-                    HStack(spacing: 10) {
-                        Button {
-                            if let text = task.confirmation, !CommandRunner.confirm("\(task.title) ?", text, button: "Lancer") { return }
-                            Task { await model.run(task) }
-                        } label: {
-                            HStack(spacing: 6) {
-                                if model.runningTasks.contains(task.id) { BusyMascot(.typing, pixel: 1) }
-                                Text(model.runningTasks.contains(task.id) ? "En cours…" : "Lancer")
-                            }
-                        }
-                        .buttonStyle(SoftButtonStyle(small: true))
-                        .disabled(model.runningTasks.contains(task.id) || (task.id == "snapshots" && model.snapshotCount == 0))
-                        if let r = model.results[task.id] {
-                            Label(r.message, systemImage: r.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                .font(.ui(11)).foregroundStyle(r.ok ? Theme.good : Theme.bad).lineLimit(2)
-                        } else if let d = model.lastRun(task) {
-                            Text("Dernière fois \(Fmt.relative(d))").font(.ui(11)).foregroundStyle(Theme.text3)
-                        }
+                    if let r = model.results[task.id] {
+                        Label(r.message, systemImage: r.ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                            .font(.ui(11)).foregroundStyle(r.ok ? Theme.good : Theme.bad).lineLimit(2)
                     }
-                    .padding(.top, 2)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                if model.results[task.id] == nil, let d = model.lastRun(task) {
+                    Text("Dernière fois \(Fmt.relative(d))").font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1).fixedSize()
+                }
+                Button {
+                    if let text = task.confirmation, !CommandRunner.confirm("\(task.title) ?", text, button: "Lancer") { return }
+                    Task { await model.run(task) }
+                } label: {
+                    HStack(spacing: 6) {
+                        if model.runningTasks.contains(task.id) { BusyMascot(.typing, pixel: 1) }
+                        Text(model.runningTasks.contains(task.id) ? "En cours…" : "Lancer")
+                    }
+                }
+                .buttonStyle(SoftButtonStyle(small: true))
+                .fixedSize()
+                .disabled(model.runningTasks.contains(task.id) || (task.id == "snapshots" && model.snapshotCount == 0))
             }
         }
     }

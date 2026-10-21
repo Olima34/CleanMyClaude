@@ -91,6 +91,11 @@ enum Entry {
             for line in ConverterDocCheck.run(path, format: value(after: "--to"), folder: value(after: "--out")) { print(line) }
             return
         }
+        if let path = value(after: "--fillsign-check") {
+            // What the signing window opens for this file (a Word document is laid out as a PDF first), written nowhere.
+            for line in FillSignDocument.check(path) { print(line) }
+            return
+        }
         if args.contains("--wheel-check") {
             // The wheel alone, for a while: the gestures it sees, what is under the pointer, the drop and its copy.
             let seconds = Double(value(after: "--wheel-check") ?? "") ?? 30
@@ -185,11 +190,6 @@ enum Entry {
                 done.value = true
             }
             while !done.value { RunLoop.main.run(until: Date().addingTimeInterval(0.05)) }
-            return
-        }
-        if let i = args.firstIndex(of: "--darkmode") {
-            // Dark mode everywhere from the command line: the apps that stay light, the browsers.
-            MainActor.assumeIsolated { DarkModeCLI.run(Array(args[(i + 1)...])) }
             return
         }
         if let i = args.firstIndex(of: "--xprotect") {
@@ -313,12 +313,12 @@ enum Diagnostics {
             }
         }
 
-        // Modules: `--only <page>` (launcher, converter, toolbox…).
+        // Modules: `--only <module>` (launcher, converter, toolbox…).
         let app = AppModel(liveMonitor: false)
         AppContext.model = app
-        for (page, module) in ModuleRegistry.modules(app) where only == page.rawValue {
-            print("\n== \(page.title)")
-            for line in module.dump() { print("  \(line)") }
+        for e in ModuleRegistry.modules(app) where only == e.id {
+            print("\n== \(e.title)")
+            for line in e.module.dump() { print("  \(line)") }
         }
 
         if let path = Entry.value(after: "--storage") {
@@ -339,7 +339,8 @@ enum Diagnostics {
 /// `CleanMyClaude --snapshot <dir> [--page cleanup] [--light] [--theme graphite] [--scale 2] [--demo]` renders pages to PNG,
 /// with real scan data or, with `--demo`, the fictional Mac of `DemoData`.
 /// `--page appearance` renders the theme settings (`--tab edit` shows the editor, on a copy of the theme),
-/// `--page mascotte` every scene of the busy mascot, and `--tab attente` a page while its work is in progress.
+/// `--page mascotte` every scene of the busy mascot, `--page reglages` the Réseau tab of the settings, and `--tab attente`
+/// a page while its work is in progress.
 @MainActor
 enum Snapshot {
     /// True while rendering: AppKit controls (menus, fields, switches) come out as yellow boxes in `ImageRenderer`
@@ -373,7 +374,7 @@ enum Snapshot {
 
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var shots: [(String, AnyView)] = []
-        let everything = only == nil && pageName != "appearance" && pageName != "mascotte"
+        let everything = only == nil && pageName != "appearance" && pageName != "mascotte" && pageName != "reglages"
         if pageName == "mascotte" {
             // Every scene of the busy mascot, frame by frame.
             shots.append(("mascotte-panel", AnyView(MascotGallery())))
@@ -381,6 +382,13 @@ enum Snapshot {
         if pageName == "appearance" {
             if Entry.value(after: "--tab") == "edit" { themes.duplicate(themes.active) }
             shots.append(("appearance-panel", AnyView(AppearanceSettings())))
+        }
+        if pageName == "reglages" {
+            // Réglages › Réseau, one picture per part (`--tab attente`: a speed test under way).
+            for section in NetworkTab.allCases {
+                shots.append(("reglages-reseau-\(section.rawValue)-panel",
+                              AnyView(NetworkSettings(section: section).frame(height: NetworkSettings.height))))
+            }
         }
         for page in Page.allCases where everything || only == page {
             shots.append((page.rawValue, AnyView(PageView(page: page))))
@@ -424,14 +432,21 @@ enum Snapshot {
         }
         if everything || only == .launcher {
             // The floating panel, as if the user had typed `--query` (default: a calculation).
-            // `--tab files` shows the file window instead (`--query ""` for its first screen).
+            // `--tab files` shows the file window instead (`--query ""` for its first screen); `--tab youtube` a pasted
+            // YouTube link and its pane (`youtube:outils`, `youtube:audio`…), `--tab telechargements` the download list,
+            // `--tab traducteur` the translator (`traducteur:reglages` its settings).
             model.launcher.preview(Entry.value(after: "--query") ?? "1250*1,2", app: model)
             shots.append(("launcher-panel", AnyView(LauncherView())))
         }
-        if everything || only == .adblock {
+        if everything || only == .media {
+            // The page's tabs: `--tab films`, `lecteur`, `bloqueur` (and their states: `cle`, `comptes`, `safari`, `intro`…).
             // The ad-free player's window: its bar and what it says over a video (the page itself cannot be drawn here).
             // `--tab video` : the « Vidéo seule » window instead, 16:9.
-            shots.append(("adblock-player-panel", AnyView(AdBlockPlayerView(player: model.adblock.player).frame(height: model.adblock.player.videoOnly ? 540 : 520))))
+            shots.append(("adblock-player-panel", AnyView(AdBlockPlayerSnapshot(player: model.adblock.player))))
+            // `--tab bulles` : every « ? » of the page, opened.
+            if Entry.value(after: "--tab") == "bulles" {
+                shots.append(("media-tips-panel", AnyView(MediaTipsGallery())))
+            }
         }
         if everything || only == .refuge {
             // The chamois' birth (`--tab naissance`, `naissance-nom`, `refus`…), a mue (`mue`, `echarpe`) or its path (`voie`),
@@ -440,7 +455,8 @@ enum Snapshot {
         }
         var widths: [String: CGFloat] = [:]
         if everything || only == .wheel {
-            // The wheel over a desktop (`--tab pdf`, `video`… for another kind of file), its small windows, its list and its toast.
+            // The wheel over a desktop (`--tab pdf`, `video`… for another kind of file), the Convertisseur's window (the same
+            // tab picks its scene: `renommer`, `texte`, `qr`, `vide`…, and a few more scenes besides), the small windows and the toast.
             for p in WheelDemo.panels(model) {
                 shots.append((p.name, p.view))
                 widths[p.name] = p.width
@@ -458,6 +474,13 @@ enum Snapshot {
             if tab == "attente" { showWork(model, page: only) }
             ModuleRegistry.applySnapshotTab(tab, only: only, app: model)
         }
+        if everything || only == .wheel {
+            // Remplir et signer's window, opened by the Convertisseur's « Signer »: the demo contract and the signatures,
+            // at its size on screen (`--tab signer-pad`, `signer-signe`… for its other scenes).
+            shots.append(("fillsign-window-panel", AnyView(FillSignWindowView().frame(height: FillSignWindow.size.height))))
+            widths["fillsign-window-panel"] = FillSignWindow.size.width
+            if only == .wheel, let tab = Entry.value(after: "--tab") { model.fillSign.applySnapshotTab(tab) }
+        }
         for (name, view) in shots {
             if let p = Page(rawValue: name) { model.page = p }
             let content = view
@@ -467,7 +490,7 @@ enum Snapshot {
                                "appearance-panel": AppearanceSettings.width, "mascotte-panel": MascotGallery.width,
                                "selfupdate-panel": UpdatesSelfPanel.width, "refuge-ceremony-panel": RefugeCeremonyPanel.width, "selfupdate-window-panel": 1180, "onboarding-window-panel": 1180,
                                "sidebar-panel": 248, "profile-panel": ProfilePanel.width, "statusitem-panel": 340][name]
-                       ?? widths[name] ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : 1180))
+                       ?? widths[name] ?? (name.hasPrefix("onboarding-") ? OnboardingPanel.width : name.hasPrefix("reglages-") ? NetworkSettings.width : 1180))
                 .padding(name.hasSuffix("-panel") ? 0 : 32)
                 .background(Theme.bg)
                 .environment(\.colorScheme, light ? .light : .dark)
@@ -587,7 +610,7 @@ enum SelfTest {
         }
         // Module checks (calculator, conversions, command ids…).
         let moduleFailures = MainActor.assumeIsolated { ModuleRegistry.selfTest(AppModel(liveMonitor: false)) + SystemMonitor.selfTest() }
-        for f in moduleFailures + ThemeChecks.run() + ToolProfileRules.selfTest().map({ "[Profils] \($0)" }) + MascotActivity.selfTest() + MascotFigure.selfTest() + Shell.selfTest() + LoginItem.selfTest() + MainWatchdog.selfTest() + DeviceActivity.selfTest() + thirdPartyTools() {
+        for f in moduleFailures + ThemeChecks.run() + ToolProfileRules.selfTest().map({ "[Profils] \($0)" }) + MascotActivity.selfTest() + MascotFigure.selfTest() + Shell.selfTest() + LoginItem.selfTest() + RetiredDarkMode.selfTest() + MainWatchdog.selfTest() + DeviceActivity.selfTest() + thirdPartyTools() {
             print("✗ \(f)")
             ok = false
         }

@@ -9,8 +9,8 @@ enum NetworkTab: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .connection: return "Connexion"
-        case .speed: return "Débit et latence"
-        case .ports: return "Ports ouverts"
+        case .speed: return "Débit"
+        case .ports: return "Ports"
         }
     }
 }
@@ -25,6 +25,8 @@ enum NetworkState: Equatable {
     }
 }
 
+/// Réseau lives in Réglages › Réseau: the connection, the speed test and the open ports. Local readings only, refreshed while
+/// that tab is on screen; nothing goes to the Internet without a click.
 @Observable
 @MainActor
 final class NetworkModel: AppModule {
@@ -40,6 +42,12 @@ final class NetworkModel: AppModule {
     var wifiNameHidden = false
     var publicIP: String?
     var publicIPState: NetworkState = .idle
+
+    // Live traffic (bytes per second, every interface), sampled only while the connection tab is on screen.
+    var rateIn: Double?
+    var rateOut: Double?
+    var trafficIn: [Double] = []
+    var trafficOut: [Double] = []
 
     // Speed test
     var speedState: NetworkState = .idle
@@ -66,9 +74,10 @@ final class NetworkModel: AppModule {
     @ObservationIgnored private var progressTimer: Timer?
     @ObservationIgnored private var speedCancel: CancelFlag?
     @ObservationIgnored private var addressesRead = Date.distantPast
-    /// The connection tab is shown (`startLive`), and the main window is on screen.
+    /// The connection tab is shown (`startLive`), and the settings window is on screen.
     @ObservationIgnored private var liveWanted = false
     @ObservationIgnored private var windowOnScreen = true
+    @ObservationIgnored private var lastBytes: (bytesIn: UInt64, bytesOut: UInt64, at: Date)?
     /// A local reading in progress (the page's), or the launcher's: never two at once.
     @ObservationIgnored private var reading = false
     @ObservationIgnored private var launcherReading = false
@@ -79,7 +88,9 @@ final class NetworkModel: AppModule {
         if Snapshot.isActive && !DemoData.isEnabled { refreshLocal() }
     }
 
-    var sidebarBadge: String? { speedState.isRunning ? "test…" : nil }
+    /// Two minutes of traffic at the live pace.
+    nonisolated static let trafficLength = 40
+    nonisolated static let livePeriod: TimeInterval = 3
 
     // MARK: Connection
 
@@ -109,7 +120,7 @@ final class NetworkModel: AppModule {
         if hidden != wifiNameHidden { wifiNameHidden = hidden }
     }
 
-    /// Refreshes the connection tab every 3 seconds while it is on screen (paused while the main window is not).
+    /// Refreshes the connection tab every 3 seconds while it is on screen (paused while the settings window is not).
     func startLive() {
         liveWanted = true
         updateLive()
@@ -120,7 +131,13 @@ final class NetworkModel: AppModule {
         updateLive()
     }
 
-    /// The main window came on screen or went away (minimised, hidden, covered, on another Space).
+    /// Réglages › Réseau, opened on `tab` from anywhere (the launcher, a page), even with the main window closed.
+    func showInSettings(_ tab: NetworkTab) {
+        self.tab = tab
+        SettingsWindow.show(.network)
+    }
+
+    /// The settings window came on screen or went away (closed, minimised, hidden, covered, on another Space).
     func setWindowOnScreen(_ on: Bool) {
         windowOnScreen = on
         updateLive()
@@ -135,12 +152,37 @@ final class NetworkModel: AppModule {
         guard liveTimer == nil else { return }
         refreshLocal()
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
-        let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshLocal() }
+        // A rate over a long pause would be an average: the curve starts again from here.
+        lastBytes = nil
+        rateIn = nil
+        rateOut = nil
+        trafficIn = []
+        trafficOut = []
+        sampleTraffic()
+        let t = Timer(timeInterval: Self.livePeriod, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refreshLocal()
+                self?.sampleTraffic()
+            }
         }
         t.tolerance = 1
         RunLoop.main.add(t, forMode: .common)
         liveTimer = t
+    }
+
+    /// The byte counters of the physical interfaces (one sysctl), turned into a rate since the last reading.
+    private func sampleTraffic() {
+        guard let (bytesIn, bytesOut) = SystemMonitor.readInterfaceBytes() else { return }
+        let now = Date()
+        defer { lastBytes = (bytesIn, bytesOut, now) }
+        guard let last = lastBytes, bytesIn >= last.bytesIn, bytesOut >= last.bytesOut else { return }
+        let dt = now.timeIntervalSince(last.at)
+        guard dt > 0.5 else { return }
+        let down = Double(bytesIn - last.bytesIn) / dt, up = Double(bytesOut - last.bytesOut) / dt
+        rateIn = down
+        rateOut = up
+        trafficIn = Array((trafficIn + [down]).suffix(Self.trafficLength))
+        trafficOut = Array((trafficOut + [up]).suffix(Self.trafficLength))
     }
 
     /// Asks the public address to the service named in the interface, only after a click.
@@ -334,16 +376,24 @@ final class NetworkModel: AppModule {
         pingState = .done(Date().addingTimeInterval(-120))
         ports = NetworkDemo.ports
         portsState = .done(Date().addingTimeInterval(-60))
+        trafficIn = NetworkDemo.trafficIn
+        trafficOut = NetworkDemo.trafficOut
+        rateIn = trafficIn.last
+        rateOut = trafficOut.last
     }
 
     func commands(app: AppModel) -> [AppCommand] {
         [
+            AppCommand(id: "net_open", title: "Ma connexion", subtitle: "Wi-Fi, adresses, débit et ports ouverts",
+                       keywords: ["réseau", "network", "connexion", "wifi", "wi-fi", "internet", "réglages réseau"],
+                       icon: .symbol("network", Theme.palette[1]), group: .tools, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
+                ctx.app.network.showInSettings(.connection)
+                return .done
+            },
             AppCommand(id: "net_speedtest", title: "Tester mon débit", subtitle: "≈ 20 s avec l'outil networkQuality d'Apple",
                        keywords: ["speedtest", "débit", "vitesse", "internet", "connexion", "fibre"],
                        icon: .symbol("speedometer", Theme.palette[1]), group: .tools, assistantSafe: true) { ctx in
-                ctx.app.page = .network
-                ctx.app.network.tab = .speed
-                AppContext.showMainWindow()
+                ctx.app.network.showInSettings(.speed)
                 ctx.app.network.runSpeedTest()
                 return .done
             },
@@ -368,18 +418,14 @@ final class NetworkModel: AppModule {
             AppCommand(id: "net_ports", title: "Ports ouverts", subtitle: "Les programmes qui attendent des connexions",
                        keywords: ["ports", "lsof", "écoute", "listen", "serveur"], icon: .symbol("door.left.hand.open", Theme.palette[1]),
                        group: .tools, assistantSafe: true, urlSafe: true) { ctx in
-                ctx.app.page = .network
-                ctx.app.network.tab = .ports
-                AppContext.showMainWindow()
+                ctx.app.network.showInSettings(.ports)
                 Task { await ctx.app.network.scanPorts() }
                 return .done
             },
             AppCommand(id: "net_wifi", title: "Signal Wi-Fi", subtitle: "Force du signal, canal, débit de liaison",
                        keywords: ["wifi", "wi-fi", "signal", "réseau", "canal"], icon: .symbol("wifi", Theme.palette[1]), group: .tools,
                        assistantSafe: true, urlSafe: true) { ctx in
-                ctx.app.page = .network
-                ctx.app.network.tab = .connection
-                AppContext.showMainWindow()
+                ctx.app.network.showInSettings(.connection)
                 return .done
             }
         ]
@@ -514,7 +560,7 @@ final class NetworkModel: AppModule {
         if let last = history.last {
             lines.append("Dernier test : ↓ \(NetworkFormat.bits(last.download)) ↑ \(NetworkFormat.bits(last.upload)) · \(Int(last.responsiveness ?? 0)) RPM · \(Fmt.day(last.date))")
         }
-        lines.append("(débit, latence et IP publique ne sont mesurés que sur un clic dans l'app)")
+        lines.append("(débit, latence et IP publique ne sont mesurés que sur un clic, dans Réglages › Réseau)")
         return lines
     }
 }
@@ -533,6 +579,16 @@ enum NetworkDemo {
     static let wifi = NetworkWiFi(interface: "en0", powerOn: true, ssid: "Maison Camille", connected: true, rssi: -54, noise: -92,
                                   channel: 36, band: "5", width: 80, txRate: 864, security: "WPA3 Personnel",
                                   phy: "Wi-Fi 6 (802.11ax)", country: "FR")
+
+    /// Two minutes of a video call and a download, in bytes per second.
+    static let trafficIn: [Double] = (0..<NetworkModel.trafficLength).map { i in
+        let x = Double(i)
+        return 180_000 + 120_000 * sin(x / 3.1) + (i > 24 && i < 33 ? 2_400_000 + 300_000 * sin(x) : 0) + Double((i * 37) % 11) * 9_000
+    }
+    static let trafficOut: [Double] = (0..<NetworkModel.trafficLength).map { i in
+        let x = Double(i)
+        return 95_000 + 40_000 * cos(x / 2.7) + Double((i * 53) % 7) * 6_000
+    }
 
     static let history: [NetworkSpeedResult] = {
         let downs: [Double] = [312, 344, 298, 401, 377, 365, 152, 389, 412, 356, 398, 421, 386, 405]

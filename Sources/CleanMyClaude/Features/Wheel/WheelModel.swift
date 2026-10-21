@@ -1,9 +1,11 @@
 import SwiftUI
 import AppKit
 
-/// La roue des fichiers: as soon as a file is dragged (or after a gesture: held still, shaken, ⇧), a wheel of actions
-/// opens under the pointer, made for that kind of file; moving far from it means the file is only being moved, and it goes. Drop the file on an action: a copy is made at once, or a
-/// small window opens first (crop, background, marks…). The original never changes, and the big window never opens.
+/// Le Convertisseur, as a wheel: as soon as a file is dragged (or after a gesture: held still, shaken, ⇧), a wheel of actions
+/// opens under the pointer, made for that kind of file; moving far from it means the file is only being moved, and it goes.
+/// Drop the file on an action: a copy is made at once, or a small window opens first (crop, background, marks…). Dropped
+/// in the middle, the Convertisseur's window (`ConverterModel`) shows every operation with its settings and a preview.
+/// The original never changes, and the big window never opens.
 @Observable
 @MainActor
 final class WheelModel: AppModule {
@@ -16,10 +18,6 @@ final class WheelModel: AppModule {
             if settings.enabled != oldValue.enabled { updateWatcher() }
         }
     }
-    /// The copies made, newest first.
-    var history: [WheelRecord] = [] {
-        didSet { historyStore.value = history }
-    }
     var capabilities = WheelCapabilities()
     var combo: KeyCombo?
     /// The family shown in the settings' wheel.
@@ -29,17 +27,12 @@ final class WheelModel: AppModule {
     @ObservationIgnored let editors = WheelEditors()
     @ObservationIgnored private let watcher = WheelWatcher()
     @ObservationIgnored private let settingsStore = JSONStore<WheelSettings>("wheel", default: WheelSettings())
-    @ObservationIgnored private let historyStore = JSONStore<[WheelRecord]>("wheel-history", default: [])
-    @ObservationIgnored private var listPanel: FloatingPanel?
     @ObservationIgnored private var started = false
     @ObservationIgnored private var ffmpegPath: String?
     @ObservationIgnored private weak var app: AppModel?
 
-    static let historyLimit = 40
-
     init() {
         settings = settingsStore.value
-        history = historyStore.value
         watcher.settings = settings
         watcher.onOpen = { [weak self] point, urls, _ in self?.openWheel(urls, at: point, clicking: false) }
         watcher.onRelease = { [weak self] in self?.overlay.released() }
@@ -47,23 +40,32 @@ final class WheelModel: AppModule {
         overlay.onLeft = { [weak self] in self?.watcher.rearm() }
         overlay.onChoose = { [weak self] action, files, point in self?.choose(action, files: files, at: point) }
         runner.onDone = { [weak self] task in self?.record(task) }
+        runner.onRenamed = { [weak self] pairs in self?.appModel?.converter.follow(pairs) }
     }
+
+    private var appModel: AppModel? { app ?? AppContext.model }
 
     var isActive: Bool { settings.enabled && settings.canOpen }
 
     /// Used in the last 30 days: the tool stays in the sidebar.
     var recentlyUsed: Bool {
-        guard let last = history.first?.date else { return false }
+        guard let last = settings.lastUsed else { return false }
         return Date().timeIntervalSince(last) < 30 * 86400
     }
 
     // MARK: Module
 
-    var sidebarBadge: String? { settings.enabled ? nil : "Pause" }
+    var sidebarBadge: String? {
+        let n = runner.running
+        return n > 0 ? "\(n)" : (settings.enabled ? nil : "Pause")
+    }
 
     func start(app: AppModel) {
         self.app = app
         started = true
+        // The list of the last copies is gone from the page: its file too.
+        let oldHistory = DataStore.url("wheel-history.json").path
+        if FS.exists(oldHistory) { _ = Remover.removeInternal(oldHistory) }
         combo = HotKeyCenter.shared.combo(for: Self.hotKeyID, fallback: nil)
         HotKeyCenter.shared.register(Self.hotKeyID, combo: combo) { [weak self] in self?.openOnFinderSelection() }
         updateWatcher()
@@ -78,7 +80,6 @@ final class WheelModel: AppModule {
         overlay.close()
         editors.closeAll()
         settingsStore.flush()
-        historyStore.flush()
     }
 
     private func updateWatcher() {
@@ -87,14 +88,14 @@ final class WheelModel: AppModule {
     }
 
     var quickToggles: [QuickToggle] {
-        [QuickToggle(id: "wheel_gesture", title: "Roue des fichiers", symbol: "dial.medium", isOn: settings.enabled) { [weak self] in
+        [QuickToggle(id: "wheel_gesture", title: "Roue du Convertisseur", symbol: "dial.medium", isOn: settings.enabled) { [weak self] in
             self?.setEnabled(!(self?.settings.enabled ?? true))
         }]
     }
 
     func setEnabled(_ on: Bool) {
         settings.enabled = on
-        HUD.show(on ? "Roue des fichiers activée" : "Roue des fichiers en pause", symbol: on ? "dial.medium" : "pause.circle.fill")
+        HUD.show(on ? "Roue du Convertisseur activée" : "Roue du Convertisseur en pause", symbol: on ? "dial.medium" : "pause.circle.fill")
     }
 
     func setCombo(_ c: KeyCombo?) {
@@ -159,19 +160,28 @@ final class WheelModel: AppModule {
     end tell
     """
 
-    /// A segment was chosen (nil: the hub, every action in a list).
+    /// A segment was chosen (nil: the hub, the Convertisseur's window with every operation).
     func choose(_ action: WheelAction?, files: [WheelFile], at point: NSPoint) {
-        guard let action else { return showList(files, at: point) }
+        guard let action else {
+            appModel?.converter.open(files, action: nil, near: point)
+            return
+        }
         run(action, files: files, at: point)
     }
 
-    func run(_ action: WheelAction, files: [WheelFile], at point: NSPoint) {
+    func run(_ action: WheelAction, files: [WheelFile], at point: NSPoint, under window: NSRect? = nil) {
         guard !files.isEmpty else { return }
+        if action.opensHub {
+            appModel?.converter.open(files, action: action, near: point)
+            return
+        }
         if let kind = action.editor {
             editors.open(kind, action: action, files: files, at: point, model: self)
             return
         }
         switch action {
+        case .sign:
+            appModel?.fillSign.openWindow(files[0].url)
         case .airdrop:
             guard let service = NSSharingService(named: .sendViaAirDrop), service.canPerform(withItems: files.map(\.url)) else {
                 HUD.show("AirDrop n'est pas disponible sur ce Mac.", symbol: "xmark.octagon.fill")
@@ -190,10 +200,10 @@ final class WheelModel: AppModule {
                 HUD.show(DemoData.refusal, symbol: "info.circle.fill")
                 return
             }
-            let destination = settings.destination
-            let ffmpeg = ffmpegPath
-            runner.run(action, files: files, at: point) { control, onStep in
-                let place = WheelJobs.folder(for: files[0].url, destination: destination)
+            let destination = settings.destination, custom = settings.folder
+            let ffmpeg = ffmpegPath ?? Shell.which("ffmpeg")
+            runner.run(action, files: files, at: point, under: window) { control, onStep in
+                let place = WheelJobs.folder(for: files[0].url, destination: destination, custom: custom)
                 var result = try await WheelJobs.perform(action, files: files, context: .init(folder: place.folder, ffmpeg: ffmpeg),
                                                          control: control, onStep: onStep)
                 if let note = place.note { result.note = [result.note, note].compactMap { $0 }.joined(separator: " ") }
@@ -202,35 +212,84 @@ final class WheelModel: AppModule {
         }
     }
 
+    /// An operation of the Convertisseur's window, with its settings, in the toast under that window.
+    func run(_ action: WheelAction, operation: ConverterOperation, files: [WheelFile], options: ConverterOptions, names: [String],
+             ffmpeg: String?, under window: NSRect?) {
+        guard !files.isEmpty else { return }
+        guard !DemoData.isEnabled else {
+            HUD.show(DemoData.refusal, symbol: "info.circle.fill")
+            return
+        }
+        let destination = settings.destination, custom = settings.folder
+        runner.run(action, files: files, at: nil, under: window) { control, onStep in
+            // A renaming happens in place.
+            let place = operation == .rename ? (folder: nil, note: nil)
+                : WheelJobs.folder(for: files[0].url, destination: destination, custom: custom)
+            var result = try await WheelJobs.converter(operation, files, options: options, names: names,
+                                                       context: .init(folder: place.folder, ffmpeg: ffmpeg), control: control, onStep: onStep)
+            if let note = place.note { result.note = [result.note, note].compactMap { $0 }.joined(separator: " ") }
+            return result
+        }
+    }
+
     private func record(_ task: WheelTask) {
-        guard !task.result.outputs.isEmpty else { return }
-        history.insert(WheelRecord(date: Date(), action: task.action.rawValue, source: task.title,
-                                   outputs: task.result.outputs.map(\.path)), at: 0)
-        if history.count > Self.historyLimit { history.removeLast(history.count - Self.historyLimit) }
-        app?.refuge.usedTool("wheel_" + task.action.rawValue)
+        guard !task.result.outputs.isEmpty || task.result.copied != nil else { return }
+        settings.lastUsed = Date()
+        appModel?.refuge.usedTool("wheel_" + task.action.rawValue)
     }
 
-    func clearHistory() {
-        history.removeAll()
+    // MARK: Where the copies go
+
+    /// The copies of `input`: next to it, in Téléchargements or in the folder chosen.
+    func place(for input: URL) -> (folder: URL?, note: String?) {
+        WheelJobs.folder(for: input, destination: settings.destination, custom: settings.folder)
     }
 
-    // MARK: Every action
+    /// The folder every copy goes to (nil: next to each original).
+    var copiesFolder: URL? {
+        switch settings.destination {
+        case .beside: return nil
+        case .downloads: return ConverterDestination.downloadsURL
+        case .folder: return settings.folder.map { URL(fileURLWithPath: $0) }
+        }
+    }
 
-    /// The hub: every action these files allow, in a list (the ones the wheel leaves out too).
-    private func showList(_ files: [WheelFile], at point: NSPoint) {
-        let family = WheelFamily.of(files.map(\.kind))
-        let actions = WheelMenu.available(files, in: family.pool, capabilities: capabilities)
-        guard !actions.isEmpty else { return }
-        listPanel?.close()
-        let height = min(520, CGFloat(actions.count) * 34 + 92)
-        let panel = FloatingPanel(size: NSSize(width: 300, height: height))
-        panel.setContent(WheelActionList(files: files, actions: actions, family: family) { [weak self, weak panel] action in
-            panel?.close()
-            self?.run(action, files: files, at: point)
-        } close: { [weak panel] in panel?.close() }.frame(width: 300, height: height))
-        panel.setFrameOrigin(NSPoint(x: point.x - 150, y: point.y - height / 2))
-        panel.makeKeyAndOrderFront(nil)
-        listPanel = panel
+    var destinationTitle: String {
+        switch settings.destination {
+        case .beside: return "À côté de l'original"
+        case .downloads: return "Dans Téléchargements"
+        case .folder: return "Dans « \(((settings.folder ?? "") as NSString).lastPathComponent) »"
+        }
+    }
+
+    var destinationSymbol: String {
+        switch settings.destination {
+        case .beside: return "arrow.down.doc"
+        case .downloads: return "arrow.down.circle"
+        case .folder: return "folder"
+        }
+    }
+
+    func setDestination(_ d: WheelDestination) {
+        if d == .folder { return chooseFolder() }
+        settings.destination = d
+    }
+
+    /// A folder of the user's for every copy.
+    func chooseFolder() {
+        guard !DemoData.isEnabled, !Snapshot.isActive else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Choisir"
+        panel.message = "Où ranger les copies ?"
+        panel.directoryURL = settings.folder.map { URL(fileURLWithPath: $0) } ?? ConverterDestination.downloadsURL
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        settings.folder = url.path
+        settings.destination = .folder
     }
 
     // MARK: Settings
@@ -275,14 +334,14 @@ final class WheelModel: AppModule {
 
     func commands(app: AppModel) -> [AppCommand] {
         [
-            AppCommand(id: "wheel_finder", title: "Roue des fichiers sur la sélection du Finder",
+            AppCommand(id: "wheel_finder", title: "Roue du Convertisseur sur la sélection du Finder",
                        subtitle: "Les actions du fichier sélectionné, sous le pointeur", keywords: ["roue", "fichier", "finder", "convertir", "recadrer", "annoter"],
                        icon: .symbol("dial.medium", Theme.brand), group: .tools, hint: "Ouvrir") { ctx in
                 ctx.app.launcher.hide()
                 ctx.app.wheel.openOnFinderSelection()
                 return .done
             },
-            AppCommand(id: "wheel_toggle", title: settings.enabled ? "Mettre en pause la roue des fichiers" : "Activer la roue des fichiers",
+            AppCommand(id: "wheel_toggle", title: settings.enabled ? "Mettre en pause la roue du Convertisseur" : "Activer la roue du Convertisseur",
                        subtitle: "La roue d'actions qui s'ouvre quand tu glisses un fichier", keywords: ["roue", "geste", "glisser"],
                        icon: .symbol(settings.enabled ? "pause.circle" : "dial.medium", Theme.brand), group: .tools, assistantSafe: true,
                        hint: settings.enabled ? "Pause" : "Activer") { ctx in
@@ -295,7 +354,6 @@ final class WheelModel: AppModule {
     // MARK: Demo and snapshots
 
     func loadDemo() {
-        history = WheelDemo.history
         capabilities = WheelCapabilities(ffmpeg: true, webp: true)
     }
 
@@ -309,55 +367,13 @@ final class WheelModel: AppModule {
         var lines = ["Roue : \(settings.enabled ? "active" : "en pause") · \(settings.instant ? "dès le glisser" : "avec un geste"), disparaît à \(Fmt.dec(settings.leaveDistance)) cm · gestes : " +
                      [settings.hold ? "maintenir (\(Fmt.dec(settings.holdDelay)) s)" : nil, settings.shake ? "secouer" : nil, settings.shift ? "⇧" : nil]
                         .compactMap { $0 }.joined(separator: ", ")]
-        lines.append("Copies : \(settings.destination.title) · ffmpeg : \(Shell.which("ffmpeg") ?? "absent")")
+        lines.append("Copies : \(destinationTitle) · ffmpeg : \(Shell.which("ffmpeg") ?? "absent")")
         lines.append("Surveillance des glisser : \(watcher.isRunning ? "en marche" : "arrêtée")")
         for family in WheelFamily.allCases {
             let m = WheelMenu.make([Self.sample(family)], chosen: settings.layouts[family.rawValue], capabilities: WheelCapabilities(ffmpeg: Shell.which("ffmpeg") != nil))
             lines.append("\(family.title) : formats \(m.formats.map(\.label).joined(separator: " ")) · outils \(m.tools.map(\.label).joined(separator: " "))")
         }
-        lines.append("Dernières copies : \(history.count)")
+        lines.append("Dernière copie : \(settings.lastUsed.map { Fmt.relative($0) } ?? "aucune")")
         return lines
-    }
-}
-
-/// The hub's list: every action the files allow, formats then tools.
-struct WheelActionList: View {
-    var files: [WheelFile]
-    var actions: [WheelAction]
-    var family: WheelFamily
-    var pick: (WheelAction) -> Void
-    var close: () -> Void
-
-    var body: some View {
-        WheelWindowChrome(title: "Toutes les actions", subtitle: files.count == 1 ? files[0].name : WheelRunner.summary(files), close: close) {
-            ScrollArea(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 2) {
-                    section("Convertir", actions.filter(\.isFormat))
-                    section("Outils", actions.filter { !$0.isFormat })
-                }
-            }
-        } footer: {
-            EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private func section(_ title: String, _ list: [WheelAction]) -> some View {
-        if !list.isEmpty {
-            SectionLabel(text: title)
-            ForEach(list) { a in
-                Button { pick(a) } label: {
-                    HoverRow {
-                        HStack(spacing: 9) {
-                            IconBadge(symbol: a.symbol, tint: a.tint, size: 22)
-                            Text(a.title(count: files.count, family: family)).font(.ui(12.5, .medium)).foregroundStyle(Theme.text)
-                            Spacer()
-                            if a.editor != nil { Image(systemName: "macwindow").font(.ui(10)).foregroundStyle(Theme.text3) }
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
-        }
     }
 }

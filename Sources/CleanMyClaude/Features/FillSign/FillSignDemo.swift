@@ -248,20 +248,22 @@ extension FillSignModel {
         FillSignDemo.fill(self)
     }
 
-    /// `--snapshot --demo --page fillsign --tab <scene>`: the contract being signed (default), `vide` (no document),
-    /// `signe` (the signed page), `signature` (the pad, drawn), `taper` (the pad, typed), `enregistre` (saved), `attente` (a document opening).
+    /// `--snapshot --demo --page wheel --tab <scene>`, `fillsign-window-panel`: the contract being signed (default),
+    /// `signer-signe` (the signed page), `signer-pad` (a new signature, drawn), `signer-taper` (typed), `signer-enregistre`
+    /// (saved), `signer-motdepasse` (a PDF with a password), `attente` or `signer-attente` (a document opening).
     func applySnapshotTab(_ tab: String) {
         guard DemoData.isEnabled else { return }
         switch tab {
-        case "vide":
-            discard()
-        case "attente":
+        case "attente", "signer-attente":
             discard()
             opening = "Bail appartement Lyon.pdf"
-        case "signature", "taper":
+        case "signer-motdepasse":
+            discard()
+            passwordFor = URL(fileURLWithPath: DemoData.home + "/Documents/Maison/Bail appartement Lyon.pdf")
+        case "signer-pad", "signer-taper":
             var pad = FillSignPad(kind: .signature)
             pad.ink = .blue
-            if tab == "taper" {
+            if tab == "signer-taper" {
                 pad.mode = .type
                 pad.text = "Camille Martin"
             } else if case .drawn(let strokes, _) = FillSignDemo.drawnSignature().style {
@@ -269,11 +271,11 @@ extension FillSignModel {
                 pad.strokes = strokes.map { $0.map { CGPoint(x: $0.x * 1.45 + 90, y: $0.y * 1.45 + 22) } }
             }
             self.pad = pad
-        case "signe":
+        case "signer-signe":
             // The second page, the tenant's signature selected.
             visiblePage = 1
             select(items.first { $0.signature?.kind == .signature }?.id)
-        case "enregistre":
+        case "signer-enregistre":
             saved = URL(fileURLWithPath: DemoData.home + "/Documents/Maison/Contrat location Étretat – signé.pdf")
         default:
             break

@@ -1,97 +1,149 @@
 import SwiftUI
 import AppKit
 
+/// The Raccourcis page, one part at a time: the user's shortcuts (apps, folders, sites, actions), the window layouts
+/// of `WindowsModel`, and Chamois' own keys.
 struct HotkeysPage: View {
     @Environment(AppModel.self) private var app
-    @State private var commandQuery = ""
+
+    static let tip = HelpTip(
+        id: "hotkeys.page",
+        title: "Une touche pour tout ouvrir",
+        text: "Un raccourci marche partout, même quand Chamois est caché. Pour une app déjà devant, appuie de nouveau : elle se masque.",
+        steps: ["Cherche une app ou une action, ou tape l'adresse d'un site.",
+                "Clique sur « Aucun », puis tape ta combinaison. ⌫ la retire, Échap annule.",
+                "Dans le lanceur, ⌘K donne un raccourci au résultat choisi."])
 
     var body: some View {
         @Bindable var model = app.hotkeys
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 16) {
             PageHero(symbol: "keyboard", title: "Raccourcis",
-                     subtitle: "Un raccourci clavier pour ouvrir n'importe quelle app, depuis n'importe où. Appuie de nouveau : elle se masque. Marche aussi pour un dossier, un site ou une action de Chamois.",
-                     tint: Theme.brand, seed: 57) {
-                HStack(spacing: 8) {
-                    Button { model.chooseApp() } label: { Label("Ajouter une app", systemImage: "plus") }
-                        .buttonStyle(SoftButtonStyle(prominent: true))
-                    Button { model.showCommandPicker = true } label: { Label("Ajouter une action", systemImage: "sparkles") }
-                        .buttonStyle(SoftButtonStyle())
-                    BorderlessMenu {
-                        Button("Un dossier…") { model.chooseFolder() }
-                        Button("Un fichier…") { model.chooseFile() }
-                    } label: {
-                        Text("Autre…").font(.ui(12.5, .medium)).foregroundStyle(Theme.text2)
-                    }
+                     subtitle: "Une touche pour chaque app, site ou action, et tes fenêtres rangées au clavier.",
+                     tint: Theme.brand, seed: 57, tip: Self.tip)
+            HStack(spacing: 10) {
+                PillPicker(options: HotkeysTab.allCases, selection: $model.tab, label: \.title, badge: badge)
+                Spacer(minLength: 8)
+                switch model.tab {
+                case .apps: addButtons
+                case .windows: WindowsToolbar()
+                case .chamois: EmptyView()
                 }
             }
-
-            Panel(title: "Tes raccourcis", subtitle: model.bindings.isEmpty ? nil : "Clique sur les touches pour les changer ; ⌫ les retire",
-                  symbol: "command", tint: Theme.brand) {
-                VStack(spacing: 6) {
-                    if model.bindings.isEmpty {
-                        HStack(spacing: 12) {
-                            PixelMascot(pixel: 1.5)
-                            Text("Aucun raccourci pour l'instant. Ajoute une app, ou pioche dans les suggestions : je lui donne ⌃⌥⌘ + une lettre de son nom, que tu peux changer.")
-                                .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(.vertical, 6)
-                    }
-                    ForEach(model.bindings) { b in
-                        HotkeysRow(binding: b)
-                    }
-                }
+            switch model.tab {
+            case .apps: HotkeysListSection()
+            case .windows: WindowsSection()
+            case .chamois: HotkeysChamoisSection()
             }
-
-            HotkeysCatalogPanel()
-
-            HStack(alignment: .top, spacing: 14) {
-                let suggestions = model.suggestions
-                if !suggestions.isEmpty {
-                    Panel(title: "Suggestions", subtitle: "Un clic : l'app reçoit ⌃⌥⌘ + une lettre libre", symbol: "wand.and.stars", tint: Theme.palette[1]) {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], alignment: .leading, spacing: 8) {
-                            ForEach(Array(suggestions.enumerated()), id: \.offset) { _, target in
-                                Button { model.add(target) } label: {
-                                    HStack(spacing: 8) {
-                                        CommandIconView(icon: model.icon(target), size: 22)
-                                        Text(target.title).font(.ui(12.5)).foregroundStyle(Theme.text).lineLimit(1)
-                                        Spacer()
-                                        Image(systemName: "plus.circle.fill").foregroundStyle(Theme.accent)
-                                    }
-                                    .padding(8)
-                                    .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.cardRaised.opacity(0.5)))
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-                Panel(title: "Un site web", subtitle: "Ouvert dans ton navigateur par défaut", symbol: "globe", tint: Theme.palette[4]) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 8) {
-                            if Snapshot.isActive {
-                                Text("claude.ai").font(.ui(12.5)).foregroundStyle(Theme.text3)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(8).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg.opacity(0.6)))
-                            } else {
-                                TextField("claude.ai", text: $model.siteDraft)
-                                    .textFieldStyle(.roundedBorder)
-                                    .onSubmit { model.addSite() }
-                            }
-                            Button("Ajouter") { model.addSite() }.buttonStyle(SoftButtonStyle(small: true))
-                        }
-                        Text("Aucune autorisation n'est nécessaire : ces raccourcis passent par le même mécanisme que ceux du lanceur. Ceux des fenêtres se règlent dans la section Fenêtres.")
-                            .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .frame(width: 420)
-            }
-            .fixedSize(horizontal: false, vertical: true)
         }
         .sheet(isPresented: $model.showCommandPicker) { HotkeysCommandPicker() }
     }
+
+    private func badge(_ tab: HotkeysTab) -> String? {
+        switch tab {
+        case .apps: return app.hotkeys.sidebarBadge
+        case .windows: return app.windows.trusted ? nil : "!"
+        case .chamois: return nil
+        }
+    }
+
+    private var addButtons: some View {
+        let model = app.hotkeys
+        return HStack(spacing: 8) {
+            Button { model.chooseApp() } label: { ThemedLabel(title: "Ajouter une app", symbol: "plus") }
+                .buttonStyle(SoftButtonStyle(prominent: true))
+            Button { model.showCommandPicker = true } label: { ThemedLabel(title: "Une action", symbol: "sparkles") }
+                .buttonStyle(SoftButtonStyle())
+            BorderlessMenu {
+                Button("Un dossier…") { model.chooseFolder() }
+                Button("Un fichier…") { model.chooseFile() }
+            } label: {
+                Text("Autre…").font(.ui(12.5, .medium)).foregroundStyle(Theme.text2)
+            }
+        }
+    }
 }
 
+// MARK: - Apps et actions
+
+/// The search, then the user's shortcuts; while typing, the matching ones and what else can get one.
+private struct HotkeysListSection: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        @Bindable var model = app.hotkeys
+        let query = model.search.trimmingCharacters(in: .whitespaces)
+        VStack(alignment: .leading, spacing: 12) {
+            Card(padding: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HotkeysSearchField(text: $model.search)
+                        .padding(.bottom, 6)
+                    if !query.isEmpty {
+                        HotkeysSearchResults(query: query)
+                    } else if model.bindings.isEmpty {
+                        Text("Aucun raccourci pour l'instant : prends une suggestion ou cherche une app.")
+                            .font(.ui(12)).foregroundStyle(Theme.text3)
+                            .padding(.horizontal, 8).padding(.vertical, 8)
+                    } else {
+                        ForEach(model.bindings) { b in
+                            HotkeysRow(binding: b)
+                        }
+                    }
+                }
+            }
+            if query.isEmpty { HotkeysSuggestions() }
+        }
+    }
+}
+
+private struct HotkeysSearchField: View {
+    @Binding var text: String
+    static let prompt = "Chercher une app, une action, ou taper l'adresse d'un site…"
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").font(.ui(12)).foregroundStyle(Theme.text3)
+            if Snapshot.isActive {
+                Text(text.isEmpty ? Self.prompt : text)
+                    .font(.ui(12.5))
+                    .foregroundStyle(text.isEmpty ? Theme.text3 : Theme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                TextField(Self.prompt, text: $text)
+                    .textFieldStyle(.plain)
+                    .font(.ui(12.5))
+                    .onExitCommand { text = "" }
+            }
+            if !text.isEmpty {
+                Button { text = "" } label: {
+                    Image(systemName: "xmark.circle.fill").font(.ui(12)).foregroundStyle(Theme.text3)
+                }
+                .buttonStyle(.plain)
+                .help("Effacer")
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg.opacity(0.6)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(8)).strokeBorder(Theme.border, lineWidth: Theme.line))
+    }
+}
+
+/// A compact row that lights up under the pointer (every list of the Raccourcis page).
+struct HotkeysHoverRow<Content: View>: View {
+    @ViewBuilder var content: Content
+    @State private var hovering = false
+
+    var body: some View {
+        content
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(hovering ? Theme.hover.opacity(0.6) : .clear))
+            .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+    }
+}
+
+/// One of the user's shortcuts.
 private struct HotkeysRow: View {
     @Environment(AppModel.self) private var app
     var binding: HotkeysBinding
@@ -99,43 +151,224 @@ private struct HotkeysRow: View {
 
     var body: some View {
         let model = app.hotkeys
-        HStack(spacing: 12) {
-            CommandIconView(icon: model.icon(binding.target), size: 30)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(binding.target.title).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                Text(warning ?? binding.target.kind).font(.ui(11)).foregroundStyle(warning == nil ? Theme.text3 : Theme.warn).lineLimit(1)
-                if warning == nil, let note = model.takeovers[binding.id] {
-                    Text(note).font(.ui(11)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+        HotkeysHoverRow {
+            HStack(spacing: 10) {
+                CommandIconView(icon: model.icon(binding.target), size: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(binding.target.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    if let note = warning ?? model.takeovers[binding.id] {
+                        Text(note).font(.ui(11)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text(binding.target.kind).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
+                    }
                 }
-            }
-            Spacer()
-            if case .app = binding.target {
-                Toggle("Masquer si déjà devant", isOn: Binding(get: { binding.toggles }, set: { model.setToggles($0, for: binding.id) }))
-                    .switchToggles()
-                    .font(.ui(11.5))
-                    .foregroundStyle(Theme.text2)
-                    .fixedSize()
-            }
-            if model.refused.contains(binding.id) {
-                StatusBadge(status: .bad, text: "Pris ailleurs")
-            }
-            ShortcutRecorder(combo: binding.combo) { combo in
-                if let other = model.conflict(for: combo, except: binding.id) {
-                    warning = "Déjà utilisé par \(other)"
-                } else {
-                    warning = nil
-                    model.setCombo(combo, for: binding.id)
+                Spacer(minLength: 8)
+                if model.refused.contains(binding.id) {
+                    StatusBadge(status: .bad, text: "Pris ailleurs")
                 }
+                ShortcutRecorder(combo: binding.combo) { combo in
+                    if let other = model.conflict(for: combo, except: binding.id) {
+                        warning = "Déjà utilisé par \(other)"
+                    } else {
+                        warning = nil
+                        model.setCombo(combo, for: binding.id)
+                    }
+                }
+                Button { model.fire(binding.id) } label: {
+                    Image(systemName: "play.circle").font(.ui(14)).foregroundStyle(Theme.text2)
+                        .frame(width: 20, height: 20).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Essayer")
+                BorderlessMenu(indicator: false) {
+                    if case .app = binding.target {
+                        Toggle("Masquer l'app si elle est déjà devant",
+                               isOn: Binding(get: { binding.toggles }, set: { model.setToggles($0, for: binding.id) }))
+                        Divider()
+                    }
+                    Button("Supprimer ce raccourci", role: .destructive) { model.remove(binding.id) }
+                } label: {
+                    Image(systemName: "ellipsis.circle").font(.ui(14)).foregroundStyle(Theme.text3)
+                        .frame(width: 20, height: 20)
+                }
+                .help("Plus d'options")
             }
-            .frame(width: 130)
-            Button { model.fire(binding.id) } label: { Image(systemName: "play.circle").font(.ui(14)).foregroundStyle(Theme.text3) }
-                .buttonStyle(.plain).help("Essayer")
-            Button { model.remove(binding.id) } label: { Image(systemName: "xmark.circle.fill").font(.ui(14)).foregroundStyle(Theme.text3) }
-                .buttonStyle(.plain).help("Supprimer ce raccourci")
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
-        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.cardRaised.opacity(0.45)))
+    }
+}
+
+/// What the search finds that has no shortcut yet: an action, an app, a site, or a window layout (its own keys).
+private struct HotkeysCandidate: Identifiable {
+    enum Kind {
+        case target(HotkeysTarget)
+        case window(WindowsAction)
+    }
+
+    let id: String
+    let kind: Kind
+    let title: String
+    let subtitle: String
+    let icon: CommandIcon
+    var keywords: [String] = []
+}
+
+private struct HotkeysSearchResults: View {
+    @Environment(AppModel.self) private var app
+    var query: String
+    private static let limit = 12
+
+    var body: some View {
+        let model = app.hotkeys
+        let mine = model.bindings.filter { Fuzzy.best(query, title: $0.target.title, keywords: [$0.target.kind]) != nil }
+        let site = HotkeysModel.siteCandidate(query).map { HotkeysTarget.website(url: $0) }.flatMap { model.binding(for: $0) == nil ? $0 : nil }
+        let others = candidates
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(mine) { b in
+                HotkeysRow(binding: b)
+            }
+            if let site {
+                HotkeysCandidateRow(candidate: HotkeysCandidate(id: site.key, kind: .target(site), title: site.title,
+                                                                subtitle: "Site web · s'ouvre dans ton navigateur", icon: model.icon(site)))
+            }
+            if !others.isEmpty {
+                if !mine.isEmpty || site != nil {
+                    Text("À ASSOCIER").font(.ui(10, .semibold)).tracking(0.7).foregroundStyle(Theme.text3)
+                        .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 2)
+                }
+                ForEach(others.prefix(Self.limit)) { c in
+                    HotkeysCandidateRow(candidate: c)
+                }
+                if others.count > Self.limit {
+                    Text("… et \(others.count - Self.limit) autres : précise ta recherche.")
+                        .font(.ui(11.5)).foregroundStyle(Theme.text3).padding(.horizontal, 8).padding(.top, 4)
+                }
+            }
+            if mine.isEmpty, site == nil, others.isEmpty {
+                Text("Rien ne correspond. Un dossier ou un fichier ? Passe par « Autre… ».")
+                    .font(.ui(12)).foregroundStyle(Theme.text3).padding(.horizontal, 8).padding(.vertical, 8)
+            }
+        }
+    }
+
+    /// Every action of the app and every installed app without a shortcut, best matches first.
+    private var candidates: [HotkeysCandidate] {
+        let bound = Set(app.hotkeys.bindings.map(\.target.key))
+        var all: [HotkeysCandidate] = []
+        for c in ModuleRegistry.commands(app) where !c.id.hasPrefix("hk_") {
+            if let a = HotkeysModel.windowAction(c.id) {
+                all.append(HotkeysCandidate(id: c.id, kind: .window(a), title: a.title, subtitle: "Fenêtres · " + (a.detail ?? "la fenêtre au premier plan"),
+                                            icon: c.icon, keywords: c.keywords))
+                continue
+            }
+            let target = HotkeysTarget.command(id: c.id, title: c.title)
+            guard !bound.contains(target.key) else { continue }
+            all.append(HotkeysCandidate(id: c.id, kind: .target(target), title: c.title, subtitle: c.subtitle ?? c.group.title,
+                                        icon: c.icon, keywords: c.keywords))
+        }
+        for a in app.launcher.installedApps {
+            let target = HotkeysTarget.app(path: a.path, name: a.name)
+            guard !bound.contains(target.key) else { continue }
+            all.append(HotkeysCandidate(id: "app:" + a.path, kind: .target(target), title: a.name, subtitle: "App", icon: .file(a.path)))
+        }
+        var seen = Set<String>()
+        return all.compactMap { c in Fuzzy.best(query, title: c.title, keywords: c.keywords).map { (c, $0) } }
+            .sorted { $0.1 > $1.1 }
+            .map(\.0)
+            .filter { seen.insert($0.id).inserted }
+    }
+}
+
+private struct HotkeysCandidateRow: View {
+    @Environment(AppModel.self) private var app
+    var candidate: HotkeysCandidate
+    @State private var warning: String?
+
+    var body: some View {
+        HotkeysHoverRow {
+            HStack(spacing: 10) {
+                switch candidate.kind {
+                case .window(let a): WindowsMiniScreen(action: a, width: 24).frame(width: 24, height: 24)
+                case .target: CommandIconView(icon: candidate.icon, size: 24)
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(candidate.title).font(.ui(12.5)).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(warning ?? candidate.subtitle).font(.ui(11)).foregroundStyle(warning == nil ? Theme.text3 : Theme.warn).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                ShortcutRecorder(combo: combo) { set($0) }
+                if case .target(let target) = candidate.kind {
+                    Button { app.hotkeys.add(target) } label: {
+                        Image(systemName: "plus.circle").font(.ui(14)).foregroundStyle(Theme.accent)
+                            .frame(width: 20, height: 20).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Ajouter avec ⌃⌥⌘ + une lettre libre")
+                } else {
+                    Color.clear.frame(width: 20, height: 20)
+                }
+                // Lines up with the « … » menu of the shortcuts above.
+                Color.clear.frame(width: 20, height: 20)
+            }
+        }
+    }
+
+    private var combo: KeyCombo? {
+        switch candidate.kind {
+        case .window(let a): return app.windows.combos[a]
+        case .target(let t): return app.hotkeys.binding(for: t)?.combo
+        }
+    }
+
+    private func set(_ new: KeyCombo?) {
+        switch candidate.kind {
+        case .window(let a):
+            app.windows.setCombo(new, for: a)
+            warning = app.windows.refusal
+        case .target(let t):
+            guard let new else {
+                app.hotkeys.unbind(t)
+                return
+            }
+            if let other = app.hotkeys.bind(t, combo: new) {
+                warning = "\(new.display) est déjà utilisé par \(other)"
+            } else if let id = app.hotkeys.binding(for: t)?.id, let note = app.hotkeys.takeovers[id] {
+                HUD.show(note, symbol: "exclamationmark.triangle.fill")
+            }
+        }
+    }
+}
+
+/// Common apps of this Mac without a shortcut, one click each.
+private struct HotkeysSuggestions: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let model = app.hotkeys
+        let list = model.suggestions
+        if !list.isEmpty {
+            HStack(alignment: .top, spacing: 10) {
+                Text("Suggestions").font(.ui(11.5, .medium)).foregroundStyle(Theme.text3).padding(.top, 5)
+                FlowLayout(spacing: 6, lineSpacing: 6) {
+                    ForEach(Array(list.enumerated()), id: \.offset) { _, target in
+                        Button { model.add(target) } label: {
+                            HStack(spacing: 6) {
+                                CommandIconView(icon: model.icon(target), size: 16)
+                                Text(target.title).font(.ui(12)).foregroundStyle(Theme.text).lineLimit(1)
+                                Image(systemName: "plus").font(.ui(9.5, .bold)).foregroundStyle(Theme.accent)
+                            }
+                            .padding(.leading, 6)
+                            .padding(.trailing, 9)
+                            .padding(.vertical, 4)
+                            .background(PillShape().fill(Theme.card))
+                            .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("Lui donner ⌃⌥⌘ + une lettre libre")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -146,7 +379,8 @@ private struct HotkeysCommandPicker: View {
     @State private var query = ""
 
     var body: some View {
-        let all = ModuleRegistry.commands(app).filter { !$0.id.hasPrefix("hk_") }
+        // A window layout keeps its own keys (Fenêtres), not a second shortcut.
+        let all = ModuleRegistry.commands(app).filter { !$0.id.hasPrefix("hk_") && HotkeysModel.windowAction($0.id) == nil }
         let shown = query.isEmpty ? Array(all.prefix(80))
             : all.compactMap { c in Fuzzy.best(query, title: c.title, keywords: c.keywords).map { (c, $0) } }.sorted { $0.1 > $1.1 }.prefix(80).map(\.0)
         VStack(alignment: .leading, spacing: 12) {
@@ -178,116 +412,6 @@ private struct HotkeysCommandPicker: View {
         }
         .padding(20)
         .frame(width: 520)
-    }
-}
-
-enum HotkeysCatalogKind: String, CaseIterable, Identifiable {
-    case actions, apps
-
-    var id: String { rawValue }
-    var title: String { self == .actions ? "Actions de Chamois" : "Apps" }
-}
-
-/// Every action of the app, or every installed app, each with its shortcut recorder.
-private struct HotkeysCatalogPanel: View {
-    @Environment(AppModel.self) private var app
-    @State private var kind: HotkeysCatalogKind = .actions
-    @State private var query = ""
-
-    private struct Row: Identifiable {
-        let id: String
-        let target: HotkeysTarget
-        let title: String
-        let subtitle: String?
-        let icon: CommandIcon
-        let section: String
-    }
-
-    var body: some View {
-        let rows = filtered
-        Panel(title: "Tout associer", subtitle: "Chaque action de Chamois et chaque app peut avoir son raccourci. Dans le lanceur, ⌘K fait pareil sur le résultat choisi.",
-              symbol: "list.bullet.rectangle", tint: Theme.accent) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 10) {
-                    PillPicker(options: HotkeysCatalogKind.allCases, selection: $kind, label: \.title)
-                    Spacer()
-                    if Snapshot.isActive {
-                        Text("Chercher…").font(.ui(12.5)).foregroundStyle(Theme.text3)
-                            .frame(width: 240, alignment: .leading)
-                            .padding(7).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.bg.opacity(0.6)))
-                    } else {
-                        TextField(kind == .actions ? "Chercher : analyse, Caféine, traduire…" : "Chercher une app…", text: $query)
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 260)
-                    }
-                }
-                if rows.isEmpty {
-                    Text(kind == .apps && app.launcher.installedApps.isEmpty ? "La liste des apps se charge…" : "Rien ne correspond.")
-                        .font(.ui(12)).foregroundStyle(Theme.text3).padding(.vertical, 6)
-                }
-                let shown = Snapshot.isActive ? Array(rows.prefix(9)) : rows
-                ForEach(Array(shown.enumerated()), id: \.element.id) { i, row in
-                    if i == 0 || shown[i - 1].section != row.section, !row.section.isEmpty {
-                        Text(row.section.uppercased()).font(.ui(10, .semibold)).tracking(0.7).foregroundStyle(Theme.text3)
-                            .padding(.top, i == 0 ? 0 : 8)
-                    }
-                    line(row)
-                }
-                if Snapshot.isActive, rows.count > shown.count {
-                    Text("… et \(rows.count - shown.count) autres").font(.ui(11.5)).foregroundStyle(Theme.text3)
-                }
-            }
-        }
-    }
-
-    private func line(_ row: Row) -> some View {
-        let combo = app.hotkeys.binding(for: row.target)?.combo
-        return HStack(spacing: 10) {
-            CommandIconView(icon: row.icon, size: 24)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(row.title).font(.ui(12.5)).foregroundStyle(Theme.text).lineLimit(1)
-                if let s = row.subtitle, !s.isEmpty { Text(s).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1) }
-            }
-            Spacer()
-            ShortcutRecorder(combo: combo) { new in
-                if let new {
-                    if let other = app.hotkeys.bind(row.target, combo: new) {
-                        HUD.show("\(new.display) est déjà utilisé par \(other)", symbol: "exclamationmark.triangle.fill")
-                    } else if let id = app.hotkeys.binding(for: row.target)?.id, let note = app.hotkeys.takeovers[id] {
-                        HUD.show(note, symbol: "exclamationmark.triangle.fill")
-                    }
-                } else {
-                    app.hotkeys.unbind(row.target)
-                }
-            }
-            .frame(width: 130)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(combo == nil ? Color.clear : Theme.accent.opacity(0.07)))
-    }
-
-    private var filtered: [Row] {
-        let all = kind == .actions ? actions : apps
-        let q = query.trimmingCharacters(in: .whitespaces)
-        guard !q.isEmpty else { return all }
-        return all.compactMap { r in Fuzzy.best(q, title: r.title, keywords: [r.subtitle ?? ""]).map { (r, $0) } }
-            .sorted { $0.1 > $1.1 }.map(\.0)
-    }
-
-    private var actions: [Row] {
-        ModuleRegistry.commands(app)
-            .filter { !$0.id.hasPrefix("hk_") }
-            .sorted { ($0.group, $0.title) < ($1.group, $1.title) }
-            .map { c in
-                Row(id: c.id, target: .command(id: c.id, title: c.title), title: c.title, subtitle: c.subtitle, icon: c.icon, section: c.group.title)
-            }
-    }
-
-    private var apps: [Row] {
-        app.launcher.installedApps
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .map { a in Row(id: a.path, target: .app(path: a.path, name: a.name), title: a.name, subtitle: nil, icon: .file(a.path), section: "") }
     }
 }
 

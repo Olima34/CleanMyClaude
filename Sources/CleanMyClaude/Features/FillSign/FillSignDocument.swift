@@ -6,8 +6,6 @@ enum FillSignError: LocalizedError {
     case locked
     case wrongPassword
     case empty
-    /// A Word, Pages or Markdown document: it becomes a PDF in the converter first.
-    case needsConversion(URL)
     case unsupported(String)
     case failed(String)
 
@@ -17,8 +15,9 @@ enum FillSignError: LocalizedError {
         case .locked: return "Ce PDF est protégé par un mot de passe."
         case .wrongPassword: return "Ce n'est pas le bon mot de passe."
         case .empty: return "Ce PDF n'a aucune page."
-        case .needsConversion(let url): return "« \(url.lastPathComponent) » doit d'abord devenir un PDF."
-        case .unsupported(let name): return "« \(name) » n'est ni un PDF ni une image."
+        case .unsupported(let name) where name.lowercased().hasSuffix(".pages"):
+            return "Exporte d'abord « \(name) » en PDF depuis Pages (Fichier › Exporter vers › PDF)."
+        case .unsupported(let name): return "« \(name) » n'est ni un PDF, ni une image, ni un document texte."
         case .failed(let why): return why
         }
     }
@@ -57,10 +56,12 @@ final class FillSignDocument: @unchecked Sendable {
         canvas = doc
     }
 
-    /// A PDF, or an image made into a one-page PDF. Word, Pages or Markdown go through the converter first.
+    /// A PDF, an image made into a one-page PDF, or a Word, RTF, ODT, text or Markdown document laid out as a PDF first
+    /// (in memory: the signed copy is the only file written, next to the original).
     static func load(_ url: URL, password: String? = nil) throws -> FillSignDocument {
         let name = url.deletingPathExtension().lastPathComponent
-        switch ConverterKind.detect(name: url.lastPathComponent, isDirectory: false) {
+        let kind = ConverterKind.detect(name: url.lastPathComponent, isDirectory: false)
+        switch kind {
         case .pdf:
             // Read whole (not mapped): the file may change or go while it is open here.
             guard let data = try? Data(contentsOf: url) else { throw FillSignError.unreadable(url.lastPathComponent) }
@@ -74,9 +75,30 @@ final class FillSignDocument: @unchecked Sendable {
             }
             return try FillSignDocument(url: url, name: name, data: data, password: nil, fromImage: true)
         case .document, .markdown:
-            throw FillSignError.needsConversion(url)
+            let data: Data
+            do {
+                data = try ConverterDocumentEngine.pdfData(url, kind: kind, control: ConverterControl { _ in })
+            } catch {
+                throw FillSignError.failed("« \(url.lastPathComponent) » n'a pas pu devenir un PDF : \(error.localizedDescription)")
+            }
+            return try FillSignDocument(url: url, name: name, data: data, password: nil, fromImage: false)
         default:
             throw FillSignError.unsupported(url.lastPathComponent)
+        }
+    }
+
+    /// `--fillsign-check <fichier>`: what the window would open, without writing anything.
+    static func check(_ path: String) -> [String] {
+        let url = URL(fileURLWithPath: FS.expand(path))
+        let start = Date()
+        do {
+            let doc = try load(url)
+            let fields = doc.fields.count
+            return ["✓ « \(url.lastPathComponent) » s'ouvre en \(String(format: "%.2f", Date().timeIntervalSince(start))) s : "
+                    + "\(doc.pageCount) page(s), \(fields) champ(s)\(doc.fromImage ? ", photo devenue PDF" : "")",
+                    "  la copie irait dans \(FillSignExport.folder(for: doc).path)"]
+        } catch {
+            return ["✗ « \(url.lastPathComponent) » : \(error.localizedDescription)"]
         }
     }
 

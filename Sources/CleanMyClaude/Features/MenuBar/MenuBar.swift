@@ -42,9 +42,9 @@ struct MenuBarPanel: View {
                 .background(PillShape().fill(Theme.card))
             }
 
-            // A video downloading: how far it is, and the way to stop it.
-            if let activity = app.youtube.activity {
-                YouTubeActivityCard(activity: activity, style: .menu)
+            // The YouTube downloads: how far each is, cancel, show in the Finder, try again.
+            if !app.youtube.jobs.isEmpty {
+                YouTubeActivityCard(style: .menu)
             }
 
             HStack(spacing: 0) {

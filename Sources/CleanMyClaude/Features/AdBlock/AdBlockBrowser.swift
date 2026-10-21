@@ -71,7 +71,7 @@ enum AdBlockBrowser {
                                         appPath: "/Applications/uBlock Origin Lite.app", youtube: true)]
 }
 
-/// YouTube's ads: what to install, and the three switches Safari keeps for itself.
+/// YouTube's ads in Safari: the extension to install, or the one found. Safari's three switches wait in the « ? ».
 struct AdBlockYouTubePanel: View {
     @Environment(AppModel.self) private var app
 
@@ -79,23 +79,20 @@ struct AdBlockYouTubePanel: View {
         let m = app.adblock
         let found = m.browserExtensions ?? []
         let youtube = found.first(where: \.youtube)
-        Panel(title: "Pubs YouTube dans Safari", subtitle: "Elles viennent des mêmes serveurs que les vidéos : dans Safari, une extension les coupe",
-              symbol: "play.rectangle", tint: AdBlockPage.tint) {
-            VStack(alignment: .leading, spacing: 12) {
+        Panel(title: "Pubs YouTube dans Safari", subtitle: "Une extension de Safari les coupe, sans passer par le lecteur",
+              symbol: "play.rectangle", tint: AdBlockStyle.tint) {
+            HelpTipButton(tip: AdBlockTips.safariExtension(youtube?.name ?? AdBlockBrowser.recommendedName), opensByItself: false)
+        } content: {
+            VStack(alignment: .leading, spacing: 10) {
                 if let ext = youtube {
                     HStack(spacing: 8) {
                         if let path = ext.appPath { FileIcon(path: path, size: 22) }
                         Text("\(ext.name) est installé").font(.ui(13, .semibold)).foregroundStyle(Theme.text)
                         Tag(text: "Gratuit", tint: Theme.good, filled: true)
                     }
-                    Text("Il coupe les pubs YouTube, à condition que Safari le laisse faire. Vérifie ces trois réglages une fois :")
-                        .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    step(1, "Safari › Réglages… › Extensions : coche « \(ext.name) ».")
-                    step(2, "Toujours dans Extensions, « Modifier les sites web… » : choisis « Autoriser » pour youtube.com, ou pour tous les sites.")
-                    step(3, "Sur YouTube, clique sur son icône dans la barre d'outils et choisis « Complet ». Recharge la vidéo.")
                     HStack(spacing: 10) {
                         Button("Ouvrir Safari") { m.openSafari() }
-                            .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                            .buttonStyle(SoftButtonStyle(small: true))
                         if ext.appPath != nil {
                             Button("Ouvrir \(ext.name)") { m.openExtensionApp(ext) }
                                 .buttonStyle(SoftButtonStyle(small: true))
@@ -104,23 +101,14 @@ struct AdBlockYouTubePanel: View {
                     }
                 } else {
                     Text(found.isEmpty
-                         ? "Aucune extension anti-pub dans Safari. Installe \(AdBlockBrowser.recommendedName) : gratuit, open source, par l'auteur de uBlock Origin, il coupe aussi les pubs YouTube."
-                         : "\(found.map(\.name).joined(separator: ", ")) bloque les pubs des pages, pas celles de YouTube. Ajoute \(AdBlockBrowser.recommendedName) (gratuit) pour les vidéos.")
+                         ? "Aucune extension anti-pub dans Safari."
+                         : "\(found.map(\.name).joined(separator: ", ")) laisse passer celles de YouTube.")
                         .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    Button("Installer \(AdBlockBrowser.recommendedName) depuis l'App Store") { m.openRecommendedStore() }
+                    Button("Installer \(AdBlockBrowser.recommendedName)") { m.openRecommendedStore() }
                         .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                        .help("Gratuit et open source, par l'auteur de uBlock Origin, sur l'App Store")
                 }
-                Text("YouTube change souvent sa façon de servir les pubs : l'extension se met à jour toute seule pour suivre. Une pub qui passe encore ? Recharge la page.")
-                    .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
             }
-        }
-    }
-
-    private func step(_ n: Int, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Text("\(n)").font(.ui(11, .bold)).foregroundStyle(Theme.onAccent)
-                .frame(width: 18, height: 18).background(Circle().fill(Theme.accent))
-            Text(text).font(.ui(12)).foregroundStyle(Theme.text).fixedSize(horizontal: false, vertical: true)
         }
     }
 }

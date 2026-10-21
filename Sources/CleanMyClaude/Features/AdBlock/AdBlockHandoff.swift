@@ -476,43 +476,53 @@ extension AdBlockVideoBrowser {
 
 // MARK: - The page's panel
 
-/// « Toujours sans pub » on the ad blocker's page: the switch, and what it does.
+/// « Toujours sans pub » on the player's tab: the switch, and the Safari bookmark that does the same on a click.
 struct AdBlockHandoffPanel: View {
     @Environment(AppModel.self) private var app
+    @State private var copied = false
 
     var body: some View {
         let h = app.adblock.handoff
         Panel(title: "YouTube et Twitch toujours sans pub",
-              subtitle: "Ouvre YouTube ou Twitch dans ton navigateur : la page passe d'elle-même dans le lecteur sans pub",
-              symbol: "arrow.triangle.swap", tint: AdBlockPage.tint) {
-            VStack(alignment: .leading, spacing: 12) {
+              subtitle: "Ouverts dans ton navigateur, ils passent d'eux-mêmes dans le lecteur",
+              symbol: "arrow.triangle.swap", tint: AdBlockStyle.tint) {
+            HelpTipButton(tip: AdBlockTips.handoff, opensByItself: false)
+        } content: {
+            VStack(alignment: .leading, spacing: 10) {
                 Toggle(isOn: Binding(get: { h.enabled }, set: { h.setEnabled($0) })) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Basculer tout seul dans le lecteur sans pub").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                        Text("Basculer tout seul dans le lecteur").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
                         Text(status(h)).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .switchToggles()
                 .controlSize(.small)
-                Text("Safari, Chrome, Brave, Edge, Arc ou Vivaldi est devant toi et affiche YouTube ou Twitch : la page continue dans le lecteur, à la même seconde si ton navigateur le permet (voir Vidéo seule), et son onglet se ferme. Tu la veux dans le navigateur ? Le bouton Safari du lecteur l'y renvoie, ou rouvre l'onglet (⌘⇧T) : Chamois y laisse ce site jusqu'à ce que tu en sortes. YouTube Studio, YouTube Music et les réglages de ton compte restent dans le navigateur.")
-                    .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                Text("Pour ça, Chamois lit l'adresse de l'onglet affiché, seulement quand ton navigateur est devant (macOS te le demande une fois par navigateur) ; il ne la garde pas et ne l'envoie nulle part. Les fenêtres privées de Chrome, Brave et Edge sont laissées tranquilles ; Safari ne dit pas si une fenêtre est privée.")
-                    .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 if !h.refused.isEmpty {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text("\(h.refused.joined(separator: ", ")) ne laisse pas Chamois lire son onglet : active-le dans Réglages Système › Confidentialité et sécurité › Automatisation.")
+                        Text("\(h.refused.joined(separator: ", ")) ne laisse pas Chamois lire son onglet : autorise-le dans Automatisation.")
                             .font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                         Button("Réglages…") { Finder.open(PermissionKind.safari.settingsURL) }
                             .buttonStyle(SoftButtonStyle(small: true))
                     }
                 }
+                HStack(spacing: 8) {
+                    Text("Plutôt d'un clic, avec un signet dans Safari").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    Spacer(minLength: 0)
+                    Button(copied ? "Copié" : "Copier le signet") {
+                        if case .copied = CommandRunner.copy(AdBlockPlayer.bookmarklet) {
+                            copied = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
+                        }
+                    }
+                    .buttonStyle(SoftButtonStyle(small: true))
+                }
             }
         }
     }
 
     private func status(_ h: AdBlockHandoff) -> String {
-        guard h.enabled else { return "Éteint : YouTube et Twitch restent dans ton navigateur, avec leurs pubs" }
+        guard h.enabled else { return "Éteint : ils restent dans ton navigateur, avec leurs pubs" }
         if let last = h.last { return "Allumé · dernière bascule : \(last.site) depuis \(last.browser), \(Fmt.relative(last.date))" }
         return "Allumé : la prochaine page YouTube ou Twitch de ton navigateur passe ici"
     }

@@ -287,7 +287,7 @@ final class CinemaModel: AppModule {
         selected = hit
         remember(hit)
         load(hit)
-        LauncherAppActions.openMain(app, .cinema)
+        app.media.show(.watch, app: app)
     }
 
     func select(_ hit: CinemaHit) {
@@ -335,8 +335,8 @@ final class CinemaModel: AppModule {
     func commands(app: AppModel) -> [AppCommand] {
         [AppCommand(id: "cinema_open", title: "Films et séries", subtitle: "Cherche un film ou une série : sa fiche et où le regarder",
                     keywords: ["film", "série", "cinéma", "où regarder", "streaming", "netflix", "tmdb", "bande-annonce"],
-                    icon: .symbol(Page.cinema.symbol, CinemaStyle.tint), group: .tools, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
-            LauncherAppActions.openMain(ctx.app, .cinema)
+                    icon: .symbol("popcorn", CinemaStyle.tint), group: .tools, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
+            ctx.app.media.show(.watch, app: ctx.app)
             return .done
         }]
     }
@@ -347,7 +347,7 @@ final class CinemaModel: AppModule {
         let text = query.trimmingCharacters(in: .whitespaces)
         // Under everything that matches (the row of the files too): nothing is sent until the row is selected.
         return [AppCommand(id: "cinema_lookup", title: "Films et séries : « \(text) »", subtitle: "Sa fiche et où le regarder",
-                           icon: .symbol(Page.cinema.symbol, CinemaStyle.tint), group: .cinema, hint: "Tous les résultats",
+                           icon: .symbol("popcorn", CinemaStyle.tint), group: .cinema, hint: "Tous les résultats",
                            boost: 40, staysInLauncher: true,
                            pane: { AnyView(CinemaSearchPane(title: text, kind: nil)) }) { ctx in
             ctx.app.launcher.query = "regarder " + text
@@ -360,7 +360,7 @@ final class CinemaModel: AppModule {
         guard hasKey || DemoData.isEnabled else {
             return [AppCommand(id: "cinema_key", title: "Films et séries : ajoute ta clé TMDB", subtitle: "Gratuite, en deux minutes",
                                icon: .symbol("key", tint), group: .cinema, hint: "Ouvrir", boost: 2000) { ctx in
-                LauncherAppActions.openMain(ctx.app, .cinema)
+                ctx.app.media.show(.watch, app: ctx.app)
                 return .done
             }]
         }
@@ -382,7 +382,7 @@ final class CinemaModel: AppModule {
             }]
         default:
             return [AppCommand(id: "cinema_searching", title: "Recherche dans les \(label) : « \(title) »…", subtitle: "The Movie Database",
-                               icon: .symbol(Page.cinema.symbol, tint), group: .cinema, boost: 2000, staysInLauncher: true,
+                               icon: .symbol("popcorn", tint), group: .cinema, boost: 2000, staysInLauncher: true,
                                pane: { AnyView(CinemaSearchPane(title: title, kind: kind)) }) { _ in .done }]
         }
     }

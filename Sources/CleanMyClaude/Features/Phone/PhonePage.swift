@@ -9,8 +9,8 @@ struct PhonePage: View {
         let m = app.phone
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: m.info?.symbol ?? "iphone", title: "iPhone",
-                     subtitle: "Branche ton iPhone avec un câble : son bilan de santé, et ses photos et vidéos triées pour libérer de la place sans rien perdre.",
-                     tint: Self.tint, seed: 91) {
+                     subtitle: "Sa santé, et ses photos et vidéos triées pour libérer de la place.",
+                     tint: Self.tint, seed: 91, tip: Self.tip) {
                 if let i = m.info, m.link == .ready { PhoneDevicePill(info: i) }
             }
             if let kind = m.reviewing, m.photoState == .ready {
@@ -50,6 +50,10 @@ struct PhonePage: View {
             if m.librarySync.waiting { m.checkLibrary() }
         }
     }
+
+    static let tip = HelpTip(
+        id: "phone.page", title: "Ton iPhone sur ce Mac",
+        text: "Branche-le avec un câble (un iPad marche aussi) : Chamois note son bilan à chaque branchement. Ses photos sont examinées sur ce Mac, rien n'est envoyé ailleurs, et rien ne quitte l'iPhone sans une copie vérifiée sur ton Mac, sauf les doublons exacts.")
 }
 
 // MARK: - Header
@@ -79,15 +83,13 @@ private struct PhoneWaitingCard: View {
                 IconBadge(symbol: "cable.connector", tint: PhonePage.tint, size: 46)
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Branche ton iPhone").font(.serif(24)).foregroundStyle(Theme.text)
-                    Text("Avec un câble USB ou USB-C. Chamois le reconnaît tout seul : sa santé d'abord, puis ses photos et vidéos à trier. Un iPad marche aussi.")
-                        .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     VStack(alignment: .leading, spacing: 6) {
-                        step(1, "Branche-le à ce Mac")
+                        step(1, "Branche-le à ce Mac avec un câble")
                         step(2, "Déverrouille-le")
-                        step(3, "S'il demande « Faire confiance à cet ordinateur ? », touche « Se fier » et tape ton code")
+                        step(3, "S'il le demande, touche « Se fier » et tape ton code")
                     }
                     if !PhoneBridge.isAvailable && !DemoData.isEnabled {
-                        Text("Avec cette version de macOS, Chamois ne lit pas la batterie ni le stockage. Le tri des photos et vidéos marche toujours.")
+                        Text("Avec cette version de macOS, seules les photos et vidéos sont lisibles, pas la batterie ni le stockage.")
                             .font(.ui(11.5)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -110,7 +112,7 @@ private struct PhoneKnownDevices: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        Panel(title: "Déjà vus sur ce Mac", subtitle: "Leur dernier bilan. Rebranche-les pour le mettre à jour.", symbol: "book.closed", tint: PhonePage.tint) {
+        Panel(title: "Déjà vus sur ce Mac", symbol: "book.closed", tint: PhonePage.tint) {
             VStack(spacing: 2) {
                 ForEach(app.phone.knownDevices, id: \.udid) { known in
                     let d = known.device
@@ -145,7 +147,7 @@ private struct PhoneTrustCard: View {
                 IconBadge(symbol: "lock.iphone", tint: Theme.warn, size: 40)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Ton iPhone ne fait pas encore confiance à ce Mac").font(.serif(20)).foregroundStyle(Theme.text)
-                    Text("Déverrouille-le : il demande « Faire confiance à cet ordinateur ? ». Touche « Se fier », tape ton code, et Chamois continue tout seul. Sans cela, l'iPhone ne montre rien de lui.")
+                    Text("Déverrouille-le, touche « Se fier » et tape ton code : Chamois continue tout seul.")
                         .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     HStack(spacing: 8) {
                         Button("Redemander à l'iPhone") { app.phone.askTrust() }
@@ -194,8 +196,7 @@ private struct PhoneNotebookPanel: View {
 
     var body: some View {
         let points = app.phone.notebook?.points ?? []
-        Panel(title: "Carnet de santé", subtitle: "Un bilan à chaque branchement : Chamois suit sa batterie et sa place libre au fil des mois.",
-              symbol: "heart.text.square", tint: PhonePage.tint) {
+        Panel(title: "Carnet de santé", symbol: "heart.text.square", tint: PhonePage.tint) {
             Text(points.first.flatMap { PhoneRules.date(ofDay: $0.day) }.map { "\(Fmt.plural(points.count, "bilan", "bilans")) depuis le \(Fmt.day($0))" } ?? "")
                 .font(.ui(11.5)).foregroundStyle(Theme.text3)
         } content: {
@@ -221,9 +222,9 @@ private struct PhoneNotebookPanel: View {
                 Sparkline(values: values.map { $0 - floor }, maxValue: (hi - floor) * 1.05, tint: tint).frame(height: 44)
             } else {
                 RoundedRectangle(cornerRadius: Theme.r(6)).fill(Theme.track).frame(height: 44)
-                    .overlay(Text("La courbe se dessine au fil des branchements").font(.ui(11)).foregroundStyle(Theme.text3))
+                    .overlay(Text("Se dessine au fil des branchements").font(.ui(11)).foregroundStyle(Theme.text3))
             }
-            Text(trend ?? "Encore un peu de recul : la tendance apparaît après quelques semaines.")
+            Text(trend ?? "Tendance dans quelques semaines")
                 .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -238,26 +239,30 @@ private struct PhonePhotosPanel: View {
     var body: some View {
         let m = app.phone
         Panel(title: "Photos et vidéos", subtitle: subtitle, symbol: "photo.on.rectangle.angled", tint: PhonePage.tint) {
-            if m.photoState == .ready, m.freeable > 0 {
-                Text("Jusqu'à \(Fmt.bytes(m.freeable)) à libérer").font(.ui(12, .semibold)).foregroundStyle(PhonePage.tint)
+            if m.photoState == .ready {
+                HStack(spacing: 10) {
+                    if m.freeable > 0 {
+                        Text("Jusqu'à \(Fmt.bytes(m.freeable)) à libérer").font(.ui(12, .semibold)).foregroundStyle(PhonePage.tint)
+                    }
+                    Button("Tout parcourir") { m.reviewing = .all }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                        .help("Choisis toi-même parmi toutes les photos et vidéos, des plus anciennes aux plus récentes")
+                }
             }
         } content: {
             switch m.photoState {
             case .idle:
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Chamois liste les photos et vidéos de l'iPhone, puis examine chaque photo sur ce Mac : grosses vidéos, captures, rafales, séries presque identiques, doublons, tickets et photos ratées. Rien n'est envoyé ailleurs, et rien n'est supprimé sans toi.")
-                        .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 12) {
-                        ScanButton(title: "Trier les photos et vidéos", symbol: "photo.stack") { m.analysePhotos() }
-                        Text("Garde l'iPhone déverrouillé pendant l'analyse.").font(.ui(11.5)).foregroundStyle(Theme.text3)
-                    }
+                HStack(spacing: 12) {
+                    ScanButton(title: "Trier les photos et vidéos", symbol: "photo.stack") { m.analysePhotos() }
+                    Text("Garde l'iPhone déverrouillé. Tout est examiné sur ce Mac, rien n'est supprimé sans toi.")
+                        .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 }
             case .locked:
                 HStack(spacing: 12) {
                     BusyMascot(.searching, pixel: 1.5)
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Déverrouille ton iPhone").font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                        Text("Il garde ses photos sous clé tant qu'il est verrouillé. Chamois reprend dès que tu l'ouvres.")
+                        Text("Chamois reprend dès que tu l'ouvres.")
                             .font(.ui(12)).foregroundStyle(Theme.text2)
                     }
                 }
@@ -308,19 +313,14 @@ private struct PhoneCategoryList: View {
             if m.categories.isEmpty && m.analysed {
                 EmptyHint(text: "Rien à trier : ton iPhone est déjà bien rangé.", symbol: "checkmark.seal")
             }
-            HStack(spacing: 10) {
-                Text("Ou choisis toi-même parmi toutes les photos et vidéos, des plus anciennes aux plus récentes.")
-                    .font(.ui(11.5)).foregroundStyle(Theme.text3)
-                Button("Tout parcourir") { m.reviewing = .all }.buttonStyle(SoftButtonStyle(small: true))
-            }
             VStack(spacing: 2) {
                 ForEach(m.categories) { c in PhoneCategoryRow(category: c) }
             }
             if !m.analysed && m.task == nil {
                 HStack(spacing: 10) {
-                    Text("L'analyse fine trouve aussi les séries presque identiques, les doublons, les tickets et les photos ratées.")
-                        .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                     Button("Lancer l'analyse fine") { m.analysePhotos() }.buttonStyle(SoftButtonStyle(small: true))
+                    Text("Pour trouver aussi les séries, les doublons, les tickets et les photos ratées.")
+                        .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 }
             }
             PhoneModeNote()
@@ -338,19 +338,17 @@ private struct PhoneCategoryRow: View {
         HoverRow {
             HStack(spacing: 12) {
                 IconBadge(symbol: category.kind.symbol, tint: PhonePage.tint, size: 28)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(category.kind.title).font(.ui(13, .medium)).foregroundStyle(Theme.text)
-                        Text(Fmt.int(category.ids.count)).font(.ui(11, .semibold)).foregroundStyle(Theme.text3).monospacedDigit()
-                        if picked > 0 { Tag(text: "\(Fmt.int(picked)) cochées", tint: Theme.accent, filled: true) }
-                    }
-                    Text(category.kind.detail).font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(category.kind.title).font(.ui(13, .medium)).foregroundStyle(Theme.text)
+                    Text(Fmt.int(category.ids.count)).font(.ui(11, .semibold)).foregroundStyle(Theme.text3).monospacedDigit()
+                    if picked > 0 { Tag(text: "\(Fmt.int(picked)) cochées", tint: Theme.accent, filled: true) }
                 }
                 Spacer(minLength: 8)
                 Text(Fmt.bytes(category.size)).font(.serif(17)).foregroundStyle(Theme.text).monospacedDigit()
                 Button("Revoir") { m.reviewing = category.kind }.buttonStyle(SoftButtonStyle(small: true))
             }
         }
+        .help(category.kind.detail)
         .onTapGesture { m.reviewing = category.kind }
     }
 }
@@ -366,40 +364,50 @@ private struct PhoneModeNote: View {
         }
         switch m.deletion {
         case .cable:
-            Callout(symbol: "checkmark.shield", title: "Rien ne quitte l'iPhone sans une copie sur ton Mac",
-                    text: "Photos iCloud est désactivé : Chamois copie chaque original dans le dossier de ton choix, vérifie la copie, puis le supprime de l'iPhone. Une suppression par le câble est définitive, d'où la copie d'abord.",
-                    tint: Theme.good)
+            PhoneNote(symbol: "checkmark.shield", tint: Theme.good,
+                      text: "Rien ne quitte l'iPhone sans une copie vérifiée sur ton Mac : une suppression par le câble est définitive.")
         case .library, .none:
             if m.iCloudPhotos { PhoneCloudNote() } else {
-                Callout(symbol: "lock", title: "Cet iPhone refuse les suppressions par le câble",
-                        text: "Ses photos viennent sans doute d'une synchronisation avec un ordinateur. Tu peux les copier sur ce Mac ; pour les supprimer, passe par l'iPhone ou par l'ordinateur qui les y a mises.",
-                        tint: Theme.warn)
+                PhoneNote(symbol: "lock", tint: Theme.warn,
+                          text: "Cet iPhone refuse les suppressions par le câble (ses photos viennent sans doute d'un ordinateur) : copie-les ici, et supprime-les depuis l'iPhone.")
             }
         }
     }
 }
 
-/// One way out, in the iCloud card.
-private struct PhoneWay: View {
+/// One line on how photos leave the iPhone, with its « ? » when there is more to it.
+private struct PhoneNote: View {
     var symbol: String
-    var title: String
+    var tint: Color
     var text: String
+    var tip: HelpTip? = nil
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            IconBadge(symbol: symbol, tint: PhonePage.tint, size: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(12, .semibold)).foregroundStyle(Theme.text)
-                Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            if Theme.icons != .hidden {
+                Image(systemName: symbol).font(.ui(12, .medium)).foregroundStyle(Theme.icons == .tinted ? tint : Theme.text2)
             }
+            Text(text).font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            if let tip { HelpTipButton(tip: tip, size: 13) }
         }
-        .padding(.leading, 4)
     }
 }
 
 /// iCloud Photos on the iPhone: deletions go through this Mac's Photos library, when it is the same one.
 private struct PhoneCloudNote: View {
     @Environment(AppModel.self) private var app
+
+    static let cloudTip = HelpTip(
+        id: "phone.icloud", title: "Avec Photos iCloud",
+        text: "L'iPhone refuse alors toute suppression par le câble : Chamois passe par l'app Photos de ce Mac, avec le même compte iCloud. « Mettre au frais et supprimer » garde d'abord une copie de chaque original sur ce Mac.")
+
+    static let missingTip = HelpTip(
+        id: "phone.icloudMissing", title: "Donner tes photos à ce Mac",
+        text: "Si ton stockage iCloud a de la place : dans Photos sur ce Mac, Réglages › iCloud, active « Photos iCloud » avec le même compte que l'iPhone, choisis « Optimiser le stockage du Mac » et laisse la synchronisation finir.\n\nSi ton iPhone dit « Stockage iCloud saturé », ses photos récentes n'arriveront jamais ici : désactive Photos iCloud sur l'iPhone (Réglages › ton nom › iCloud › Photos, en gardant les photos). Chamois copiera, vérifiera puis supprimera par le câble ; tes photos ne se synchroniseront plus entre tes appareils.")
+
+    static let syncTip = HelpTip(
+        id: "phone.icloudSync", title: "La synchronisation de Photos",
+        text: "Photos commence par les plus anciennes : compte de quelques minutes à quelques heures, et garder Photos ouvert va plus vite. Chamois revérifie toutes les minutes tant que cette page est ouverte.")
 
     private var actions: some View {
         let m = app.phone
@@ -417,18 +425,14 @@ private struct PhoneCloudNote: View {
         VStack(alignment: .leading, spacing: 8) {
             switch (m.photosAccess, m.librarySync) {
             case (.granted, .missing(let total)):
-                Callout(symbol: "icloud.slash", title: "La photothèque de ce Mac n'a pas les photos de ton iPhone",
-                        text: "Elle a \(Fmt.plural(total, "photo ou vidéo", "photos et vidéos")), ton iPhone \(Fmt.int(m.items.count)). Avec Photos iCloud, l'iPhone refuse toute suppression par le câble : Chamois ne peut supprimer que par l'app Photos de ce Mac, quand elle a les mêmes photos. En attendant, « Copier sur le Mac » marche.",
-                        tint: Theme.warn)
-                PhoneWay(symbol: "icloud", title: "Ton stockage iCloud a de la place",
-                         text: "Dans Photos sur ce Mac, Réglages › iCloud : active « Photos iCloud » avec le même compte que l'iPhone, choisis « Optimiser le stockage du Mac » (il ne garde que de petites versions) et laisse la synchronisation finir.")
-                PhoneWay(symbol: "exclamationmark.icloud", title: "Ton iPhone dit « Stockage iCloud saturé »",
-                         text: "Alors tes photos récentes ne sont que sur l'iPhone, et iCloud ne les enverra jamais à ce Mac. Pour que Chamois les libère, désactive Photos iCloud sur l'iPhone (Réglages › ton nom › iCloud › Photos, en gardant les photos sur l'iPhone) : il copiera chaque élément choisi sur ce Mac, vérifiera la copie, puis le supprimera par le câble. Tes photos ne se synchroniseront plus entre tes appareils ; celles déjà dans iCloud y restent.")
+                PhoneNote(symbol: "icloud.slash", tint: Theme.warn,
+                          text: "La photothèque de ce Mac n'a pas les photos de ton iPhone (\(Fmt.int(total)) contre \(Fmt.int(m.items.count))) : pour supprimer, il lui faut les mêmes. « Copier sur le Mac » marche déjà.",
+                          tip: Self.missingTip)
                 actions
             case (.granted, .syncing(let total)):
-                Callout(symbol: "arrow.triangle.2.circlepath.icloud", title: "Photos synchronise ta photothèque sur ce Mac",
-                        text: "\(Fmt.plural(total, "photo ou vidéo arrivée", "photos et vidéos arrivées")) pour l'instant, ton iPhone en a \(Fmt.int(m.items.count)). Photos commence par les plus anciennes ; selon la taille de ta photothèque, compte de quelques minutes à quelques heures, et garder Photos ouvert va plus vite. Chamois revérifie toutes les minutes tant que cette page est ouverte : « Supprimer » apparaîtra quand tes photos y seront.",
-                        tint: PhonePage.tint)
+                PhoneNote(symbol: "arrow.triangle.2.circlepath.icloud", tint: PhonePage.tint,
+                          text: "Photos synchronise ta photothèque : \(Fmt.int(total)) arrivées sur \(Fmt.int(m.items.count)). « Supprimer » apparaîtra quand elles y seront.",
+                          tip: Self.syncTip)
                 actions
             case (.granted, .checking):
                 HStack(spacing: 10) {
@@ -436,13 +440,13 @@ private struct PhoneCloudNote: View {
                     Text("Je regarde si la photothèque de ce Mac est celle de ton iPhone…").font(.ui(12)).foregroundStyle(Theme.text2)
                 }
             default:
-                Callout(symbol: "icloud", title: "Photos iCloud est activé sur cet iPhone",
-                        text: "Supprimer une photo la supprime aussi d'iCloud et de tes autres appareils. Chamois passe par l'app Photos de ce Mac, avec le même compte iCloud : chaque photo reste 30 jours dans « Supprimés récemment ». Tu peux aussi en garder une copie sur ce Mac avant.",
-                        tint: PhonePage.tint)
+                PhoneNote(symbol: "icloud", tint: PhonePage.tint,
+                          text: "Photos iCloud est activé : une photo supprimée part aussi d'iCloud et de tes autres appareils, après 30 jours dans « Supprimés récemment ».",
+                          tip: Self.cloudTip)
                 if m.photosAccess != .granted {
                     HStack(spacing: 10) {
                         Text(m.photosAccess == .denied ? "L'accès à Photos est refusé : autorise Chamois dans Réglages Système › Confidentialité › Photos."
-                                                       : "Pour supprimer, Chamois a besoin d'accéder à ta photothèque. macOS te demandera de confirmer chaque suppression.")
+                                                       : "Pour supprimer, Chamois passe par ta photothèque ; macOS confirmera chaque suppression.")
                             .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                         Button(m.photosAccess == .denied ? "Ouvrir les réglages" : "Autoriser l'accès à Photos") {
                             if m.photosAccess == .denied { Finder.open(PermissionKind.photos.settingsURL) } else { m.requestPhotosAccess() }

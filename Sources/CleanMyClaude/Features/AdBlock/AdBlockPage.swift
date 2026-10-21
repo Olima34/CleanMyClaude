@@ -1,18 +1,98 @@
 import SwiftUI
 import AppKit
 
-struct AdBlockPage: View {
-    @Environment(AppModel.self) private var app
+enum AdBlockStyle {
     static var tint: Color { Theme.palette[6] }
+}
+
+/// What takes longer to explain than a line: each « ? » opens it by itself the first time, then on a click.
+@MainActor
+enum AdBlockTips {
+    static let player = HelpTip(
+        id: "media.player", title: "Le lecteur sans pub",
+        text: "YouTube et Twitch : leurs pubs vidéo sont coupées (si YouTube retient la vidéo le temps d'une pub, la fenêtre le dit). France.tv et M6+ aussi, après connexion à ton compte gratuit. Arte n'a pas de pub ; celle de Pluto TV est cousue dans le flux et reste. TF1+ refuse de lire dès qu'une pub est bloquée : il n'est pas dans le lecteur.")
+
+    static let videoOnly = HelpTip(
+        id: "media.videoOnly", title: "Vidéo seule",
+        text: "« Détacher la vidéo » reprend ici, sans pub, la vidéo YouTube ou le direct Twitch de ton navigateur : une petite fenêtre au-dessus des autres, sur tous tes bureaux. Tire ses bords pour la redimensionner, survole-la pour la déplacer ou revenir au lecteur complet. Pour que Safari se mette en pause tout seul :",
+        steps: safariSteps)
+
+    /// Back as a warning, when Safari kept playing the last video detached.
+    static let safariPause = HelpTip(
+        id: "media.videoOnly.safari", title: "Pour que Safari se mette en pause tout seul",
+        text: "Et que la vidéo reprenne ici à la même seconde. Dans Chrome, Brave ou Edge : Présentation › Options pour les développeurs › Autoriser JavaScript à partir des évènements Apple.",
+        steps: safariSteps)
+
+    static let safariSteps = [
+        "Dans Safari, Réglages… › Avancées : coche « Afficher les fonctionnalités pour les développeurs web ».",
+        "Onglet Développeur : coche « Autoriser JavaScript à partir des évènements Apple » (Safari demande ton mot de passe).",
+        "Détache à nouveau la vidéo : Safari se met en pause, elle reprend ici."
+    ]
+
+    static let handoff = HelpTip(
+        id: "media.handoff", title: "YouTube et Twitch toujours sans pub",
+        text: "Ton navigateur affiche YouTube ou Twitch : la page continue dans le lecteur, à la même seconde si possible, et son onglet se ferme. Pour la garder dans le navigateur, rouvre l'onglet (⌘⇧T) ou prends le bouton Safari du lecteur. YouTube Studio, YouTube Music et ton compte restent dans le navigateur. Chamois lit seulement l'adresse de l'onglet affiché, sans la garder. Plutôt d'un clic, avec un signet dans Safari :",
+        steps: [
+            "Clique sur « Copier le signet ».",
+            "Dans Safari : Signets › Ajouter un signet, puis remplace son adresse par celle copiée.",
+            "Sur une vidéo YouTube ou un direct Twitch, clique sur le signet : la page s'ouvre ici (Safari te demande une fois s'il peut ouvrir Chamois)."
+        ])
+
+    static let accounts = HelpTip(
+        id: "media.accounts", title: "Tes comptes dans le lecteur",
+        text: "Ta connexion reste dans Chamois, sur ce Mac : Chamois ne voit ni ton mot de passe ni ton compte. Google te propose une clé d'identification ? Choisis « Essayer une autre méthode », puis ton mot de passe.")
+
+    static func blocker(_ m: AdBlockModel) -> HelpTip {
+        let network = m.resolvers.first.map { ip in SecurityAudit.isPrivate(ip) ? "à ta box (\(ip))" : "à \(ip)" } ?? "au DNS de ton réseau"
+        return HelpTip(
+            id: "media.blocker", title: "Le bloqueur de pub",
+            text: "Ton Mac demande l'adresse des sites à Control D, par un DNS chiffré qui applique les listes HaGeZi et dit ne garder aucun journal (sans le bloqueur : en clair, \(network)). Les pubs servies par le site lui-même passent : pour YouTube et Twitch, prends le lecteur sans pub. Un site ne marche plus ? Ajoute-le aux exceptions, ou passe en Équilibré.")
+    }
+
+    /// On hover over the counter: what it counts.
+    static let counted = "Compté sur ce Mac, en direct dans le journal de macOS, pendant que Chamois tourne : les noms des sites y sont masqués. Les pubs vidéo coupées par le lecteur sans pub comptent aussi ; celles d'une extension de Safari, non."
+
+    static func safariExtension(_ name: String) -> HelpTip {
+        HelpTip(
+            id: "media.safariExtension", title: "Pubs YouTube dans Safari",
+            text: "Elles viennent des mêmes serveurs que les vidéos : aucun DNS ne peut les couper, une extension de Safari si. Vérifie ces trois réglages une fois :",
+            steps: [
+                "Safari › Réglages… › Extensions : coche « \(name) ».",
+                "Toujours dans Extensions, « Modifier les sites web… » : choisis « Autoriser » pour youtube.com, ou pour tous les sites.",
+                "Sur YouTube, clique sur son icône dans la barre d'outils et choisis « Complet ». Recharge la vidéo."
+            ])
+    }
+}
+
+// MARK: - The tabs
+
+/// « Lecteur sans pub » : the player, what brings the browser's videos into it, its accounts, and Safari's own blocker.
+struct AdBlockPlayerTab: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            AdBlockPlayerPanel()
+            TileRow(spacing: 16) {
+                AdBlockVideoPanel()
+                AdBlockHandoffPanel()
+            }
+            TileRow(spacing: 16) {
+                AdBlockAccountsPanel()
+                AdBlockYouTubePanel()
+            }
+        }
+        .onAppear { app.adblock.refreshExtensions() }
+    }
+}
+
+/// « Bloqueur de pub » : the DNS blocker of the whole Mac.
+struct AdBlockBlockerTab: View {
+    @Environment(AppModel.self) private var app
 
     var body: some View {
         let m = app.adblock
         VStack(alignment: .leading, spacing: 18) {
-            PageHero(symbol: Page.adblock.symbol, title: "Bloqueur de pub",
-                     subtitle: "Les pubs, les pisteurs et les sites piégés bloqués pour tout le Mac : tous les navigateurs, les apps et les jeux, sans extension à installer.",
-                     tint: Self.tint, seed: 71) {
-                AdBlockStatePill()
-            }
             if m.waitingForInstall, !m.state.isOn {
                 AdBlockInstallSteps()
             } else {
@@ -21,94 +101,47 @@ struct AdBlockPage: View {
             if m.installed || m.tally.total > 0 {
                 AdBlockCounterPanel()
             }
-            AdBlockLevelPanel()
-            AdBlockPlayerPanel()
-            AdBlockHandoffPanel()
-            AdBlockAccountsPanel()
-            AdBlockVideoPanel()
-            AdBlockYouTubePanel()
-            TileRow {
+            TileRow(spacing: 16) {
                 AdBlockExceptionsPanel()
                 AdBlockCheckPanel()
             }
-            if let measure = m.measure {
-                AdBlockMeasurePanel(measure: measure)
-            }
-            TileRow {
-                Callout(symbol: "rectangle.dashed", title: "Ce qu'un DNS ne bloque pas",
-                        text: "Les pubs servies par le site lui-même : YouTube (voir plus haut), Twitch, les posts sponsorisés d'Instagram ou de Facebook, et les cadres vides laissés par les pubs bloquées. Dans Chrome, Edge ou Brave, uBlock Origin Lite s'en charge aussi ; dans Firefox, uBlock Origin.",
-                        tint: Self.tint)
-                Callout(symbol: "lock", title: "Où partent tes requêtes",
-                        text: resolverText(m), tint: Self.tint)
-                Callout(symbol: "wrench.adjustable", title: "Un site ne marche plus ?",
-                        text: "Ajoute son domaine aux exceptions (il passera par le DNS de ton réseau, sans filtre), ou passe en Équilibré, qui laisse passer les services dont certains sites ont besoin.",
-                        tint: Self.tint)
-            }
         }
-        .onAppear {
-            m.refreshState()
-            m.refreshExtensions()
-        }
-    }
-
-    private func resolverText(_ m: AdBlockModel) -> String {
-        let network = m.resolvers.first.map { ip in SecurityAudit.isPrivate(ip) ? "à ta box (\(ip))" : "à \(ip)" } ?? "au DNS de ton réseau"
-        return "Avec le bloqueur, ton Mac demande l'adresse des sites à Control D, chiffrée (DNS-over-HTTPS). Control D applique les listes HaGeZi, mises à jour plusieurs fois par jour, et dit ne garder aucun journal de ses DNS gratuits. Sans le bloqueur, ton Mac la demande en clair \(network)."
+        .onAppear { m.refreshState() }
     }
 }
 
-/// YouTube, Twitch and the free French platforms without their video ads, in a window of the app; and the Safari bookmark
-/// that sends a page there.
+// MARK: - The player
+
+/// YouTube, Twitch and the free French platforms without their video ads, in a window of the app.
 private struct AdBlockPlayerPanel: View {
     @Environment(AppModel.self) private var app
     @State private var link = ""
-    @State private var copied = false
 
     var body: some View {
         let m = app.adblock
         let cut = (m.tally.apps["Lecteur sans pub · YouTube"] ?? 0) + (m.tally.apps["Lecteur sans pub · Twitch"] ?? 0)
-        Panel(title: "Lecteur sans pub", subtitle: "YouTube, Twitch et les plateformes gratuites dans une fenêtre de Chamois, sans leurs pubs vidéo",
-              symbol: "play.tv", tint: AdBlockPage.tint) {
+        Card(padding: 18) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
                     Button { m.player.open(AdBlockPlayer.youtube) } label: { label("YouTube sans pub", "play.rectangle.fill") }
                         .buttonStyle(SoftButtonStyle(prominent: true))
                     Button { m.player.open(AdBlockPlayer.twitch) } label: { label("Twitch sans pub", "tv") }
                         .buttonStyle(SoftButtonStyle(prominent: true))
-                    Spacer(minLength: 0)
-                    if cut > 0 { Tag(text: Fmt.plural(cut, "pub vidéo coupée", "pubs vidéo coupées"), symbol: "hand.raised.fill", tint: Theme.good, filled: true) }
-                }
-                HStack(spacing: 6) {
-                    Text("Aussi :").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    Text("Aussi").font(.ui(11.5)).foregroundStyle(Theme.text3).padding(.leading, 6)
                     ForEach(AdBlockPlayerSite.others) { site in
                         Button(site.name) { m.player.open(site.home) }
                             .buttonStyle(SoftButtonStyle(small: true))
                             .help(site.limit ?? "Sans compte ni pub")
                     }
+                    Spacer(minLength: 0)
+                    if cut > 0 { Tag(text: Fmt.plural(cut, "pub vidéo coupée", "pubs vidéo coupées"), symbol: "hand.raised.fill", tint: Theme.good, filled: true) }
+                    HelpTipButton(tip: AdBlockTips.player)
                 }
                 HStack(spacing: 8) {
                     AdBlockField(placeholder: "Colle un lien YouTube, Twitch, France.tv, M6+, Arte ou Pluto TV", text: $link) { watch() }
                     Button("Regarder") { watch() }
                         .buttonStyle(SoftButtonStyle(small: true))
                         .disabled(AdBlockPlayer.playable(link) == nil)
-                }
-                Text("YouTube : les pubs sont retirées avant que le lecteur les voie ; si YouTube retient la vidéo le temps de sa pub, la fenêtre le dit. Twitch : une coupure pub est remplacée par le même direct sans pub, ou retirée. France.tv et M6+ : leurs serveurs de pub vidéo sont bloqués, après connexion à ton compte gratuit (une fois, dans la fenêtre). Arte n'a pas de pub. Pluto TV coud sa pub dans le flux lui-même : elle reste. TF1+ refuse de lire une vidéo dès qu'une de ses pubs est bloquée : il n'est pas dans le lecteur.")
-                    .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-                Divider().overlay(Theme.border)
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Depuis Safari, en un clic").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                        Text("Copie le signet, puis dans Safari : Signets › Ajouter un signet, et remplace son adresse par celle copiée. Sur une vidéo YouTube ou un direct Twitch, clique dessus : la page s'ouvre ici, sans pub (Safari te demande une fois s'il peut ouvrir Chamois).")
-                            .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 0)
-                    Button(copied ? "Copié" : "Copier le signet") {
-                        if case .copied = CommandRunner.copy(AdBlockPlayer.bookmarklet) {
-                            copied = true
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { copied = false }
-                        }
-                    }
-                    .buttonStyle(SoftButtonStyle(small: true))
                 }
             }
         }
@@ -149,47 +182,7 @@ struct AdBlockBottomBar: View {
     }
 }
 
-/// "Pubs bloquées · Maximal" in the page header.
-private struct AdBlockStatePill: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let state = app.adblock.state
-        HStack(spacing: 7) {
-            if state == .checking {
-                BusyMascot(.inspecting, pixel: 1)
-            } else {
-                Circle().fill(color(state)).frame(width: 7, height: 7)
-            }
-            Text(label(state)).font(.ui(12, .semibold))
-        }
-        .foregroundStyle(Theme.text)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(PillShape().fill(Theme.card))
-        .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
-    }
-
-    private func color(_ s: AdBlockState) -> Color {
-        switch s {
-        case .on: return Theme.good
-        case .off: return Theme.warn
-        default: return Theme.text3
-        }
-    }
-
-    private func label(_ s: AdBlockState) -> String {
-        switch s {
-        case .on(let level): return "Pubs bloquées" + (level.map { " · \($0.title)" } ?? "")
-        case .off: return "Pubs non bloquées"
-        case .offline: return "Pas de réseau"
-        case .checking: return "Vérification…"
-        case .unknown: return "État inconnu"
-        }
-    }
-}
-
-// MARK: - State and main actions
+// MARK: - State, level and main actions
 
 private struct AdBlockStatusCard: View {
     @Environment(AppModel.self) private var app
@@ -199,8 +192,15 @@ private struct AdBlockStatusCard: View {
         Card(padding: 22) {
             HStack(alignment: .top, spacing: 22) {
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(headline(m)).font(.serif(24)).foregroundStyle(Theme.text)
-                    Text(detail(m)).font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(headline(m)).font(.serif(24)).foregroundStyle(Theme.text)
+                        HelpTipButton(tip: AdBlockTips.blocker(m), size: 15)
+                    }
+                    if let detail = detail(m) {
+                        Text(detail).font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    }
+                    AdBlockLevelChoice()
+                        .padding(.top, 2)
                     HStack(spacing: 10) { buttons(m) }
                         .padding(.top, 4)
                 }
@@ -228,26 +228,25 @@ private struct AdBlockStatusCard: View {
         }
     }
 
-    private func detail(_ m: AdBlockModel) -> String {
+    /// One line, two when something needs doing.
+    private func detail(_ m: AdBlockModel) -> String? {
         switch m.state {
-        case .on(let level):
-            let l = level ?? m.settings.level
-            var text = "Niveau \(l.title) (\(l.list)), par un DNS chiffré : Safari, Chrome, Firefox, les apps et les jeux en profitent, sans rien installer d'autre."
-            if m.settings.installedLevel == nil { text += " Un autre outil que Chamois bloque déjà les pubs sur ce Mac." }
+        case .on:
+            var text = "Navigateurs, apps et jeux en profitent, sans rien installer d'autre."
+            if m.settings.installedLevel == nil { text = "Un autre outil que Chamois bloque déjà les pubs sur ce Mac." }
             // Measured: a browser left open keeps its connections to the ad servers for a few minutes.
             if let at = m.settings.installedAt, Date().timeIntervalSince(at) < 15 * 60 {
-                text += " Un navigateur resté ouvert garde ses connexions aux régies quelques minutes : recharge tes pages, ou relance-le."
+                text += " Recharge tes pages ouvertes : un navigateur garde ses connexions aux régies quelques minutes."
             }
             return text
         case .off:
-            if m.installed && !m.waitingForInstall {
-                return "Le profil a été retiré, ou désactivé dans Réglages Système › Réseau › Filtres. Réinstalle-le en un clic."
-            }
-            return "Le bloqueur installe un profil DNS : macOS te demande ton accord dans Réglages Système, et tu peux le retirer quand tu veux. Choisis d'abord le niveau ci-dessous."
+            return m.installed && !m.waitingForInstall
+                ? "Le profil a été retiré, ou désactivé dans Réglages Système › Réseau › Filtres."
+                : "Un profil DNS pour tous tes navigateurs, apps et jeux, que tu approuves dans Réglages Système et retires quand tu veux."
         case .offline:
-            return "Aucun site ne répond. Reconnecte-toi, puis vérifie à nouveau."
+            return "Aucun site ne répond : reconnecte-toi, puis vérifie à nouveau."
         case .checking, .unknown:
-            return "Quelques questions au DNS de ce Mac, une seconde."
+            return nil
         }
     }
 
@@ -267,14 +266,14 @@ private struct AdBlockStatusCard: View {
             Button { m.install() } label: { label(m.installed ? "Réinstaller le bloqueur" : "Installer le bloqueur", "hand.raised") }
                 .buttonStyle(SoftButtonStyle(prominent: true))
             Button { m.runMeasure(level: m.settings.level) } label: { label("Mesurer avant d'installer", "gauge.with.needle") }
-            .buttonStyle(SoftButtonStyle())
-            .disabled(m.measuring)
-            .help("Pose les mêmes questions au DNS du niveau \(m.settings.level.title), sans rien changer sur ton Mac")
+                .buttonStyle(SoftButtonStyle())
+                .disabled(m.measuring)
+                .help("Pose les mêmes questions au DNS du niveau \(m.settings.level.title), sans rien changer sur ton Mac")
         case .offline, .unknown:
             Button { m.refreshState() } label: { label("Vérifier", "arrow.clockwise") }
                 .buttonStyle(SoftButtonStyle())
         case .checking:
-            EmptyView()
+            BusyMascot(.inspecting, pixel: 1)
         }
     }
 
@@ -286,20 +285,73 @@ private struct AdBlockStatusCard: View {
     }
 }
 
-/// The share of ads blocked by the last measurement, big.
-private struct AdBlockScore: View {
-    var measure: AdBlockMeasure
+/// Équilibré or Maximal, in a line, with what the chosen one blocks.
+private struct AdBlockLevelChoice: View {
+    @Environment(AppModel.self) private var app
 
     var body: some View {
+        let m = app.adblock
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Niveau").font(.ui(12, .medium)).foregroundStyle(Theme.text3)
+                HStack(spacing: 2) {
+                    ForEach(AdBlockLevel.allCases) { level in chip(level, m) }
+                }
+                .padding(2)
+                .background(PillShape().fill(Theme.track))
+                if m.needsReinstall, let installed = m.settings.installedLevel, installed != m.settings.level {
+                    Text("Le profil installé est en \(installed.title)").font(.ui(11.5, .medium)).foregroundStyle(Theme.warn)
+                }
+            }
+            Text(m.settings.level.detail).font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func chip(_ level: AdBlockLevel, _ m: AdBlockModel) -> some View {
+        let on = m.settings.level == level
+        var active = false
+        if case .on(let l) = m.state, l == level { active = true }
+        return Button { m.settings.level = level } label: {
+            HStack(spacing: 5) {
+                if active, Theme.icons != .hidden { Image(systemName: "checkmark").font(.ui(9.5, .bold)) }
+                Text(level.title).font(.ui(12, .medium))
+                if level == .maximal { Text("recommandé").font(.ui(10.5)).opacity(0.75) }
+            }
+            .foregroundStyle(on ? Theme.onAccent : Theme.text2)
+            .padding(.horizontal, 11).padding(.vertical, 4)
+            .background(PillShape().fill(on ? Theme.accent : Color.clear))
+            .contentShape(PillShape())
+        }
+        .buttonStyle(.plain)
+        .help("\(level.list)\(active ? " · actif sur ce Mac" : "")")
+    }
+}
+
+/// The share of ads blocked by the last measurement, big, and its detail on a click.
+private struct AdBlockScore: View {
+    var measure: AdBlockMeasure
+    @State private var detail = false
+
+    var body: some View {
+        let broken = measure.useful.filter { $0.verdict != .open }.count
         VStack(alignment: .trailing, spacing: 6) {
             Text("\(Int((measure.share * 100).rounded())) %").font(.serif(40)).foregroundStyle(Theme.text).monospacedDigit()
             Text("des pubs et pisteurs testés bloqués").font(.ui(11.5)).foregroundStyle(Theme.text3)
             UsageBar(fraction: measure.share, tint: measure.share >= 0.8 ? Theme.good : (measure.share >= 0.4 ? Theme.warn : Theme.bad), height: 7)
                 .frame(width: 200)
-            Text(measure.level.map { "Aperçu du niveau \($0.title) · \(Fmt.relative(measure.date))" } ?? "Sur ce Mac · \(Fmt.relative(measure.date))")
-                .font(.ui(11)).foregroundStyle(Theme.text3)
+            if broken > 0 {
+                Text(Fmt.plural(broken, "site utile sans réponse", "sites utiles sans réponse")).font(.ui(11, .medium)).foregroundStyle(Theme.warn)
+            }
+            HStack(spacing: 6) {
+                Text(measure.level.map { "Aperçu du niveau \($0.title) · \(Fmt.relative(measure.date))" } ?? "Sur ce Mac · \(Fmt.relative(measure.date))")
+                    .font(.ui(11)).foregroundStyle(Theme.text3)
+                Button("Détail") { detail.toggle() }
+                    .buttonStyle(.plain).font(.ui(11, .medium)).foregroundStyle(Theme.accent)
+                    .popover(isPresented: $detail, arrowEdge: .bottom) { AdBlockMeasureDetail(measure: measure) }
+            }
+            .fixedSize()
         }
-        .frame(width: 220, alignment: .trailing)
+        .frame(minWidth: 240, alignment: .trailing)
     }
 }
 
@@ -315,8 +367,8 @@ private struct AdBlockInstallSteps: View {
                     BusyMascot(.checking, pixel: 2)
                     Text("Encore une étape dans Réglages Système").font(.ui(15, .semibold)).foregroundStyle(Theme.text)
                 }
-                step(1, "Réglages Système s'est ouvert sur les profils (Général › Gestion des appareils, ou Profils). Sinon, clique sur « Ouvrir les profils ».")
-                step(2, "Double-clique « \(AdBlockProfile.displayName) », puis Installer, et confirme avec ton mot de passe.")
+                step(1, "Général › Gestion des appareils (ou Profils) : double-clique « \(AdBlockProfile.displayName) ».")
+                step(2, "Clique sur Installer, puis confirme avec ton mot de passe.")
                 step(3, "Reviens ici : la vérification se lance toute seule.")
                 HStack(spacing: 10) {
                     Button("Ouvrir les profils") { m.openProfiles() }
@@ -339,52 +391,6 @@ private struct AdBlockInstallSteps: View {
     }
 }
 
-// MARK: - Level
-
-private struct AdBlockLevelPanel: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let m = app.adblock
-        Panel(title: "Niveau de blocage", subtitle: "Les listes HaGeZi, appliquées par le DNS chiffré de Control D", symbol: "slider.horizontal.3", tint: AdBlockPage.tint) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(AdBlockLevel.allCases) { level in choice(level, m) }
-                }
-                if m.needsReinstall, m.settings.installedLevel != m.settings.level {
-                    Text("Le profil installé est en \(m.settings.installedLevel?.title ?? "") : réinstalle-le pour passer en \(m.settings.level.title).")
-                        .font(.ui(11.5, .medium)).foregroundStyle(Theme.warn)
-                }
-            }
-        }
-    }
-
-    private func choice(_ level: AdBlockLevel, _ m: AdBlockModel) -> some View {
-        let selected = m.settings.level == level
-        return Button { m.settings.level = level } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                        .font(.ui(13)).foregroundStyle(selected ? Theme.accent : Theme.text3)
-                    Text(level.title).font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
-                    Text(level.list).font(.ui(11)).foregroundStyle(Theme.text3)
-                    Spacer(minLength: 0)
-                    if level == .maximal { Tag(text: "Recommandé", tint: Theme.good, filled: true) }
-                    if case .on(let active) = m.state, active == level { Tag(text: "Actif", symbol: "checkmark", tint: Theme.good, filled: true) }
-                }
-                Text(level.detail).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(selected ? Theme.accent.opacity(0.1) : Theme.cardRaised))
-            .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(selected ? Theme.accent.opacity(0.6) : Theme.border, lineWidth: Theme.line))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-}
-
 // MARK: - Exceptions
 
 private struct AdBlockExceptionsPanel: View {
@@ -392,7 +398,7 @@ private struct AdBlockExceptionsPanel: View {
 
     var body: some View {
         @Bindable var m = app.adblock
-        Panel(title: "Exceptions", subtitle: "Ces domaines passent par le DNS de ton réseau, sans filtre", symbol: "checkmark.shield", tint: AdBlockPage.tint) {
+        Panel(title: "Exceptions", subtitle: "Ces sites passent sans filtre", symbol: "checkmark.shield", tint: AdBlockStyle.tint) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     AdBlockField(placeholder: "boutique.fr ou l'adresse d'une page", text: $m.exceptionDraft) { m.addException(m.exceptionDraft) }
@@ -404,7 +410,7 @@ private struct AdBlockExceptionsPanel: View {
                     Text(error).font(.ui(11.5, .medium)).foregroundStyle(Theme.warn)
                 }
                 if m.settings.exceptions.isEmpty {
-                    Text("Aucune pour l'instant. Les pages de connexion des Wi-Fi publics et les noms de ton réseau local passent déjà sans filtre.")
+                    Text("Aucune. Les Wi-Fi publics et ton réseau local passent déjà sans filtre.")
                         .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 } else {
                     FlowLayout(spacing: 5, lineSpacing: 5) {
@@ -422,10 +428,6 @@ private struct AdBlockExceptionsPanel: View {
                         }
                     }
                 }
-                if m.needsReinstall, Set(m.settings.installedExceptions ?? []) != Set(m.settings.exceptions) {
-                    Button("Réinstaller le profil pour les appliquer") { m.install() }
-                        .buttonStyle(SoftButtonStyle(prominent: true, small: true))
-                }
             }
         }
     }
@@ -438,7 +440,7 @@ private struct AdBlockCheckPanel: View {
 
     var body: some View {
         @Bindable var m = app.adblock
-        Panel(title: "Vérifier un domaine", subtitle: "Bloqué sur ce Mac ? Dans la liste du niveau choisi ?", symbol: "magnifyingglass", tint: AdBlockPage.tint) {
+        Panel(title: "Vérifier un domaine", subtitle: "Un site affiche une erreur ? Regarde s'il est bloqué", symbol: "magnifyingglass", tint: AdBlockStyle.tint) {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
                     AdBlockField(placeholder: "pub.exemple.fr", text: $m.checkText) { m.checkDomain() }
@@ -474,9 +476,6 @@ private struct AdBlockCheckPanel: View {
                                 .buttonStyle(SoftButtonStyle(small: true))
                         }
                     }
-                } else {
-                    Text("Un site affiche une erreur ? Vérifie ses domaines ici, puis ajoute-les aux exceptions si besoin.")
-                        .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -508,7 +507,7 @@ private struct AdBlockCheckPanel: View {
 }
 
 /// A plain text field (a drawn one in snapshots).
-private struct AdBlockField: View {
+struct AdBlockField: View {
     var placeholder: String
     @Binding var text: String
     var onSubmit: () -> Void
@@ -534,49 +533,45 @@ private struct AdBlockField: View {
 
 // MARK: - Measurement
 
-private struct AdBlockMeasurePanel: View {
+/// Every domain the last measurement tried, in the score's bubble.
+private struct AdBlockMeasureDetail: View {
     var measure: AdBlockMeasure
-    @State private var all = false
 
     var body: some View {
         let missed = measure.ads.filter { !$0.verdict.stopped }
         let broken = measure.useful.filter { $0.verdict != .open }
-        Panel(title: "Dernière mesure", subtitle: subtitle, symbol: "gauge.with.needle", tint: AdBlockPage.tint) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 24) {
-                    figure("\(measure.blockedAds)/\(measure.ads.count)", "pubs et pisteurs bloqués")
-                    figure("\(measure.useful.count - broken.count)/\(measure.useful.count)", "sites utiles joignables")
-                }
-                if !missed.isEmpty {
-                    Text("Passent encore : " + missed.map(\.domain).joined(separator: ", "))
-                        .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                }
-                if !broken.isEmpty {
-                    Text("Sites utiles sans réponse : " + broken.map(\.domain).joined(separator: ", "))
-                        .font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
-                }
-                Button(all ? "Masquer le détail" : "Voir les \(measure.probes.count) domaines testés") { all.toggle() }
-                    .buttonStyle(SoftButtonStyle(small: true))
-                if all || Snapshot.isActive {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], alignment: .leading, spacing: 5) {
-                        ForEach(measure.probes) { p in
-                            HStack(spacing: 6) {
-                                Image(systemName: p.good ? "checkmark.circle.fill" : "xmark.circle.fill")
-                                    .font(.ui(11)).foregroundStyle(p.good ? Theme.good : (p.shouldBlock ? Theme.warn : Theme.bad))
-                                Text(p.domain).font(.mono(11)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
-                                Spacer(minLength: 0)
-                                Text(p.shouldBlock ? (p.verdict.stopped ? "bloqué" : "passe") : (p.verdict == .open ? "joignable" : "bloqué"))
-                                    .font(.ui(10.5)).foregroundStyle(Theme.text3)
-                            }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 24) {
+                figure("\(measure.blockedAds)/\(measure.ads.count)", "pubs et pisteurs bloqués")
+                figure("\(measure.useful.count - broken.count)/\(measure.useful.count)", "sites utiles joignables")
+            }
+            if !missed.isEmpty {
+                Text("Passent encore : " + missed.map(\.domain).joined(separator: ", "))
+                    .font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+            }
+            if !broken.isEmpty {
+                Text("Sites utiles sans réponse : " + broken.map(\.domain).joined(separator: ", "))
+                    .font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+            }
+            ScrollArea(showsIndicators: true) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], alignment: .leading, spacing: 5) {
+                    ForEach(measure.probes) { p in
+                        HStack(spacing: 6) {
+                            Image(systemName: p.good ? "checkmark.circle.fill" : "xmark.circle.fill")
+                                .font(.ui(11)).foregroundStyle(p.good ? Theme.good : (p.shouldBlock ? Theme.warn : Theme.bad))
+                            Text(p.domain).font(.mono(11)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
+                            Spacer(minLength: 0)
+                            Text(p.shouldBlock ? (p.verdict.stopped ? "bloqué" : "passe") : (p.verdict == .open ? "joignable" : "bloqué"))
+                                .font(.ui(10.5)).foregroundStyle(Theme.text3)
                         }
                     }
                 }
             }
+            .frame(maxHeight: 360)
         }
-    }
-
-    private var subtitle: String {
-        (measure.level.map { "Aperçu du niveau \($0.title), avant installation" } ?? "Sur ce Mac") + " · " + Fmt.relative(measure.date)
+        .padding(16)
+        .frame(width: 560, alignment: .leading)
+        .presentationBackground(Theme.card)
     }
 
     private func figure(_ value: String, _ label: String) -> some View {

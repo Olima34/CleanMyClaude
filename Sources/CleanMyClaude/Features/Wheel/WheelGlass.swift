@@ -156,6 +156,8 @@ struct WheelWindowChrome<Content: View, Footer: View>: View {
     var title: String
     var subtitle: String?
     var close: () -> Void
+    /// Its « ? » on the right of the title bar, open by itself the first time.
+    var tip: HelpTip? = nil
     @ViewBuilder var content: Content
     @ViewBuilder var footer: Footer
 
@@ -184,6 +186,7 @@ struct WheelWindowChrome<Content: View, Footer: View>: View {
                     .buttonStyle(.plain)
                     .help("Fermer sans rien enregistrer (Échap)")
                     Spacer()
+                    if let tip { HelpTipButton(tip: tip, size: 13) }
                 }
                 .padding(.horizontal, 14)
             }

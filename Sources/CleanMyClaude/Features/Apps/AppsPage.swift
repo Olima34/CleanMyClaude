@@ -7,8 +7,8 @@ struct AppsPage: View {
         @Bindable var model = app.apps
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "square.grid.2x2", title: "Gestion des applications",
-                     subtitle: "Ce que tu as installé, ce que tu n'ouvres plus, et une désinstallation propre qui n'oublie rien derrière elle.",
-                     tint: Theme.palette[4], seed: 57) {
+                     subtitle: "Tes apps, et une désinstallation qui n'oublie rien.",
+                     tint: Theme.palette[4], seed: 57, tip: Self.tip) {
                 ScanButton(title: model.lastScan == nil ? "Analyser" : "Actualiser", symbol: "arrow.clockwise", running: model.isScanning,
                            activity: .checking) {
                     Task { await model.scan() }
@@ -20,7 +20,6 @@ struct AppsPage: View {
             } else if model.apps.isEmpty {
                 Card { EmptyHint(text: "Lance l'analyse pour voir tes applications.", symbol: "square.grid.2x2") }
             } else {
-                summary(model)
                 if let msg = model.message {
                     Callout(symbol: model.messageOK ? "checkmark.circle" : "exclamationmark.triangle", title: model.messageOK ? "Fait" : "Pas tout à fait",
                           text: msg, tint: model.messageOK ? Theme.good : Theme.warn)
@@ -51,15 +50,7 @@ struct AppsPage: View {
                 if model.filter == .leftovers {
                     OrphansView()
                 } else {
-                    if model.filter == .intel && !model.intel.isEmpty {
-                        Callout(symbol: "cpu", title: "Des apps qui passent par Rosetta",
-                                text: "Ces apps sont écrites pour les anciens processeurs Intel : macOS les traduit à la volée, ce qui les rend plus lentes et plus gourmandes. Apple a annoncé la fin de Rosetta pour la plupart des apps après macOS 27 : cherche une version Apple Silicon.",
-                                tint: Theme.warn)
-                    }
-                    if model.filter == .unused {
-                        Callout(symbol: "moon.zzz", title: "Pas ouvertes depuis plus de 3 mois",
-                                text: "D'après Spotlight. Les composants d'Apple ne sont pas listés. Une app qui tourne seulement en arrière-plan peut apparaître ici à tort.")
-                    }
+                    summary(model)
                     Card(padding: 8) {
                         VStack(spacing: 0) {
                             let list = model.visible
@@ -79,20 +70,37 @@ struct AppsPage: View {
         }
     }
 
+    /// One line over the list, for the chosen filter: what used to be four tiles.
     private func summary(_ model: AppsModel) -> some View {
-        TileRow {
-            StatTile(symbol: "square.grid.2x2", value: "\(model.apps.count)", label: "Applications",
-                     detail: "\(Fmt.bytes(model.totalSize)) au total")
-            StatTile(symbol: "moon.zzz", value: "\(model.unused.count)", label: "Inutilisées depuis 3 mois",
-                     detail: model.unused.isEmpty ? "Tu te sers de tout, bravo" : "\(Fmt.bytes(model.unused.reduce(0) { $0 + $1.size })) récupérables",
-                     tint: Theme.palette[4])
-            StatTile(symbol: "cpu", value: "\(model.intel.count)", label: "Encore en Intel",
-                     detail: model.intel.isEmpty ? "Tout est natif Apple Silicon" : "Tournent via Rosetta",
-                     tint: model.intel.isEmpty ? Theme.good : Theme.warn)
-            StatTile(symbol: "bag", value: "\(model.apps.filter(\.fromAppStore).count)", label: "Depuis l'App Store",
-                     detail: "Les autres se mettent à jour elles-mêmes", tint: Theme.palette[1])
+        let line: String
+        var tint = Theme.text2
+        var help: String?
+        switch model.filter {
+        case .unused:
+            line = model.unused.isEmpty ? "Tu te sers de toutes tes apps, bravo."
+                : "\(Fmt.plural(model.unused.count, "app pas ouverte", "apps pas ouvertes")) depuis 3 mois · \(Fmt.bytes(model.unused.reduce(0) { $0 + $1.size })) récupérables"
+            help = "D'après Spotlight, sans les composants d'Apple. Une app qui tourne seulement en arrière-plan peut s'y glisser à tort."
+        case .intel:
+            line = model.intel.isEmpty ? "Tout est natif Apple Silicon."
+                : "Elles passent par Rosetta, plus lentes, et la plupart ne marcheront plus après macOS 27 : cherche leur version Apple Silicon."
+            if !model.intel.isEmpty { tint = Theme.warn }
+        case .appStore:
+            line = "\(Fmt.plural(model.apps.filter(\.fromAppStore).count, "app", "apps")) de l'App Store · les autres se mettent à jour elles-mêmes"
+        default:
+            line = "\(Fmt.plural(model.apps.count, "application", "applications")) · \(Fmt.bytes(model.totalSize)) au total"
         }
+        return HStack(spacing: 6) {
+            Text(line).font(.ui(12)).foregroundStyle(tint).fixedSize(horizontal: false, vertical: true)
+            if help != nil, Theme.icons != .hidden {
+                Image(systemName: "info.circle").font(.ui(11)).foregroundStyle(Theme.text3)
+            }
+        }
+        .help(help ?? line)
     }
+
+    static let tip = HelpTip(
+        id: "apps.page", title: "Gestion des applications",
+        text: "« Inutilisées » liste les apps que tu n'as pas ouvertes depuis 3 mois, « Intel » celles qui passent encore par Rosetta. « Désinstaller… » te montre l'app et tous ses fichiers (réglages, caches) avant de les mettre à la Corbeille. « Restes » retrouve ceux des apps déjà jetées.")
 }
 
 struct SearchField: View {
@@ -185,8 +193,8 @@ struct UninstallSheet: View {
                 }
             }
             if target.isApple {
-                Callout(symbol: "apple.logo", title: "Une app d'Apple",
-                        text: "Tu peux la retélécharger gratuitement depuis l'App Store si besoin.", tint: Theme.accent)
+                ThemedLabel(title: "Une app d'Apple : tu pourras la retélécharger depuis l'App Store.", symbol: "apple.logo")
+                    .font(.ui(12)).foregroundStyle(Theme.text2)
             }
             if target.isRunning {
                 HStack {
@@ -269,8 +277,9 @@ struct OrphansView: View {
     var body: some View {
         let model = app.apps
         VStack(alignment: .leading, spacing: 14) {
-            Callout(symbol: "puzzlepiece", title: "Les restes d'apps déjà supprimées",
-                    text: "Quand on jette une app dans la Corbeille, ses réglages et caches restent dans ta bibliothèque. Je liste ceux dont l'app n'existe plus sur ce Mac et qui n'ont pas bougé depuis deux semaines. Vérifie avant de cocher : rien n'est sélectionné d'office et tout part à la Corbeille.")
+            Text("Réglages et caches d'apps déjà jetées, intacts depuis deux semaines. Rien n'est coché d'office, tout part à la Corbeille.")
+                .font(.ui(12)).foregroundStyle(Theme.text2)
+                .fixedSize(horizontal: false, vertical: true)
             if !model.orphansScanned {
                 HStack {
                     ScanButton(title: "Chercher les restes", symbol: "puzzlepiece", running: model.isScanningOrphans, activity: .searching) {

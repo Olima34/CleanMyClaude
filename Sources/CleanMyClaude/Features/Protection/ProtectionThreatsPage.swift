@@ -9,9 +9,13 @@ struct ThreatsTab: View {
             if model.isScanning {
                 ThreatScanProgress()
             } else {
-                ThreatScanChoice()
+                TileRow {
+                    ThreatScanChoice()
+                    FileCheckDrop()
+                        .frame(width: 330)
+                }
             }
-            FileCheckCard()
+            FileCheckVerdict()
             if let m = model.threatMessage {
                 Callout(symbol: m.ok ? "checkmark.shield" : "exclamationmark.triangle", title: m.ok ? "C'est fait" : "Pas tout à fait",
                         text: m.text, tint: m.ok ? Theme.good : Theme.warn)
@@ -21,26 +25,26 @@ struct ThreatsTab: View {
                 let bad = list.filter { $0.status == .bad }
                 if !bad.isEmpty {
                     Panel(title: Fmt.plural(bad.count, "menace", "menaces"),
-                          subtitle: "Reconnues par les signatures d'Apple, des traces connues ou un comportement d'intrus. Coche-les puis mets-les à la Corbeille : je les arrête d'abord.",
+                          subtitle: "Coche-les : je les arrête, puis je les mets à la Corbeille.",
                           symbol: "exclamationmark.octagon", tint: Theme.bad) {
                         VStack(spacing: 2) { ForEach(bad) { ThreatRow(threat: $0) } }
                     }
                 }
                 let look = list.filter { $0.status != .bad }
                 if !look.isEmpty {
-                    Panel(title: "À examiner", subtitle: "Pas forcément dangereux, mais inhabituel : une app modifiée après sa signature, un agent caché dans un dossier partagé…",
+                    Panel(title: "À examiner", subtitle: "Pas forcément dangereux, mais inhabituel.",
                           symbol: "exclamationmark.triangle", tint: Theme.warn) {
                         VStack(spacing: 2) { ForEach(look) { ThreatRow(threat: $0) } }
                     }
                 }
             } else if let s = model.scanSummary, !model.isScanning {
-                Card(padding: 22) {
-                    HStack(alignment: .center, spacing: 18) {
-                        IconBadge(symbol: "checkmark.shield.fill", tint: Theme.good, size: 52)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Aucune menace trouvée").font(.serif(22)).foregroundStyle(Theme.text)
-                            Text("\(Fmt.int(s.files)) programmes, scripts et installeurs analysés \(Fmt.relative(s.date)) (analyse \(s.deep ? "complète" : "rapide")), avec les signatures XProtect \(s.signaturesVersion) d'Apple, les traces des familles connues et les comportements d'intrus.")
-                                .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                Card(padding: 18) {
+                    HStack(alignment: .center, spacing: 14) {
+                        IconBadge(symbol: "checkmark.shield.fill", tint: Theme.good, size: 40)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Aucune menace trouvée").font(.serif(20)).foregroundStyle(Theme.text)
+                            Text("\(Fmt.int(s.files)) fichiers analysés \(Fmt.relative(s.date)), analyse \(s.deep ? "complète" : "rapide"), signatures XProtect \(s.signaturesVersion).")
+                                .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 }
@@ -51,7 +55,6 @@ struct ThreatsTab: View {
                     Button("Les montrer à nouveau") { model.restoreIgnored() }.buttonStyle(SoftButtonStyle(small: true))
                 }
             }
-            ThreatsExplainer()
         }
     }
 }
@@ -62,81 +65,69 @@ struct ThreatScanChoice: View {
     var body: some View {
         let model = app.protection
         let sig = ProtectionSignatures.newest()
-        TileRow {
-            ScanModeCard(title: "Analyse rapide", symbol: "hare",
-                         text: "Ce qui démarre tout seul, ce qui tourne, tes apps, Téléchargements, le Bureau et les cachettes habituelles. Moins d'une minute.",
-                         prominent: true) { Task { await model.scan(deep: false) } }
-            ScanModeCard(title: "Analyse complète", symbol: "tortoise",
-                         text: "Tous les programmes, scripts et installeurs du Mac, jusqu'au fond de ton dossier personnel. Quelques minutes.",
-                         prominent: false) { Task { await model.scan(deep: true) } }
-            StatTile(symbol: "ant", value: sig.map { "\($0.version)" } ?? "—", label: "Signatures XProtect",
-                     detail: sig?.date.map { "Mises à jour par Apple \(Fmt.relative($0))" } ?? "Introuvables", tint: Theme.good)
-            StatTile(symbol: "clock", value: model.scanSummary.map { Fmt.relative($0.date) } ?? "Jamais", label: "Dernière analyse",
-                     detail: model.scanSummary.map { "\(Fmt.int($0.files)) fichiers · \($0.threats == 0 ? "rien trouvé" : Fmt.plural($0.threats, "menace", "menaces"))" } ?? "Lance une première analyse")
+        Card(padding: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Rechercher les logiciels malveillants").font(.serif(20)).foregroundStyle(Theme.text)
+                Text(model.scanSummary.map { "Dernière analyse \(Fmt.relative($0.date)) : \(Fmt.int($0.files)) fichiers, \($0.threats == 0 ? "rien trouvé" : Fmt.plural($0.threats, "menace", "menaces"))." }
+                     ?? "Jamais lancée sur ce Mac.")
+                    .font(.ui(12)).foregroundStyle(Theme.text2)
+                Text(sig.map { s in "Signatures XProtect \(s.version)" + (s.date.map { ", mises à jour par Apple \(Fmt.relative($0))" } ?? "") + "." }
+                     ?? "Signatures XProtect introuvables.")
+                    .font(.ui(11.5)).foregroundStyle(Theme.text3)
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 10) {
+                Button("Analyse rapide") { Task { await model.scan(deep: false) } }
+                    .buttonStyle(SoftButtonStyle(prominent: true))
+                    .help("Ce qui démarre tout seul, ce qui tourne, tes apps, Téléchargements, le Bureau et les cachettes habituelles : moins d'une minute.")
+                Button("Analyse complète") { Task { await model.scan(deep: true) } }
+                    .buttonStyle(SoftButtonStyle())
+                    .help("Tous les programmes, scripts et installeurs du Mac, jusqu'au fond de ton dossier personnel : quelques minutes.")
+            }
         }
     }
 }
 
 /// Drop a download (an app, an installer, a script) to check it before opening it.
-struct FileCheckCard: View {
+struct FileCheckDrop: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let model = app.protection
-        HStack(alignment: .top, spacing: 14) {
-            DropZone(title: "Vérifier avant d'ouvrir", subtitle: "Glisse ici une app, un installeur ou un script",
-                     symbol: "checkmark.shield", allowsFolders: true) { urls in
-                Task { await model.inspect(urls) }
-            }
-            .frame(width: 380, height: 150)
-            Card(padding: 16) {
-                if model.isInspecting {
-                    HStack(spacing: 10) {
-                        BusyMascot(.inspecting, pixel: 1.5)
-                        Text("J'examine son code avec les signatures d'Apple…").font(.ui(12.5)).foregroundStyle(Theme.text2)
-                    }
-                } else if let v = model.verdict {
-                    HStack(alignment: .top, spacing: 12) {
-                        if v.path.hasSuffix(".app") { FileIcon(path: v.path, size: 36) } else { IconBadge(symbol: "doc", tint: v.status.color, size: 36) }
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack(spacing: 6) {
-                                Text(v.name).font(.ui(13, .semibold)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                                StatusBadge(status: v.status, text: v.status == .ok ? "Rien à signaler" : nil)
-                            }
-                            Text(v.title).font(.ui(12.5, .medium)).foregroundStyle(v.status == .ok ? Theme.text : v.status.color)
-                            Text(v.detail).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Un doute sur un téléchargement ?").font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                        Text("Je passe tout son code aux signatures antimalware d'Apple, je regarde qui l'a signé, si Apple l'a notarisé, et d'où il vient. Rien n'est ouvert ni envoyé.")
-                            .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-            .frame(height: 150)
+        DropZone(title: "Vérifier avant d'ouvrir", subtitle: "Glisse ici une app, un installeur ou un script",
+                 symbol: "checkmark.shield", allowsFolders: true) { urls in
+            Task { await model.inspect(urls) }
         }
+        .help("Je passe son code aux signatures d'Apple, je regarde qui l'a signé, s'il est notarisé et d'où il vient. Rien n'est ouvert ni envoyé.")
     }
 }
 
-struct ScanModeCard: View {
-    var title: String
-    var symbol: String
-    var text: String
-    var prominent: Bool
-    var action: () -> Void
+/// What the check of a dropped file found (nothing until a file is dropped).
+struct FileCheckVerdict: View {
+    @Environment(AppModel.self) private var app
 
     var body: some View {
-        Card(padding: 16) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 7) {
-                    IconBadge(symbol: symbol, tint: Theme.accent)
-                    Text(title).font(.ui(13, .semibold)).foregroundStyle(Theme.text)
+        let model = app.protection
+        if model.isInspecting {
+            Card(padding: 16) {
+                HStack(spacing: 10) {
+                    BusyMascot(.inspecting, pixel: 1.5)
+                    Text("J'examine son code avec les signatures d'Apple…").font(.ui(12.5)).foregroundStyle(Theme.text2)
                 }
-                Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 0)
-                Button("Lancer", action: action).buttonStyle(SoftButtonStyle(prominent: prominent))
+            }
+        } else if let v = model.verdict {
+            Card(padding: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    if v.path.hasSuffix(".app") { FileIcon(path: v.path, size: 36) } else { IconBadge(symbol: "doc", tint: v.status.color, size: 36) }
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 6) {
+                            Text(v.name).font(.ui(13, .semibold)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+                            StatusBadge(status: v.status, text: v.status == .ok ? "Rien à signaler" : nil)
+                        }
+                        Text(v.title).font(.ui(12.5, .medium)).foregroundStyle(v.status == .ok ? Theme.text : v.status.color)
+                        Text(v.detail).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
             }
         }
     }
@@ -263,40 +254,6 @@ struct ThreatActionBar: View {
         .confirmAction("Neutraliser \(Fmt.plural(selected.count, "menace", "menaces")) ?", message: Self.message(for: selected),
                        button: "Mettre à la Corbeille", isPresented: $confirm) {
             Task { await model.remove(selected) }
-        }
-    }
-}
-
-/// How the scan works, in a few honest lines.
-struct ThreatsExplainer: View {
-    var body: some View {
-        Panel(title: "Comment je cherche", symbol: "magnifyingglass", tint: Theme.accent) {
-            VStack(alignment: .leading, spacing: 10) {
-                ExplainerLine(symbol: "ant", title: "Les signatures d'Apple",
-                              text: "XProtect, l'antimalware intégré à macOS, ne vérifie un fichier qu'au moment où tu l'ouvres. J'applique ses propres signatures (plus de 500 familles : Atomic Stealer, Adload, Shlayer…) à tout ce qui est déjà sur ton Mac, ouvert ou non.")
-                ExplainerLine(symbol: "exclamationmark.octagon", title: "Les traces connues",
-                              text: "Les fichiers exacts que laissent des logiciels malveillants documentés (EvilQuest, Silver Sparrow, AppleJeus…).")
-                ExplainerLine(symbol: "theatermasks", title: "Les comportements d'intrus",
-                              text: "Un programme qui se fait passer pour Apple, télécharge puis exécute du code, se cache dans un dossier partagé, ou une app modifiée après sa signature.")
-                ExplainerLine(symbol: "lock.shield", title: "Rien ne quitte ton Mac",
-                              text: "Aucun fichier n'est envoyé nulle part, et rien n'est supprimé : ce que tu neutralises part à la Corbeille.")
-            }
-        }
-    }
-}
-
-struct ExplainerLine: View {
-    var symbol: String
-    var title: String
-    var text: String
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            IconBadge(symbol: symbol, tint: Theme.accent, size: 22)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(12, .semibold)).foregroundStyle(Theme.text)
-                Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-            }
         }
     }
 }

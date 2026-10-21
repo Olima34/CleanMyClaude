@@ -25,7 +25,7 @@ enum ToolProfileKind: String, Codable, CaseIterable, Identifiable {
         case .studies: return "Signer, convertir, vidéos, langues."
         case .work: return "Documents, raccourcis, fenêtres."
         case .creation: return "Photo, vidéo, son, place disque."
-        case .leisure: return "Vidéos sans pub, sites en sombre."
+        case .leisure: return "Films, séries et vidéos sans pub."
         case .everything: return "Tous les outils, sans exception."
         }
     }
@@ -56,11 +56,11 @@ enum ToolProfileKind: String, Codable, CaseIterable, Identifiable {
     /// The tools it puts forward, on top of the upkeep pages.
     var pages: Set<Page> {
         switch self {
-        case .essentials: return [.storage, .apps, .phone, .fillsign, .adblock]
-        case .studies: return [.converter, .wheel, .fillsign, .youtube, .translator, .clipboard, .adblock, .launcher]
-        case .work: return [.converter, .fillsign, .translator, .clipboard, .launcher, .hotkeys, .windows, .network, .toolbox]
-        case .creation: return [.storage, .apps, .phone, .converter, .wheel, .youtube, .toolbox, .windows, .clipboard]
-        case .leisure: return [.youtube, .cinema, .adblock, .darkmode, .network, .translator]
+        case .essentials: return [.storage, .apps, .phone, .media]
+        case .studies: return [.wheel, .clipboard, .media, .launcher]
+        case .work: return [.wheel, .clipboard, .launcher, .hotkeys, .toolbox]
+        case .creation: return [.storage, .apps, .phone, .wheel, .toolbox, .hotkeys, .clipboard]
+        case .leisure: return [.media, .launcher, .phone]
         case .everything: return Set(Page.allCases)
         }
     }
@@ -183,6 +183,15 @@ enum ToolProfileRules {
         return out
     }
 
+    /// The pages that were folded into another (cinema and adblock into Multimédia…): their days and the user's choices
+    /// still count for the page that took them in.
+    static let formerKeys: [Page: [String]] = [.media: ["cinema", "adblock"], .hotkeys: ["windows"], .wheel: ["converter", "fillsign"]]
+
+    static func days(_ page: Page, in log: ToolUsageLog) -> [String] {
+        let keys = [page.rawValue] + (formerKeys[page] ?? [])
+        return keys.count == 1 ? log.days[page.rawValue] ?? [] : Array(Set(keys.flatMap { log.days[$0] ?? [] })).sorted()
+    }
+
     static func resolve(_ s: ToolProfileSettings, log: ToolUsageLog, signals: ToolSignals, now: Date) -> [Page: ToolReason] {
         let usedSince = day(usedWindow, before: now)
         let fadeSince = day(fadeDays, before: now)
@@ -193,7 +202,8 @@ enum ToolProfileRules {
         var out: [Page: ToolReason] = [:]
         for page in Page.allCases {
             let key = page.rawValue
-            let days = log.days[key] ?? []
+            let keys = [key] + (formerKeys[page] ?? [])
+            let days = days(page, in: log)
             let command = signals.commands[page]
             let used = count(days, since: usedSince) >= usedDays || (command.map { $0.count >= usedDays && $0.last >= recent } ?? false)
             let forgotten = count(days, since: fadeSince) == 0 && !(command.map { $0.last >= fadeRecent } ?? false)
@@ -201,11 +211,11 @@ enum ToolProfileRules {
             let reason: ToolReason
             if page == .dashboard {
                 reason = .home
-            } else if s.removed.contains(key) {
+            } else if !s.removed.isDisjoint(with: keys) {
                 reason = .removed
             } else if page == .refuge {
                 reason = .companion
-            } else if s.pinned.contains(key) {
+            } else if !s.pinned.isDisjoint(with: keys) {
                 reason = .pinned
             } else if ToolProfileKind.upkeep.contains(page) && (page != .battery || signals.hasBattery) {
                 reason = .upkeep
@@ -228,7 +238,7 @@ enum ToolProfileRules {
 
     /// How much a tool is used, to put the most used first on the dashboard.
     static func weight(_ page: Page, log: ToolUsageLog, signals: ToolSignals, now: Date) -> Int {
-        let days = count(log.days[page.rawValue] ?? [], since: day(usedWindow, before: now))
+        let days = count(days(page, in: log), since: day(usedWindow, before: now))
         let recent = now.addingTimeInterval(-Double(usedWindow) * 86400)
         let commands = signals.commands[page].map { $0.last >= recent ? min($0.count, 10) : 0 } ?? 0
         return days * 2 + commands
@@ -252,8 +262,8 @@ enum ToolProfileRules {
             if n < 3 || n > 9 { f.append("Profil \(k.title) : \(n) outils mis en avant (de 3 à 9 attendus)") }
             if k.pages.contains(.dashboard) { f.append("Profil \(k.title) : le tableau de bord n'a pas à y figurer") }
         }
-        if ToolProfileKind.essentials.pages.contains(.youtube) { f.append("Profils : YouTube mis en avant pour L'essentiel") }
-        for p: Page in [.fillsign, .converter, .youtube] where !ToolProfileKind.studies.pages.contains(p) {
+        if !ToolProfileKind.leisure.pages.contains(.media) { f.append("Profils : Multimédia manque aux Loisirs") }
+        for p: Page in [.wheel, .launcher] where !ToolProfileKind.studies.pages.contains(p) {
             f.append("Profils : \(p.title) manque aux Études")
         }
         if Set(ToolProfileKind.allCases.map(\.slug)).count != ToolProfileKind.allCases.count { f.append("Profils : deux slugs identiques") }
@@ -266,27 +276,30 @@ enum ToolProfileRules {
         // A profile: its tools and the upkeep stay, the others go.
         var s = ToolProfileSettings(kinds: [.essentials], chosen: now.addingTimeInterval(-86400))
         var r = resolve(s, log: ToolUsageLog(), signals: signals, now: now)
-        if r[.youtube] != .notInProfile { f.append("L'essentiel : YouTube devrait être rangé (\(r[.youtube]?.label ?? "?"))") }
-        if r[.fillsign] != .profile(.essentials) { f.append("L'essentiel : Remplir et signer devrait être mis en avant") }
+        if r[.hotkeys] != .notInProfile { f.append("L'essentiel : Raccourcis devrait être rangé (\(r[.hotkeys]?.label ?? "?"))") }
+        if r[.phone] != .profile(.essentials) { f.append("L'essentiel : iPhone devrait être mis en avant") }
         if r[.cleanup] != .upkeep || r[.updates] != .upkeep { f.append("L'entretien doit rester pour tous") }
         if r[.dashboard] != .home { f.append("Le tableau de bord doit toujours rester") }
         // Two profiles add up.
         s.kinds = [.essentials, .leisure]
         r = resolve(s, log: ToolUsageLog(), signals: signals, now: now)
-        if r[.youtube]?.featured != true || r[.storage]?.featured != true { f.append("Deux profils ne s'additionnent pas") }
+        if r[.launcher]?.featured != true || r[.storage]?.featured != true { f.append("Deux profils ne s'additionnent pas") }
 
         // A tool opened on three different days joins; on two, not yet; months ago, no longer.
         s.kinds = [.essentials]
-        var log = ToolUsageLog(days: ["network": days([1, 5, 9])], active: [])
-        if resolve(s, log: log, signals: signals, now: now)[.network] != .used { f.append("Un outil ouvert trois jours ne rejoint pas la barre") }
-        log.days["network"] = days([1, 5])
-        if resolve(s, log: log, signals: signals, now: now)[.network]?.featured != false { f.append("Un outil ouvert deux jours rejoint déjà la barre") }
-        log.days["network"] = days([40, 50, 60])
-        if resolve(s, log: log, signals: signals, now: now)[.network]?.featured != false { f.append("Un usage vieux de deux mois compte encore") }
+        var log = ToolUsageLog(days: ["toolbox": days([1, 5, 9])], active: [])
+        if resolve(s, log: log, signals: signals, now: now)[.toolbox] != .used { f.append("Un outil ouvert trois jours ne rejoint pas la barre") }
+        log.days["toolbox"] = days([1, 5])
+        if resolve(s, log: log, signals: signals, now: now)[.toolbox]?.featured != false { f.append("Un outil ouvert deux jours rejoint déjà la barre") }
+        log.days["toolbox"] = days([40, 50, 60])
+        if resolve(s, log: log, signals: signals, now: now)[.toolbox]?.featured != false { f.append("Un usage vieux de deux mois compte encore") }
+        // The days of a page folded into another count for it.
+        log = ToolUsageLog(days: ["windows": days([1, 5]), "hotkeys": days([9])], active: [])
+        if resolve(s, log: log, signals: signals, now: now)[.hotkeys] != .used { f.append("Les jours de Fenêtres ne comptent pas pour Raccourcis") }
         // The launcher counts too.
         var withCommands = signals
-        withCommands.commands[.network] = CommandRunner.Usage(count: 4, last: now.addingTimeInterval(-3 * 86400))
-        if resolve(s, log: ToolUsageLog(), signals: withCommands, now: now)[.network] != .used { f.append("Le lanceur ne compte pas dans l'usage") }
+        withCommands.commands[.toolbox] = CommandRunner.Usage(count: 4, last: now.addingTimeInterval(-3 * 86400))
+        if resolve(s, log: ToolUsageLog(), signals: withCommands, now: now)[.toolbox] != .used { f.append("Le lanceur ne compte pas dans l'usage") }
         // A feature switched on keeps its page.
         var withActive = signals
         withActive.active = [.clipboard]
@@ -296,25 +309,26 @@ enum ToolProfileRules {
         let busy = ToolUsageLog(days: ["cleanup": days(Array(1...12))], active: days(Array(1...12)))
         s.chosen = now.addingTimeInterval(-60 * 86400)
         r = resolve(s, log: busy, signals: signals, now: now)
-        if r[.fillsign] != .faded { f.append("Un outil du profil oublié depuis des semaines ne se range pas (\(r[.fillsign]?.label ?? "?"))") }
+        if r[.phone] != .faded { f.append("Un outil du profil oublié depuis des semaines ne se range pas (\(r[.phone]?.label ?? "?"))") }
         if r[.cleanup] != .upkeep { f.append("L'entretien ne doit jamais se ranger seul") }
-        if resolve(s, log: ToolUsageLog(), signals: signals, now: now)[.fillsign] != .profile(.essentials) {
+        if resolve(s, log: ToolUsageLog(), signals: signals, now: now)[.phone] != .profile(.essentials) {
             f.append("Un outil se range alors que l'app n'a presque pas servi")
         }
         var fresh = s
         fresh.chosen = now.addingTimeInterval(-5 * 86400)
-        if resolve(fresh, log: busy, signals: signals, now: now)[.fillsign] != .profile(.essentials) { f.append("Un outil se range juste après le choix du profil") }
+        if resolve(fresh, log: busy, signals: signals, now: now)[.phone] != .profile(.essentials) { f.append("Un outil se range juste après le choix du profil") }
         var all = s
         all.kinds = [.everything]
-        if resolve(all, log: busy, signals: signals, now: now)[.fillsign] != .profile(.everything) { f.append("Touche-à-tout range des outils") }
+        if resolve(all, log: busy, signals: signals, now: now)[.phone] != .profile(.everything) { f.append("Touche-à-tout range des outils") }
 
         // The user's own choices win.
-        s.pinned = ["fillsign", "automation"]
-        s.removed = ["cleanup", "youtube"]
+        s.pinned = ["phone", "automation"]
+        s.removed = ["cleanup", "launcher", "adblock"]
         s.kinds = [.leisure]
         r = resolve(s, log: busy, signals: signals, now: now)
-        if r[.fillsign] != .pinned || r[.automation] != .pinned { f.append("Un outil ajouté par l'utilisateur ne reste pas") }
-        if r[.cleanup] != .removed || r[.youtube] != .removed { f.append("Un outil rangé par l'utilisateur revient") }
+        if r[.phone] != .pinned || r[.automation] != .pinned { f.append("Un outil ajouté par l'utilisateur ne reste pas") }
+        if r[.cleanup] != .removed || r[.launcher] != .removed { f.append("Un outil rangé par l'utilisateur revient") }
+        if r[.media] != .removed { f.append("Le Bloqueur de pub rangé ne range pas Multimédia") }
 
         // A Mac without a battery has no battery page in its sidebar, unless the user wants it.
         var desktop = signals
@@ -327,7 +341,7 @@ enum ToolProfileRules {
         let today = day(now)
         let kept = adding(today, to: adding(today, to: days([200, 89, 2]), now: now), now: now)
         if kept != days([89, 2, 0]) { f.append("Journal d'usage mal tenu : \(kept)") }
-        if weight(.network, log: ToolUsageLog(days: ["network": days([1, 2])]), signals: withCommands, now: now) <= 0 {
+        if weight(.toolbox, log: ToolUsageLog(days: ["toolbox": days([1, 2])]), signals: withCommands, now: now) <= 0 {
             f.append("Le poids d'usage d'un outil reste nul")
         }
         return f
@@ -391,7 +405,7 @@ final class ToolProfileModel {
         let log = logStore.value
         return ranking.first { p in
             guard case .profile = reason(p) else { return false }
-            return (log.days[p.rawValue] ?? []).isEmpty && signals.commands[p] == nil
+            return ToolProfileRules.days(p, in: log).isEmpty && signals.commands[p] == nil
         }
     }
 
@@ -408,13 +422,14 @@ final class ToolProfileModel {
     func setFeatured(_ page: Page, _ on: Bool) {
         guard page != .dashboard else { return }
         let key = page.rawValue
+        let former = ToolProfileRules.formerKeys[page] ?? []
         var s = settings
         if on {
-            s.removed.remove(key)
+            s.removed.subtract([key] + former)
             // Back to what the profile says; pinned only when the profile would not keep it.
             if !(ToolProfileRules.resolve(s, log: logStore.value, signals: signals, now: Date())[page]?.featured ?? false) { s.pinned.insert(key) }
         } else {
-            s.pinned.remove(key)
+            s.pinned.subtract([key] + former)
             if ToolProfileRules.resolve(s, log: logStore.value, signals: signals, now: Date())[page]?.featured ?? false { s.removed.insert(key) }
         }
         save(s)
@@ -486,8 +501,9 @@ final class ToolProfileModel {
     private func mapOwners(_ app: AppModel) {
         var map: [String: Page] = [:]
         var byPrefix: [String: Page?] = [:]
-        for (page, m) in ModuleRegistry.modules(app) {
-            for c in m.commands(app: app) {
+        for e in ModuleRegistry.modules(app) {
+            guard let page = e.page else { continue }
+            for c in e.module.commands(app: app) {
                 map[c.id] = page
                 let p = Self.prefix(c.id)
                 if let seen = byPrefix[p], seen != page { byPrefix[p] = .some(nil) } else { byPrefix[p] = page }
@@ -522,15 +538,15 @@ final class ToolProfileModel {
 
     // MARK: Demo and snapshots
 
-    /// A student who also tests their connection often: Réseau joined the sidebar on its own, and the ad blocker of
-    /// the profile, never opened, went to « Autres outils ».
+    /// A student who also arranges windows often: Raccourcis joined the sidebar on its own, and the tools of the profile
+    /// they use stay.
     func loadDemo() {
         let now = Date()
         settings = ToolProfileSettings(kinds: [.studies], chosen: now.addingTimeInterval(-40 * 86400))
         var log = ToolUsageLog()
         let d = { (n: Int) in ToolProfileRules.day(n, before: now) }
-        log.days = ["network": [d(9), d(4), d(1)], "converter": [d(12), d(6), d(3), d(2), d(0)], "fillsign": [d(8), d(5), d(1)],
-                    "youtube": [d(2)], "translator": [d(6)], "launcher": [d(3)], "cleanup": [d(7), d(0)]]
+        log.days = ["hotkeys": [d(9), d(4), d(1)], "wheel": [d(12), d(6), d(3), d(2), d(0)], "fillsign": [d(8), d(5), d(1)],
+                    "media": [d(2)], "launcher": [d(6), d(3)], "cleanup": [d(7), d(0)]]
         log.active = (0...12).reversed().map(d)
         logStore.value = log
         resolve()

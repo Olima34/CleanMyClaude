@@ -73,27 +73,15 @@ struct ToolboxCursorTab: View {
                 }
             }
             ToolboxCursorAppsPanel()
-            TileRow {
-                Callout(symbol: "book", title: "Pour lire et regarder",
-                        text: "Faire défiler une page ou taper au clavier ne le fait pas revenir : tu tournes les pages ou mets la vidéo en pause sans le revoir. Bouger la souris ou cliquer, si.",
-                        tint: Theme.brand)
-                Callout(symbol: "menubar.rectangle", title: "Dans la barre des menus",
-                        text: "Le bouton « Cacher le curseur » du menu d'état l'active ou le coupe d'un clic, avec ton dernier délai.",
-                        tint: Theme.brand)
-                Callout(symbol: "command", title: "Depuis le lanceur",
-                        text: "Tape « curseur 10 s », « curseur 1 min » ou « curseur off ».", tint: Theme.brand)
-            }
         }
     }
 
     private func subtitle(_ m: ToolboxModel) -> String {
-        guard m.cursor.enabled else {
-            return "Pratique pour lire ou regarder une vidéo : choisis au bout de combien de temps sans bouger la souris le curseur doit disparaître."
-        }
+        guard m.cursor.enabled else { return "Choisis après combien de temps sans bouger la souris il disparaît." }
         let where_ = m.cursor.onlyApps
-            ? (m.cursor.apps.isEmpty ? " dès qu'une app choisie sera au premier plan (ajoute-en une ci-dessous)" : " quand une app choisie est au premier plan")
+            ? (m.cursor.apps.isEmpty ? " dès qu'une app choisie sera au premier plan" : " quand une app choisie est au premier plan")
             : ""
-        return "Il disparaît après \(ToolboxCursorRule.label(m.cursor.delay)) sans bouger la souris\(where_), et revient dès que tu la bouges."
+        return "Il disparaît après \(ToolboxCursorRule.label(m.cursor.delay)) sans bouger la souris\(where_)."
     }
 }
 
@@ -105,8 +93,7 @@ private struct ToolboxCursorAppsPanel: View {
         let m = app.toolbox
         let scope = Binding<ToolboxCursorScope>(get: { m.cursor.onlyApps ? .chosenApps : .everywhere },
                                                 set: { m.cursor.onlyApps = $0 == .chosenApps })
-        Panel(title: "Dans quelles apps", subtitle: "Partout, ou seulement quand une de tes apps de lecture ou de vidéo est au premier plan",
-              symbol: "macwindow", tint: Theme.brand) {
+        Panel(title: "Dans quelles apps", symbol: "macwindow", tint: Theme.brand) {
             VStack(alignment: .leading, spacing: 12) {
                 PillPicker(options: ToolboxCursorScope.allCases, selection: scope, label: { $0.title })
                 if m.cursor.onlyApps {

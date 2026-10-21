@@ -8,8 +8,8 @@ struct AssistantPage: View {
         let model = app.assistant
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "sparkle", title: "Assistant Claude",
-                     subtitle: "Pose tes questions sur ton Mac en langage naturel. Claude t'explique ce que tu vois et te propose les bonnes actions ; rien ne s'exécute sans ton clic.",
-                     tint: Theme.brand, seed: 105)
+                     subtitle: "Pose tes questions sur ton Mac, Claude te répond.",
+                     tint: Theme.brand, seed: 105, tip: Self.tip)
             if model.isReady {
                 AssistantSettingsStrip()
                 AssistantConversation()
@@ -28,6 +28,10 @@ struct AssistantPage: View {
             if provider == .subscription { Task { await app.assistant.refreshStatus() } }
         }
     }
+
+    static let tip = HelpTip(
+        id: "assistant.page", title: "L'assistant Claude",
+        text: "Claude t'explique ce que tu vois et propose des actions sous forme de boutons : rien ne s'exécute sans ton clic, et les plus sensibles demandent une confirmation. Seuls tes messages partent, l'état du Mac seulement si tu l'autorises. Tape aussi « ? » suivi de ta question dans le lanceur.")
 }
 
 struct AssistantProviderPicker: View {
@@ -51,52 +55,35 @@ struct AssistantConnectCard: View {
     var body: some View {
         let model = app.assistant
         let status = model.codeStatus
-        TileRow {
-            Card(padding: 22) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Utilise ton abonnement Claude").font(.serif(22)).foregroundStyle(Theme.text)
-                    Text("Pas besoin de clé API : l'assistant passe par Claude Code, livré avec l'app Claude, et consomme ton abonnement Claude comme une conversation normale.")
-                        .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    if model.isCheckingStatus && status == nil {
-                        HStack(spacing: 8) { BusyMascot(.searching, pixel: 1.5); Text("Je cherche Claude Code…").font(.ui(12)).foregroundStyle(Theme.text3) }
-                    } else if let status, !status.available {
-                        Label("Claude Code est introuvable sur ce Mac.", systemImage: "exclamationmark.triangle").font(.ui(12.5)).foregroundStyle(Theme.warn)
-                        Button("Télécharger l'app Claude") { Finder.open("https://claude.ai/download") }
+        Card(padding: 22) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Utilise ton abonnement Claude").font(.serif(22)).foregroundStyle(Theme.text)
+                Text("Sans clé API : l'assistant passe par Claude Code, livré avec l'app Claude.")
+                    .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                    .help("Il consomme ton abonnement comme une conversation normale. Claude Code est bridé : sans session gardée, sans outil, sans accès à tes fichiers, il ne fait que répondre.")
+                if model.isCheckingStatus && status == nil {
+                    HStack(spacing: 8) { BusyMascot(.searching, pixel: 1.5); Text("Je cherche Claude Code…").font(.ui(12)).foregroundStyle(Theme.text3) }
+                } else if let status, !status.available {
+                    ThemedLabel(title: "Claude Code est introuvable sur ce Mac.", symbol: "exclamationmark.triangle").font(.ui(12.5)).foregroundStyle(Theme.warn)
+                    Button("Télécharger l'app Claude") { Finder.open("https://claude.ai/download") }
+                        .buttonStyle(SoftButtonStyle(prominent: true))
+                } else {
+                    HStack(spacing: 8) {
+                        Button("Connecter Claude") { app.assistant.connect() }
                             .buttonStyle(SoftButtonStyle(prominent: true))
-                    } else {
-                        Text("Clique sur « Connecter Claude » : une fenêtre Terminal s'ouvre, puis une page dans ton navigateur où tu valides la connexion avec ton compte Claude. À faire une seule fois.")
-                            .font(.ui(12)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 8) {
-                            Button("Connecter Claude") { app.assistant.connect() }
-                                .buttonStyle(SoftButtonStyle(prominent: true))
-                            Button("J'ai terminé la connexion") { Task { await app.assistant.refreshStatus() } }
-                                .buttonStyle(SoftButtonStyle())
-                            if model.isCheckingStatus { BusyMascot(.searching, pixel: 1) }
-                        }
-                        if let msg = model.connectMessage {
-                            Text(msg).font(.ui(11.5)).foregroundStyle(Theme.text2)
-                        }
+                        Button("J'ai terminé la connexion") { Task { await app.assistant.refreshStatus() } }
+                            .buttonStyle(SoftButtonStyle())
+                        if model.isCheckingStatus { BusyMascot(.searching, pixel: 1) }
+                    }
+                    Text("Un Terminal puis ton navigateur s'ouvrent pour valider ton compte, une seule fois.")
+                        .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                    if let msg = model.connectMessage {
+                        Text(msg).font(.ui(11.5)).foregroundStyle(Theme.text2)
                     }
                 }
             }
-            Card(padding: 22) {
-                VStack(alignment: .leading, spacing: 10) {
-                    promise("hand.raised", "Rien ne part sans toi", "Seuls tes messages sont envoyés. L'état du Mac n'est joint que si tu l'autorises.")
-                    promise("lock.shield", "Claude Code bridé", "Sans session gardée, sans outil, sans accès à tes fichiers : il ne fait que répondre.")
-                    promise("checkmark.shield", "Tu gardes la main", "Les actions arrivent sous forme de boutons ; les plus sensibles demandent une confirmation.")
-                }
-            }
         }
-    }
-
-    private func promise(_ symbol: String, _ title: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol).font(.ui(13, .medium)).foregroundStyle(Theme.good).frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        .frame(maxWidth: 640, alignment: .leading)
     }
 }
 
@@ -108,47 +95,31 @@ struct AssistantKeySetup: View {
     @State private var error: String?
 
     var body: some View {
-        TileRow {
-            Card(padding: 22) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Connecte Claude").font(.serif(22)).foregroundStyle(Theme.text)
-                    Text("L'assistant utilise l'API d'Anthropic avec ta propre clé. Elle reste dans le Trousseau de ton Mac, jamais dans un fichier.")
-                        .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    Button("Obtenir une clé sur console.anthropic.com") { Finder.open("https://console.anthropic.com/settings/keys") }
-                        .buttonStyle(.plain).font(.ui(12.5, .medium)).foregroundStyle(Theme.accent)
-                    HStack(spacing: 8) {
-                        if Snapshot.isActive {
-                            Text("sk-ant-…").font(.mono(12.5)).foregroundStyle(Theme.text3)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(8).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.card))
-                        } else {
-                            SecureField("sk-ant-…", text: $key)
-                                .textFieldStyle(.roundedBorder)
-                                .onSubmit(save)
-                        }
-                        Button("Enregistrer", action: save).buttonStyle(SoftButtonStyle(prominent: true))
+        Card(padding: 22) {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Connecte Claude").font(.serif(22)).foregroundStyle(Theme.text)
+                Text("Avec ta propre clé API d'Anthropic, gardée dans le Trousseau de ton Mac.")
+                    .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                Button("Obtenir une clé sur console.anthropic.com") { Finder.open("https://console.anthropic.com/settings/keys") }
+                    .buttonStyle(.plain).font(.ui(12.5, .medium)).foregroundStyle(Theme.accent)
+                HStack(spacing: 8) {
+                    if Snapshot.isActive {
+                        Text("sk-ant-…").font(.mono(12.5)).foregroundStyle(Theme.text3)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(8).background(RoundedRectangle(cornerRadius: Theme.r(8)).fill(Theme.card))
+                    } else {
+                        SecureField("sk-ant-…", text: $key)
+                            .textFieldStyle(.roundedBorder)
+                            .onSubmit(save)
                     }
-                    if let error { Text(error).font(.ui(11.5)).foregroundStyle(Theme.bad) }
+                    Button("Enregistrer", action: save).buttonStyle(SoftButtonStyle(prominent: true))
                 }
-            }
-            Card(padding: 22) {
-                VStack(alignment: .leading, spacing: 10) {
-                    promise("hand.raised", "Rien ne part sans toi", "Seuls tes messages sont envoyés. L'état du Mac n'est partagé que si tu l'autorises.")
-                    promise("checkmark.shield", "Tu gardes la main", "Claude propose des actions sous forme de boutons ; les plus sensibles demandent une confirmation.")
-                    promise("eurosign.circle", "Tu paies à l'usage", "Quelques centimes par conversation avec Opus 5.5 ; Haiku 5.5 coûte 40 fois moins.")
-                }
+                if let error { Text(error).font(.ui(11.5)).foregroundStyle(Theme.bad) }
+                Text("Tu paies à l'usage : quelques centimes par conversation avec Opus 5.5, 40 fois moins avec Haiku 5.5.")
+                    .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
             }
         }
-    }
-
-    private func promise(_ symbol: String, _ title: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol).font(.ui(13, .medium)).foregroundStyle(Theme.good).frame(width: 20)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                Text(text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-            }
-        }
+        .frame(maxWidth: 640, alignment: .leading)
     }
 
     private func save() {
@@ -245,8 +216,6 @@ struct AssistantConversation: View {
                                 .buttonStyle(.plain)
                             }
                         }
-                        Text("Astuce : tape « ? » suivi de ta question dans le lanceur, ou clique sur « Demander à Claude » à côté d'un processus ou d'un agent de démarrage.")
-                            .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                     }
                     .padding(.vertical, 6)
                 }

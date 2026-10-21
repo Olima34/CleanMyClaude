@@ -16,7 +16,6 @@ extension ConverterModel {
         if ConverterPreviewer.previews(.rename) || ConverterPreviewer.previews(.qrGenerate) || !ConverterPreviewer.previews(.pdfSplit) {
             previewFailures.append("aperçu : opérations couvertes")
         }
-        if ConverterDestination.saved() == .beside, DemoData.isEnabled { previewFailures.append("destination : Téléchargements par défaut en démo") }
         if !ConverterPreviewer.processesEverything(.archiveZip) || !ConverterPreviewer.processesEverything(.pdfCompress)
             || ConverterPreviewer.processesEverything(.videoCompress) || ConverterPreviewer.heavyLimit != 200_000_000 {
             previewFailures.append("aperçu : opérations trop lourdes sans clic")

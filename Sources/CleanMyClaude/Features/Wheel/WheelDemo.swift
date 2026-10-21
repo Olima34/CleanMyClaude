@@ -1,28 +1,12 @@
 import SwiftUI
 
-/// Made-up content for `--demo` and the snapshots: a mountain photo drawn here, pages, marks, a history.
+/// Made-up content for `--demo` and the snapshots: a mountain photo drawn here, pages, marks.
 @MainActor
 enum WheelDemo {
     static var desktop: String { DemoData.home + "/Desktop" }
 
     static func file(_ name: String, _ kind: ConverterKind) -> WheelFile {
         WheelFile(url: URL(fileURLWithPath: desktop + "/" + name), kind: kind)
-    }
-
-    static var history: [WheelRecord] {
-        let now = Date()
-        return [
-            WheelRecord(date: now.addingTimeInterval(-240), action: WheelAction.crop.rawValue, source: "Sommet.jpg",
-                        outputs: [desktop + "/Sommet recadrée.jpg"]),
-            WheelRecord(date: now.addingTimeInterval(-3_100), action: WheelAction.jpeg.rawValue, source: "Devis signé.pdf",
-                        outputs: [desktop + "/Devis signé.jpg"]),
-            WheelRecord(date: now.addingTimeInterval(-9_800), action: WheelAction.backdrop.rawValue, source: "Capture d'écran.png",
-                        outputs: [desktop + "/Capture d'écran avec fond.png"]),
-            WheelRecord(date: now.addingTimeInterval(-86_400), action: WheelAction.videoCompress.rawValue, source: "Anniversaire.mov",
-                        outputs: [desktop + "/Anniversaire HEVC 1080p.mp4"]),
-            WheelRecord(date: now.addingTimeInterval(-190_000), action: WheelAction.redact.rawValue, source: "Facture.png",
-                        outputs: [desktop + "/Facture masquée.png"]),
-        ]
     }
 
     static let photoInfo = WheelPhotoInfo(rows: [
@@ -132,7 +116,9 @@ enum WheelDemo {
 
     // MARK: Snapshots
 
-    /// The panels `--snapshot --demo --page wheel` draws besides the page: the wheel over a desktop, its windows, its toast.
+    /// The panels `--snapshot --demo --page wheel` draws besides the page: the wheel over a desktop, the Convertisseur's
+    /// window (`--tab pdf`, `video`, `renommer`, `qr`, `vide`… for another scene), a few more of its scenes, the small
+    /// windows and the toast.
     static func panels(_ app: AppModel) -> [(name: String, view: AnyView, width: CGFloat)] {
         let m = app.wheel
         let photo = file("Sommet.jpg", .image)
@@ -147,12 +133,21 @@ enum WheelDemo {
         let wheel = AnyView(WheelSnapshotWheel().frame(width: 640, height: 520))
         m.runner.loadDemo()
         let toast = AnyView(WheelToastView(runner: m.runner, toast: m.runner.toast).padding(30).background(WheelSnapshotDesktop()))
-        let list = AnyView(WheelActionList(files: [photo], actions: WheelMenu.available([photo], in: WheelFamily.image.pool,
-                                                                                         capabilities: m.capabilities),
-                                           family: .image, pick: { _ in }, close: {})
-            .frame(width: 300, height: 760).padding(30).background(WheelSnapshotDesktop()))
+        func hub(_ model: ConverterModel) -> AnyView {
+            AnyView(ConverterHubView(model: model, close: {})
+                .frame(width: ConverterHub.size.width, height: ConverterHub.size.height)
+                .padding(36).background(WheelSnapshotDesktop()))
+        }
+        let hubWidth = ConverterHub.size.width + 72
         var out: [(String, AnyView, CGFloat)] = [("wheel-panel", wheel, 640), ("wheel-toast-panel", toast, WheelToast.width + 60),
-                                                 ("wheel-list-panel", list, 360)]
+                                                 ("wheel-hub-panel", hub(app.converter), hubWidth)]
+        if DemoData.isEnabled {
+            for (name, scene) in [("merge", ConverterDemo.Scene.pdf), ("rename", .rename), ("qr", .qr), ("cutout", .cutout)] {
+                let other = ConverterModel()
+                ConverterDemo.fill(other, scene: scene)
+                out.append(("wheel-hub-\(name)-panel", hub(other), hubWidth))
+            }
+        }
         out.append(editor(.crop, .crop, [photo]))
         out.append(editor(.backdrop, .backdrop, [photo]))
         out.append(editor(.annotate, .annotate, [photo]))

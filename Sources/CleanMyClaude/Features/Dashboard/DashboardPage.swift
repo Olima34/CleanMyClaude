@@ -12,7 +12,7 @@ struct DashboardPage: View {
             vitals
             SmartScanPanel()
             HStack(alignment: .top, spacing: 14) {
-                Panel(title: "Activité en direct", subtitle: "Processeur et mémoire, deux dernières minutes", symbol: "waveform.path.ecg") {
+                Panel(title: "Activité en direct", subtitle: "Deux dernières minutes", symbol: "waveform.path.ecg") {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 14) {
                             LegendDot(color: Theme.accent, label: "Processeur", value: Fmt.pct(app.monitor.cpu))
@@ -80,8 +80,6 @@ struct DashboardPage: View {
         var s = "Ton Mac tourne depuis \(Fmt.duration(m.uptime)) et il te reste \(Fmt.bytes(m.diskFree)) de libre."
         if app.history.totalFreed > 0 {
             s += " Ensemble, on a déjà libéré \(Fmt.bytes(app.history.totalFreed))."
-        } else {
-            s += " Lance une analyse intelligente pour faire le point en une minute."
         }
         return s
     }
@@ -90,30 +88,27 @@ struct DashboardPage: View {
 
     private var vitals: some View {
         let m = app.monitor
-        return TileRow {
-            StatTile(symbol: "internaldrive", value: Fmt.bytes(m.diskFree), label: "Stockage libre",
-                     detail: "\(Fmt.pct(m.diskUsedFraction)) de \(Fmt.bytes(m.diskTotal)) utilisés", tint: Theme.load(m.diskUsedFraction))
-            StatTile(symbol: "memorychip", value: Fmt.pct(m.memFraction), label: "Mémoire utilisée",
-                     detail: "Pression \(m.pressure.label.lowercased()) · échange \(Fmt.bytes(m.swapUsed))",
-                     tint: m.pressure == .normal ? Theme.palette[4] : Theme.warn)
-            StatTile(symbol: "cpu", value: Fmt.pct(m.cpu), label: "Processeur",
-                     detail: "\(m.coreCount) cœurs · température \(m.thermalLabel.lowercased())", tint: Theme.load(m.cpu))
-            if let b = m.battery {
-                StatTile(symbol: b.isCharging ? "battery.100.bolt" : "battery.75", value: Fmt.pct(b.level), label: "Batterie",
-                         detail: batteryDetail(b), tint: b.health.map { $0 < 0.8 ? Theme.warn : Theme.good } ?? Theme.good)
-            } else {
-                StatTile(symbol: "arrow.up.arrow.down", value: Fmt.speed(m.netIn), label: "Réseau",
-                         detail: "Envoi \(Fmt.speed(m.netOut))", tint: Theme.palette[1])
-            }
+        var list = [
+            DashboardMetric(symbol: "internaldrive", value: Fmt.bytes(m.diskFree), label: "Stockage libre",
+                            detail: "\(Fmt.pct(m.diskUsedFraction)) de \(Fmt.bytes(m.diskTotal)) utilisés", tint: Theme.load(m.diskUsedFraction)),
+            DashboardMetric(symbol: "memorychip", value: Fmt.pct(m.memFraction), label: "Mémoire",
+                            detail: "pression \(m.pressure.label.lowercased())", tint: m.pressure == .normal ? Theme.palette[4] : Theme.warn),
+            DashboardMetric(symbol: "cpu", value: Fmt.pct(m.cpu), label: "Processeur",
+                            detail: "température \(m.thermalLabel.lowercased())", tint: Theme.load(m.cpu))
+        ]
+        if let b = m.battery {
+            list.append(DashboardMetric(symbol: b.isCharging ? "battery.100.bolt" : "battery.75", value: Fmt.pct(b.level), label: "Batterie",
+                                        detail: batteryDetail(b), tint: b.health.map { $0 < 0.8 ? Theme.warn : Theme.good } ?? Theme.good))
+        } else {
+            list.append(DashboardMetric(symbol: "arrow.up.arrow.down", value: Fmt.speed(m.netIn), label: "Réseau",
+                                        detail: "envoi \(Fmt.speed(m.netOut))", tint: Theme.palette[1]))
         }
+        return DashboardMetricStrip(metrics: list)
     }
 
     private func batteryDetail(_ b: BatteryInfo) -> String {
-        var parts: [String] = []
-        if let h = b.health { parts.append("Santé \(Fmt.pct(h))") }
-        if let c = b.cycleCount { parts.append("\(c) cycles") }
-        if let mins = b.minutesLeft { parts.append(b.isCharging ? "pleine dans \(Fmt.duration(Double(mins * 60)))" : "\(Fmt.duration(Double(mins * 60))) restantes") }
-        return parts.joined(separator: " · ")
+        if let mins = b.minutesLeft { return b.isCharging ? "pleine dans \(Fmt.duration(Double(mins * 60)))" : "\(Fmt.duration(Double(mins * 60))) restantes" }
+        return b.health.map { "santé \(Fmt.pct($0))" } ?? (b.isCharging ? "en charge" : "")
     }
 }
 
@@ -142,11 +137,17 @@ struct SmartScanPanel: View {
     @Environment(AppModel.self) private var app
     @State private var confirmClean = false
 
+    static let tip = HelpTip(id: "dashboard.smartScan", title: "L'analyse intelligente",
+                             text: "En une minute, je fais le point sur les fichiers inutiles, les protections de sécurité, les logiciels malveillants, les apps oubliées et ce qui démarre en douce. Rien n'est supprimé sans ton accord : clique sur une carte pour voir le détail et décider.")
+
     var body: some View {
         Card(padding: 20) {
             HStack(alignment: .center, spacing: 18) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Analyse intelligente").font(.serif(22)).foregroundStyle(Theme.text)
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text("Analyse intelligente").font(.serif(22)).foregroundStyle(Theme.text)
+                        HelpTipButton(tip: Self.tip)
+                    }
                     Text(subtitle).font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
@@ -170,7 +171,7 @@ struct SmartScanPanel: View {
                     ScanResultTile(symbol: "sparkles", title: "Fichiers inutiles", tint: Theme.accent,
                                    running: app.cleanup.isScanning, activity: .sweeping,
                                    value: app.cleanup.hasResults ? Fmt.bytes(app.cleanup.recommendedSize) : "—",
-                                   detail: app.cleanup.hasResults ? "à nettoyer sans risque · \(Fmt.bytes(app.cleanup.totalSize)) trouvés en tout" : "Pas encore analysé",
+                                   detail: app.cleanup.hasResults ? "sans risque, sur \(Fmt.bytes(app.cleanup.totalSize)) trouvés" : "Pas encore analysé",
                                    page: .cleanup)
                     ScanResultTile(symbol: "lock.shield", title: "Sécurité", tint: app.protection.malware.isEmpty ? Theme.good : Theme.bad,
                                    running: app.protection.isAuditing || app.protection.isScanning, activity: .inspecting,
@@ -211,9 +212,9 @@ struct SmartScanPanel: View {
     }
 
     private var subtitle: String {
-        if app.smartScanRunning { return "Fichiers inutiles, sécurité, logiciels malveillants, applications et démarrage : j'examine tout en parallèle." }
-        if let d = app.smartScanDate { return "Dernière analyse \(Fmt.relative(d)). Clique sur une carte pour voir le détail." }
-        return "Un bilan complet en une minute : fichiers inutiles, protections de sécurité, logiciels malveillants, apps oubliées et ce qui démarre en douce. Rien n'est supprimé sans ton accord."
+        if app.smartScanRunning { return "J'examine tout en parallèle…" }
+        if let d = app.smartScanDate { return "Dernière analyse \(Fmt.relative(d))." }
+        return "Fichiers inutiles, sécurité, apps et démarrage : le point en une minute."
     }
 }
 
@@ -287,14 +288,13 @@ struct ToolsOverview: View {
     }
 
     private var subtitle: String {
-        let launcher = app.launcher.combo.map { " · tous aussi depuis le lanceur \($0.display)" } ?? ""
-        guard app.profile.isChosen else { return "Tes outils du quotidien, les plus utilisés d'abord\(launcher)" }
-        return "Pour ton profil \(app.profile.summary) et d'après ce dont tu te sers, les plus utilisés d'abord\(launcher)"
+        guard app.profile.isChosen else { return "Les plus utilisés d'abord" }
+        return "Profil \(app.profile.summary), les plus utilisés d'abord"
     }
 
     private var indexDetail: String {
-        if case .ready(let n) = app.launcher.indexState { return "Apps, actions et \(Fmt.int(n)) fichiers trouvés en un éclair" }
-        return "Apps, fichiers, calculs, traductions et toutes les actions"
+        if case .ready(let n) = app.launcher.indexState { return "\(Fmt.int(n)) fichiers à portée de clavier" }
+        return "Apps, fichiers, calculs et actions"
     }
 
     @ViewBuilder
@@ -304,80 +304,54 @@ struct ToolsOverview: View {
             tile(page, tint: Theme.brand, value: app.launcher.combo?.display ?? "—", detail: indexDetail)
         case .hotkeys:
             tile(page, tint: Theme.brand, value: "\(app.hotkeys.bindings.filter { $0.combo != nil }.count)",
-                 detail: app.hotkeys.bindings.isEmpty ? "Ouvre n'importe quelle app d'un raccourci" : "raccourcis pour tes apps, dossiers et sites")
-        case .converter:
-            tile(page, tint: Theme.accent, value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : "Glisser-déposer",
-                 detail: "Images, vidéos, audio, PDF, documents, OCR et QR codes")
+                 detail: app.hotkeys.bindings.isEmpty ? "Tes apps et fenêtres au clavier" : "raccourcis actifs")
         case .wheel:
-            tile(page, tint: Theme.brand, value: app.wheel.isActive ? "Active" : "En pause",
-                 detail: app.wheel.isActive ? "Glisse un fichier : recadre, convertis, annote depuis la roue" : "La roue ne s'ouvre plus quand tu glisses un fichier")
-        case .fillsign:
-            tile(page, tint: Theme.accent, value: app.fillSign.document != nil ? "En cours" : "Un PDF",
-                 detail: "Remplis un formulaire, écris où tu veux, signe et paraphe")
-        case .youtube:
-            let activity = app.youtube.activity
-            tile(page, tint: Theme.bad, value: activity.map { $0.running ? $0.percent : "En attente" } ?? "Un lien",
-                 detail: activity.map { "\($0.detail) · \($0.title)" } ?? "La vidéo en MP4 ou le son en MP3, en entier ou un extrait")
-        case .cinema:
-            tile(page, tint: CinemaStyle.tint, value: app.cinema.hasKey ? "Où regarder" : "Un titre",
-                 detail: app.cinema.recents.first.map { "Dernier : \($0.title)" } ?? "Sa fiche, sa bande-annonce et les plateformes qui le proposent")
-        case .translator:
-            tile(page, tint: Theme.palette[1], value: app.translator.engine == .apple ? "Hors ligne" : "Claude",
-                 detail: "Sur ton Mac ou avec Claude, aussi depuis le lanceur (« trad »)")
+            tile(page, tint: Theme.brand,
+                 value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : (app.wheel.isActive ? "Active" : "En pause"),
+                 detail: app.wheel.isActive ? "Glisse un fichier pour le transformer ou le signer" : "La roue ne s'ouvre plus")
+        case .media:
+            tile(page, tint: CinemaStyle.tint, value: app.adblock.state.isOn ? "Sans pub" : "Où regarder",
+                 detail: app.cinema.recents.first.map { "Dernier : \($0.title)" } ?? "Films, séries et vidéos sans pub")
         case .updates:
             tile(page, tint: Theme.good,
                  value: app.updates.hasChecked ? "\(app.updates.totalAvailable)" : "—",
                  detail: app.updates.hasChecked
-                    ? (app.updates.totalAvailable == 0 ? "Tout est à jour" : "mises à jour disponibles (Homebrew, apps, macOS)")
-                    : "Homebrew, apps et macOS : pas encore vérifié")
-        case .network:
-            tile(page, tint: Theme.palette[4],
-                 value: app.network.lastSpeed.map { NetworkFormat.bits($0.download) } ?? "—",
-                 detail: app.network.lastSpeed.map { "reçus au dernier test, \(Fmt.relative($0.date))" } ?? "Débit, Wi-Fi, latence et ports ouverts")
+                    ? (app.updates.totalAvailable == 0 ? "Tout est à jour" : "mises à jour disponibles")
+                    : "Pas encore vérifié")
         case .clipboard:
             tile(page, tint: Theme.palette[2],
                  value: app.clipboard.isActive ? Fmt.int(app.clipboard.items.count) : "En pause",
-                 detail: app.clipboard.isActive ? "éléments dans l'historique, mots de passe ignorés" : "Historique désactivé tant que tu ne l'actives pas")
+                 detail: app.clipboard.isActive ? "éléments dans l'historique" : "Historique désactivé")
         case .toolbox:
             tile(page, tint: Theme.warn, value: app.toolbox.sidebarBadge ?? "Caféine",
-                 detail: "Couleurs, mots de passe, JSON, Caféine, curseur caché et compagnie")
+                 detail: "Couleurs, mots de passe, JSON…")
         case .battery:
             if let r = app.battery.reading {
                 tile(page, tint: Theme.good, value: app.battery.activeLimit.map { $0 < 100 ? "Limite \($0) %" : "\(r.percent) %" } ?? "\(r.percent) %",
-                     detail: "Limite de recharge, alerte de batterie faible et santé")
+                     detail: "Limite, alertes et santé")
             }
         case .storage:
             tile(page, tint: Theme.palette[3], value: Fmt.bytes(app.monitor.diskFree),
-                 detail: "libres · la carte du disque, les gros fichiers et les doublons")
+                 detail: "libres sur le disque")
         case .phone:
             let phone = app.phone
             tile(page, tint: PhonePage.tint,
                  value: phone.info?.storage.map { Fmt.bytes($0.free) } ?? (phone.link == .untrusted ? "À autoriser" : "À brancher"),
-                 detail: phone.info.map { "libres sur \($0.name) · son bilan et ses photos à trier" }
-                    ?? "Branche-le : sa santé, et ses photos et vidéos triées pour libérer de la place")
-        case .adblock:
-            tile(page, tint: Theme.good, value: app.adblock.state.isOn ? "Actif" : (app.adblock.installed ? "Inactif" : "À installer"),
-                 detail: "Pubs, pisteurs et sites piégés bloqués pour tout le Mac")
-        case .darkmode:
-            tile(page, tint: Theme.palette[4], value: app.darkmode.toForce.isEmpty ? "Sombre" : "\(app.darkmode.toForce.count) apps",
-                 detail: app.darkmode.toForce.isEmpty ? "Les sites et les apps restés clairs passent en sombre" : "restées claires, à passer en sombre")
-        case .windows:
-            tile(page, tint: Theme.palette[1],
-                 value: !app.windows.enabled ? "Inactif" : (app.windows.trusted ? "Actif" : "À autoriser"),
-                 detail: "Moitiés, tiers et quarts d'écran au clavier (⌃⌥ + flèches)")
+                 detail: phone.info.map { "libres sur \($0.name)" }
+                    ?? "Branche-le pour trier ses photos")
         case .automation:
             tile(page, tint: Theme.palette[3], value: "\(app.automation.activeCount)",
-                 detail: app.automation.activeCount == 0 ? "Aucune automatisation active pour l'instant" : "automatisations actives")
+                 detail: app.automation.activeCount == 0 ? "Aucune active pour l'instant" : "automatisations actives")
         case .assistant:
             tile(page, tint: Theme.brand, value: app.assistant.isReady ? "Connecté" : "À connecter",
-                 detail: "Pose une question sur ton Mac : Claude propose, tu décides")
+                 detail: "Claude propose, tu décides")
         case .menubar:
             tile(page, tint: Theme.palette[2], value: "En direct",
-                 detail: "Processeur, mémoire et actions express dans la barre des menus")
+                 detail: "Dans la barre des menus")
         case .refuge:
             tile(page, tint: Theme.warn, value: app.refuge.isAdopted ? app.refuge.stage.title : "À adopter",
                  detail: app.refuge.isAdopted ? "\(app.refuge.name) · \(Fmt.int(app.refuge.state.basket)) myrtilles dans le panier"
-                    : "Un petit chamois t'attend dans son buisson de myrtilles")
+                    : "Un petit chamois t'attend")
         case .dashboard, .cleanup, .protection, .performance, .apps:
             EmptyView()
         }
@@ -404,7 +378,7 @@ struct DashboardMoreTile: View {
                     Image(systemName: "chevron.right").font(.ui(10, .semibold)).foregroundStyle(Theme.text3).opacity(hovering ? 1 : 0.4)
                 }
                 Text("+\(pages.count)").font(.serif(26)).foregroundStyle(Theme.text)
-                Text(detail).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
             }
             .padding(14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -419,7 +393,7 @@ struct DashboardMoreTile: View {
 
     private var detail: String {
         let names = pages.prefix(2).map(\.title).joined(separator: ", ")
-        return pages.count > 2 ? "\(names) et \(pages.count - 2) autres, rangés en bas de la barre latérale" : "\(names), rangés en bas de la barre latérale"
+        return pages.count > 2 ? "\(names) et \(pages.count - 2) autres" : names
     }
 }
 
@@ -441,7 +415,7 @@ struct Recommendations: View {
 
     var body: some View {
         let list = advices
-        Panel(title: "Mes conseils", subtitle: list.isEmpty ? nil : "Classés du plus utile au moins urgent", symbol: "lightbulb", tint: Theme.brand) {
+        Panel(title: "Mes conseils", symbol: "lightbulb", tint: Theme.brand) {
             VStack(alignment: .leading, spacing: 10) {
                 if list.isEmpty {
                     HStack(spacing: 12) {
@@ -460,7 +434,7 @@ struct Recommendations: View {
                             IconBadge(symbol: a.symbol, tint: a.tint, size: 26)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(a.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                                Text(a.text).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                                Text(a.text).font(.ui(11.5)).foregroundStyle(Theme.text2).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                             }
                             Spacer(minLength: 0)
                         }
@@ -478,16 +452,16 @@ struct Recommendations: View {
         let p = app.protection
         if !p.malware.isEmpty {
             out.append(Advice(id: "malware", symbol: "ant.fill", title: "\(Fmt.plural(p.malware.count, "menace", "menaces")) sur ton Mac",
-                              text: "Reconnues par les signatures d'Apple ou par leur comportement. Neutralise-les : je les arrête et je les mets à la Corbeille.",
+                              text: "Je peux les arrêter et les mettre à la Corbeille.",
                               tint: Theme.bad, page: .protection, tab: { app.protection.tab = .threats }))
         }
         if !app.fullDiskAccess {
             out.append(Advice(id: "fda", symbol: "externaldrive.badge.checkmark", title: "Donne-moi l'accès complet au disque",
-                              text: "Sans lui, je ne peux voir ni la Corbeille, ni Mail, ni les autorisations de tes apps.", tint: Theme.accent))
+                              text: "Sans lui, je ne vois ni la Corbeille, ni Mail, ni les autorisations.", tint: Theme.accent))
         }
         if m.diskUsedFraction > 0.9 {
             out.append(Advice(id: "disk", symbol: "externaldrive.trianglebadge.exclamationmark", title: "Ton disque est presque plein",
-                              text: "Au-delà de 90 %, macOS ralentit et ne peut plus installer ses mises à jour. Explore le stockage pour repérer les mastodontes.",
+                              text: "Au-delà de 90 %, macOS ralentit et bloque ses mises à jour.",
                               tint: Theme.bad, page: .storage))
         } else if m.diskUsedFraction > 0.8 {
             out.append(Advice(id: "disk", symbol: "externaldrive", title: "Le stockage se remplit",
@@ -499,12 +473,12 @@ struct Recommendations: View {
         }
         if !p.realtime.anyOn {
             out.append(Advice(id: "realtime", symbol: "shield.lefthalf.filled.badge.checkmark", title: "Active la protection en temps réel",
-                              text: "Une alerte dès qu'un programme s'ajoute au démarrage, qu'une menace arrive dans Téléchargements ou que la caméra s'allume.",
+                              text: "Une alerte dès qu'un intrus s'installe ou que la caméra s'allume.",
                               tint: Theme.good, page: .protection, tab: { app.protection.tab = .realtime }))
         }
         if p.scanSummary.map({ Date().timeIntervalSince($0.date) > 14 * 86400 }) ?? true {
             out.append(Advice(id: "scan", symbol: "ant", title: p.scanSummary == nil ? "Cherche les logiciels malveillants" : "Ta dernière analyse antimalware date",
-                              text: "Les signatures d'Apple appliquées à tout ce qui est sur ton Mac, ouvert ou non : moins d'une minute.",
+                              text: "Les signatures d'Apple sur tout ton Mac, en moins d'une minute.",
                               tint: Theme.accent, page: .protection, tab: {
                                   app.protection.tab = .threats
                                   Task { await app.protection.scan(deep: false) }
@@ -516,28 +490,28 @@ struct Recommendations: View {
         }
         if let trash = app.cleanup.targets.first(where: { $0.id == "trash" }), trash.size > 1_000_000_000 {
             out.append(Advice(id: "trash", symbol: "trash", title: "Ta Corbeille pèse \(Fmt.bytes(trash.size))",
-                              text: "Ce que tu as jeté occupe toujours ton disque tant qu'elle n'est pas vidée.", tint: Theme.warn, page: .cleanup))
+                              text: "Elle occupe ton disque tant qu'elle n'est pas vidée.", tint: Theme.warn, page: .cleanup))
         }
         // macOS itself is already in the security checks above: only the apps and packages here.
         let appUpdates = app.updates.totalAvailable - app.updates.macOSLabels.count
         if app.updates.hasChecked && appUpdates > 0 {
             out.append(Advice(id: "updates", symbol: "arrow.down.circle", title: "\(Fmt.plural(appUpdates, "app attend sa mise à jour", "apps attendent leur mise à jour"))",
-                              text: "Les correctifs de sécurité arrivent par là : un clic suffit pour Homebrew, les autres apps s'ouvrent sur leur mise à jour.",
+                              text: "Les correctifs de sécurité arrivent par là.",
                               tint: Theme.good, page: .updates))
         }
         if m.swapUsed > m.memTotal / 2 || m.pressure != .normal {
             out.append(Advice(id: "memory", symbol: "memorychip", title: "Ta mémoire est à l'étroit",
-                              text: "macOS déborde sur le disque (\(Fmt.bytes(m.swapUsed)) d'échange). Ferme les apps gourmandes repérées dans Optimisation.",
+                              text: "macOS déborde sur le disque (\(Fmt.bytes(m.swapUsed)) d'échange) : ferme les apps gourmandes.",
                               tint: Theme.warn, page: .performance, tab: { app.performance.tab = .monitor }))
         }
         if app.performance.boost.mode == .off {
             out.append(Advice(id: "boost", symbol: "bolt", title: m.thermal == .nominal ? "Active le Boost" : "Ton Mac chauffe : active le Boost",
-                              text: "Ce qui s'emballe en arrière-plan passe sur les cœurs économes de la puce : un Mac plus frais, et plus de puissance pour ce que tu fais.",
+                              text: "L'arrière-plan passe sur les cœurs économes : un Mac plus frais et plus vif.",
                               tint: Theme.warn, page: .performance, tab: { app.performance.tab = .boost }))
         }
         if m.uptime > 14 * 86400 {
             out.append(Advice(id: "uptime", symbol: "arrow.clockwise", title: "Pense à redémarrer",
-                              text: "Ton Mac tourne depuis \(Fmt.duration(m.uptime)). Un redémarrage applique les correctifs en attente et remet la mémoire à plat.",
+                              text: "Allumé depuis \(Fmt.duration(m.uptime)) : un redémarrage applique les correctifs en attente.",
                               tint: Theme.palette[1]))
         }
         if let b = m.battery, let h = b.health, h < 0.8 {
@@ -546,7 +520,7 @@ struct Recommendations: View {
         }
         if !app.apps.intel.isEmpty {
             out.append(Advice(id: "intel", symbol: "cpu", title: "\(Fmt.plural(app.apps.intel.count, "app tourne", "apps tournent")) encore via Rosetta",
-                              text: "Apple retire Rosetta après macOS 27 : cherche leurs versions Apple Silicon.", tint: Theme.warn, page: .apps,
+                              text: "Apple retire Rosetta après macOS 27.", tint: Theme.warn, page: .apps,
                               tab: { app.apps.filter = .intel }))
         }
         if app.startup.flagged.count > 0 {
@@ -562,7 +536,7 @@ struct Recommendations: View {
         // Last: a tool of the profile not tried yet.
         if let p = app.profile.discovery {
             out.append(Advice(id: "discover", symbol: p.symbol, title: "À essayer : \(p.title)",
-                              text: "\(p.pitch) Il fait partie de ton profil \(app.profile.summary).", tint: Theme.brand, page: p))
+                              text: p.pitch, tint: Theme.brand, page: p))
         }
         return out
     }

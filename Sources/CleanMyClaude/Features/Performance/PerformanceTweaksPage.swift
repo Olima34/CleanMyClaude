@@ -8,18 +8,14 @@ struct PerformanceTweaksTab: View {
     var body: some View {
         let t = app.performance.tweaks
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top, spacing: 14) {
-                Callout(symbol: "wind", title: "Un Mac qui répond au quart de tour",
-                        text: "Des réglages cachés de macOS qui raccourcissent ou suppriment les animations : chaque geste paraît plus rapide, et la puce graphique travaille moins. Chacun se rétablit exactement comme avant d'un clic.")
-                VStack(alignment: .trailing, spacing: 8) {
-                    Button("Tout appliquer") { t.apply(t.everyday) }
-                        .buttonStyle(SoftButtonStyle(prominent: true))
-                    Button("Tout rétablir") { t.restore(PerformanceTweak.all) }
-                        .buttonStyle(SoftButtonStyle(small: true))
-                        .disabled(t.appliedCount == 0)
-                    Text("\(t.appliedCount) sur \(PerformanceTweak.all.count) appliqués").font(.ui(11)).foregroundStyle(Theme.text3)
-                }
-                .fixedSize()
+            HStack(alignment: .center, spacing: 10) {
+                Text("\(t.appliedCount) sur \(PerformanceTweak.all.count) appliqués").font(.ui(12)).foregroundStyle(Theme.text3)
+                Spacer()
+                Button("Tout rétablir") { t.restore(PerformanceTweak.all) }
+                    .buttonStyle(SoftButtonStyle())
+                    .disabled(t.appliedCount == 0)
+                Button("Tout appliquer") { t.apply(t.everyday) }
+                    .buttonStyle(SoftButtonStyle(prominent: true))
             }
             if let msg = t.message {
                 Label(msg.text, systemImage: msg.ok ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
@@ -58,12 +54,10 @@ struct PerformanceTweaksTab: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(tweak.title).font(.ui(12.5, .medium)).foregroundStyle(Theme.text)
                                 Text(tweak.detail).font(.ui(11)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                                if let note = tweak.restart.note {
-                                    Text(note).font(.ui(10.5)).foregroundStyle(Theme.text3)
-                                }
                             }
                         }
                     }
+                    .help(tweak.restart.note ?? "")
                     .switchToggles()
                 }
                 if s == .finder {
@@ -112,7 +106,7 @@ struct PerformanceDisplaysPanel: View {
 
     var body: some View {
         let t = app.performance.tweaks
-        Panel(title: "Écrans", subtitle: "Plus d'images par seconde, c'est un défilement et des jeux plus fluides.", symbol: "display") {
+        Panel(title: "Écrans", subtitle: "Plus d'images par seconde, plus de fluidité.", symbol: "display") {
             VStack(alignment: .leading, spacing: 10) {
                 if t.displays.isEmpty {
                     EmptyHint(text: "Aucun écran lu.")
@@ -142,7 +136,7 @@ struct PerformanceAccessibilityPanel: View {
 
     var body: some View {
         let t = app.performance.tweaks
-        Panel(title: "Effets visuels", subtitle: "Réglages d'accessibilité de macOS qui allègent le travail de la puce graphique.", symbol: "sparkles") {
+        Panel(title: "Effets visuels", subtitle: "Ils allègent le travail de la puce graphique.", symbol: "sparkles") {
             VStack(alignment: .leading, spacing: 10) {
                 row("Réduire la transparence", "Supprime le flou derrière les menus, le Dock et les barres latérales.", on: t.reduceTransparency)
                 row("Réduire les animations", "Fondus au lieu des glissements entre les bureaux et en plein écran.", on: t.reduceMotion)

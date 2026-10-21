@@ -4,12 +4,15 @@ import AppKit
 struct UpdatesPage: View {
     @Environment(AppModel.self) private var app
 
+    static let tip = HelpTip(id: "updates.page", title: "Tu gardes la main",
+                             text: "Les flux des apps, l'App Store et les serveurs d'Apple ne sont interrogés que quand tu cliques sur « Vérifier ». Homebrew met à jour d'un clic ; les autres apps et l'App Store installent eux-mêmes : je t'y emmène, sans rien télécharger à leur place. Seule exception, que tu peux couper : je demande à GitHub s'il existe une nouvelle version de moi-même.")
+
     var body: some View {
         let m = app.updates
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "arrow.down.circle", title: "Mises à jour",
-                     subtitle: "Homebrew, tes apps et macOS au même endroit, chaque source à part. Rien ne s'installe sans ton clic.",
-                     tint: Theme.good, seed: 52) {
+                     subtitle: "Homebrew, tes apps et macOS au même endroit. Rien ne s'installe sans ton clic.",
+                     tint: Theme.good, seed: 52, tip: Self.tip) {
                 ScanButton(title: m.hasChecked ? "Tout revérifier" : "Tout vérifier", symbol: "arrow.triangle.2.circlepath",
                            running: m.isCheckingAnything, runningTitle: "Vérification…", activity: .downloading) {
                     Task { await m.checkAll() }
@@ -23,9 +26,6 @@ struct UpdatesPage: View {
                 UpdatesAppsPanel(kind: .store)
             }
             UpdatesMacOSPanel()
-            Callout(symbol: "hand.raised", title: "Tu gardes la main",
-                    text: "Les flux des apps, l'App Store et les serveurs d'Apple ne sont interrogés que quand tu cliques sur « Vérifier ». Les apps Sparkle et l'App Store installent eux-mêmes leurs mises à jour : Chamois t'y emmène, sans rien télécharger à leur place. Seule exception, que tu peux couper : Chamois demande à GitHub s'il existe une nouvelle version de lui-même.",
-                    tint: Theme.good)
         }
         .task { await m.loadInventory() }
     }
@@ -39,22 +39,19 @@ private struct UpdatesSummary: View {
     var body: some View {
         let m = app.updates
         let macOS = m.macOS ?? app.protection.pending
-        TileRow {
-            StatTile(symbol: "mug", value: m.brewPath == nil ? "—" : (m.brewState.date == nil ? "?" : "\(m.brewOutdated.count)"),
-                     label: "Homebrew",
-                     detail: m.brewPath == nil ? "Homebrew n'est pas installé" : (m.brewState.date.map { "Vérifié \(Fmt.relative($0))" } ?? "Pas encore vérifié"),
-                     tint: Theme.warn)
-            StatTile(symbol: "sparkles", value: m.sparkleState.date == nil ? "?" : "\(m.sparkleAvailable.count)", label: "Apps",
-                     detail: Fmt.plural(m.sparkleApps.count, "app lit son flux de mises à jour", "apps lisent leur flux de mises à jour"),
-                     tint: Theme.palette[4])
-            StatTile(symbol: "bag", value: m.storeState.date == nil ? "?" : "\(m.storeAvailable.count)", label: "App Store",
-                     detail: Fmt.plural(m.storeApps.count, "app installée depuis l'App Store", "apps installées depuis l'App Store"),
-                     tint: Theme.accent)
-            StatTile(symbol: "apple.logo",
-                     value: macOS.map { $0.status == .ok ? "À jour" : ($0.status == .warn ? "\(max(1, m.macOSLabels.count))" : "?") } ?? "?",
-                     label: "macOS", detail: macOS?.status == .warn ? "En attente d'installation" : "Mises à jour système",
-                     tint: Theme.text2)
-        }
+        DashboardMetricStrip(metrics: [
+            DashboardMetric(symbol: "mug", value: m.brewPath == nil ? "—" : (m.brewState.date == nil ? "?" : "\(m.brewOutdated.count)"),
+                            label: "Homebrew",
+                            detail: m.brewPath == nil ? "pas installé" : (m.brewState.date.map { "vérifié \(Fmt.relative($0))" } ?? "pas encore vérifié"),
+                            tint: Theme.warn),
+            DashboardMetric(symbol: "sparkles", value: m.sparkleState.date == nil ? "?" : "\(m.sparkleAvailable.count)", label: "Apps",
+                            detail: "sur \(m.sparkleApps.count)", tint: Theme.palette[4]),
+            DashboardMetric(symbol: "bag", value: m.storeState.date == nil ? "?" : "\(m.storeAvailable.count)", label: "App Store",
+                            detail: "sur \(m.storeApps.count)", tint: Theme.accent),
+            DashboardMetric(symbol: "apple.logo",
+                            value: macOS.map { $0.status == .ok ? "À jour" : ($0.status == .warn ? "\(max(1, m.macOSLabels.count))" : "?") } ?? "?",
+                            label: "macOS", detail: macOS?.status == .warn ? "à installer" : nil, tint: Theme.text2)
+        ])
     }
 }
 
@@ -90,7 +87,7 @@ private struct UpdatesBrewPanel: View {
         } content: {
             if m.brewPath == nil {
                 HStack(spacing: 12) {
-                    Text("Homebrew installe et met à jour les outils en ligne de commande et beaucoup d'apps. Il n'est pas installé sur ce Mac.")
+                    Text("Homebrew n'est pas installé sur ce Mac.")
                         .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     Spacer()
                     Button("Découvrir brew.sh") { m.openLink("https://brew.sh/fr/") }.buttonStyle(SoftButtonStyle(small: true))
@@ -115,7 +112,7 @@ private struct UpdatesBrewPanel: View {
     private func content(_ m: UpdatesModel) -> some View {
         switch m.brewState {
         case .idle:
-            EmptyHint(text: "Clique sur « Vérifier » : Homebrew compare tes paquets à sa liste, sans rien installer.", symbol: "mug")
+            EmptyHint(text: "Clique sur « Vérifier » : rien ne s'installe.", symbol: "mug")
         case .checking where m.brewPackages.isEmpty:
             EmptyHint(text: "Homebrew cherche ce qui est en retard…", symbol: "hourglass")
         case .failed(let message):
@@ -294,7 +291,7 @@ private struct UpdatesAppsPanel: View {
         let state = kind == .sparkle ? m.sparkleState : m.storeState
         Panel(title: kind == .sparkle ? "Apps qui se mettent à jour seules" : "App Store",
               subtitle: kind == .sparkle
-                ? "Elles lisent un flux Sparkle : Chamois le lit pour toi, l'app installe elle-même."
+                ? "Je lis leur flux Sparkle, l'app installe elle-même."
                 : "Versions comparées à celles de l'App Store français.",
               symbol: kind == .sparkle ? "sparkles" : "bag", tint: kind == .sparkle ? Theme.palette[4] : Theme.accent) {
             if !apps.isEmpty {
@@ -312,7 +309,7 @@ private struct UpdatesAppsPanel: View {
                 list(apps, state: state)
             }
             if kind == .sparkle, m.sparkleWithoutFeed > 0 {
-                Text("\(Fmt.plural(m.sparkleWithoutFeed, "autre app utilise", "autres apps utilisent")) Sparkle sans flux public : elles vérifient elles-mêmes au lancement.")
+                Text("Et \(Fmt.plural(m.sparkleWithoutFeed, "app qui vérifie", "apps qui vérifient")) elles-mêmes au lancement.")
                     .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -453,7 +450,7 @@ private struct UpdatesMacOSPanel: View {
     var body: some View {
         let m = app.updates
         let check = m.macOS ?? app.protection.pending
-        Panel(title: "macOS", subtitle: "Les mises à jour système et de sécurité proposées par Apple.", symbol: "apple.logo", tint: Theme.text2) {
+        Panel(title: "macOS", subtitle: "Mises à jour système et de sécurité", symbol: "apple.logo", tint: Theme.text2) {
             HStack(spacing: 8) {
                 UpdatesCheckButton(state: m.macOSState) { Task { await m.checkMacOS() } }
                 Button("Ouvrir Mise à jour de logiciels") { m.openLink(SettingsPane.updates) }
@@ -487,7 +484,7 @@ private struct UpdatesMacOSPanel: View {
                     Spacer(minLength: 0)
                 }
             } else {
-                EmptyHint(text: "Clique sur « Vérifier » : macOS demande à Apple s'il y a des mises à jour, sans rien installer.", symbol: "apple.logo")
+                EmptyHint(text: "Clique sur « Vérifier » : rien ne s'installe.", symbol: "apple.logo")
             }
         }
     }

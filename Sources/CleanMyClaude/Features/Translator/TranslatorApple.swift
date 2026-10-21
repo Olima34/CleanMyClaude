@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import Translation
 
 /// What Apple's on-device translation is asked to do.
@@ -12,10 +13,10 @@ struct TranslatorRequest: Equatable {
     var download = false
 }
 
-/// The places that translate on the device: the page, the translator inside the launcher panel,
-/// and the quick results of the launcher's search ("trad …").
+/// The places that ask Apple's on-device translation: the translator inside the launcher panel, the quick results of
+/// the launcher's search ("trad …"), and the small window where a language is downloaded (macOS asks to confirm there).
 enum TranslatorChannel {
-    case page, panel, launcher
+    case panel, launcher, download
 }
 
 /// Apple's translation only runs inside a view (`translationTask`): this invisible view does it for a channel.
@@ -52,16 +53,86 @@ private struct TranslatorAppleHost: View {
                     await MainActor.run { app.translator.appleFailed(request, error: error, channel: channel) }
                 }
             }
-            .onChange(of: ticket) { _, _ in
-                guard let request = app.translator.request(for: channel) else { return }
-                let fresh = TranslationSession.Configuration(source: request.source.map { Locale.Language(identifier: $0) },
-                                                             target: Locale.Language(identifier: request.target))
-                if configuration?.source == fresh.source, configuration?.target == fresh.target {
-                    configuration?.invalidate()
-                } else {
-                    configuration = fresh
+            .onChange(of: ticket) { _, _ in ask() }
+            // The download window opens with its request already made: it starts as soon as it is there.
+            .onAppear { if channel == .download { ask() } }
+    }
+
+    private func ask() {
+        guard let request = app.translator.request(for: channel) else { return }
+        let fresh = TranslationSession.Configuration(source: request.source.map { Locale.Language(identifier: $0) },
+                                                     target: Locale.Language(identifier: request.target))
+        if configuration?.source == fresh.source, configuration?.target == fresh.target {
+            configuration?.invalidate()
+        } else {
+            configuration = fresh
+        }
+    }
+}
+
+/// A language is downloaded in its own small window: macOS asks to confirm there (in the launcher panel its window
+/// would take the keyboard and close the panel). The window closes itself once the language is on the Mac.
+@MainActor
+enum TranslatorDownloadWindow {
+    private static var window: NSWindow?
+    private static let watcher = Watcher()
+
+    /// Closed by the user (its red button) in the middle of a download: the view goes, and the download with it.
+    private final class Watcher: NSObject, NSWindowDelegate {
+        func windowWillClose(_ notification: Notification) {
+            MainActor.assumeIsolated {
+                let w = notification.object as? NSWindow
+                DispatchQueue.main.async {
+                    w?.contentView = nil
+                    AppContext.model?.translator.downloadWindowClosed()
                 }
             }
+        }
+    }
+
+    static func show(app: AppModel, language: String) {
+        guard !Snapshot.isActive, !DemoData.isEnabled else { return }
+        let w = window ?? {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 380, height: 96), styleMask: [.titled, .closable],
+                             backing: .buffered, defer: false)
+            w.title = "Langues de traduction"
+            w.isReleasedWhenClosed = false
+            w.level = .floating
+            w.delegate = watcher
+            window = w
+            return w
+        }()
+        let host = NSHostingView(rootView: TranslatorDownloadView(language: language).environment(app))
+        host.sizingOptions = []
+        w.contentView = host
+        w.center()
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+    }
+
+    static func close() {
+        if window?.isVisible == true { window?.close() }
+    }
+}
+
+private struct TranslatorDownloadView: View {
+    @Environment(AppModel.self) private var app
+    var language: String
+
+    var body: some View {
+        HStack(spacing: 14) {
+            BusyMascot(.downloading, pixel: 2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Téléchargement : \(TranslatorLanguage.named(language).lowercased())")
+                    .font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                Text("Confirme dans la fenêtre de macOS.").font(.ui(11.5)).foregroundStyle(Theme.text3)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .frame(width: 380, height: 96)
+        .background(Theme.bg)
+        .background(TranslatorHost(channel: .download))
     }
 }
 
@@ -86,7 +157,7 @@ enum TranslatorAvailability {
     static func message(_ error: Error) -> String {
         if #available(macOS 15.0, *) {
             if TranslationError.unsupportedLanguagePairing ~= error { return "Apple ne traduit pas cette paire de langues : essaie avec Claude." }
-            if TranslationError.unableToIdentifyLanguage ~= error { return "Je n'arrive pas à reconnaître la langue : choisis-la à gauche." }
+            if TranslationError.unableToIdentifyLanguage ~= error { return "Je n'arrive pas à reconnaître la langue : choisis-la en haut à gauche." }
             if TranslationError.nothingToTranslate ~= error { return "Rien à traduire." }
         }
         if (error as? CancellationError) != nil { return "Téléchargement annulé." }

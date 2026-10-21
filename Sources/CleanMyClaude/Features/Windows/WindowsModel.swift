@@ -43,7 +43,7 @@ enum WindowsOutcome: Equatable {
     var message: String? {
         switch self {
         case .done: return nil
-        case .needsPermission: return "Autorise d'abord l'Accessibilité (page Fenêtres)."
+        case .needsPermission: return "Autorise d'abord l'Accessibilité (Raccourcis › Fenêtres)."
         case .noWindow: return "Aucune fenêtre à ranger au premier plan."
         case .fullScreen: return "Cette fenêtre est en mode plein écran : quitte-le d'abord."
         case .nothingToRestore: return "Rien à restaurer pour cette fenêtre."
@@ -147,15 +147,31 @@ final class WindowsModel: AppModule {
         [QuickToggle(id: "windows", title: "Raccourcis de fenêtres", symbol: "rectangle.split.2x1", isOn: enabled && trusted) { [weak self] in
             guard let self else { return }
             if !self.trusted {
-                AppPermission.accessibility.request()
+                // The permission is asked from the page, where its line says what it is for.
+                if let app = AppContext.model { app.hotkeys.show(.windows, app: app) }
             } else {
                 self.setEnabled(!self.enabled)
             }
         }]
     }
 
+    /// `--tab autoriser`: the Fenêtres part as it looks before the Accessibility permission.
+    func applySnapshotTab(_ tab: String) {
+        if tab == "autoriser" {
+            trusted = false
+            active = []
+        }
+    }
+
     func commands(app: AppModel) -> [AppCommand] {
-        WindowsAction.allCases.map { a in
+        let open = AppCommand(id: "win_settings", title: "Raccourcis des fenêtres", subtitle: "Moitiés, tiers, quarts : choisis tes touches",
+                              keywords: ["fenêtre", "fenêtres", "window", "ranger", "raccourci", "rectangle", "magnet"],
+                              icon: .symbol("rectangle.split.2x1", Theme.palette[6]), group: .tools, assistantSafe: true, urlSafe: true,
+                              hint: "Ouvrir") { ctx in
+            ctx.app.hotkeys.show(.windows, app: ctx.app)
+            return .done
+        }
+        return [open] + WindowsAction.allCases.map { a in
             AppCommand(id: a.commandID, title: "Fenêtre : \(a.title.prefix(1).lowercased() + a.title.dropFirst())",
                        subtitle: a.detail ?? "La fenêtre au premier plan", keywords: a.keywords,
                        icon: .symbol(a.symbol, Theme.palette[6]), group: .system, assistantSafe: true,

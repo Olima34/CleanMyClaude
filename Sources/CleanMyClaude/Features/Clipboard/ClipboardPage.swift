@@ -9,8 +9,8 @@ struct ClipboardPage: View {
         let intro = !m.settings.acknowledged || m.showIntro
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "doc.on.clipboard", title: "Presse-papiers",
-                     subtitle: "Tout ce que tu as copié, retrouvable en un instant : texte, liens, images et fichiers. Tout reste sur ce Mac, et les mots de passe ne sont jamais gardés.",
-                     tint: Theme.palette[4], seed: 37) {
+                     subtitle: "Tout ce que tu as copié, retrouvé en un instant.",
+                     tint: Theme.palette[4], seed: 37, tip: intro ? nil : Self.tip) {
                 if !intro {
                     HStack(spacing: 10) {
                         ClipboardStatePill()
@@ -23,11 +23,15 @@ struct ClipboardPage: View {
             } else {
                 HStack(alignment: .top, spacing: 14) {
                     ClipboardHistoryColumn().fixedSize(horizontal: false, vertical: true)
-                    ClipboardSideColumn().frame(width: 340)
+                    ClipboardSideColumn().frame(width: 320).fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
     }
+
+    static let tip = HelpTip(
+        id: "clipboard.page", title: "Ton historique",
+        text: "Clic ou ↩ recopie un élément, ↑ ↓ choisit, ⌫ l'efface. Clic droit pour l'épingler (il ne sera jamais effacé automatiquement) ou ne plus rien garder d'une app. Le raccourci de l'historique, ou « cb » dans le lanceur, ouvre sa fenêtre depuis n'importe où.")
 }
 
 /// The action bar pinned at the bottom of the page.
@@ -76,7 +80,6 @@ struct ClipboardStatePill: View {
             HStack(spacing: 7) {
                 Circle().fill(m.isActive ? Theme.good : Theme.warn).frame(width: 7, height: 7)
                 Text(m.isActive ? "Actif" : "En pause").font(.ui(12, .semibold))
-                Text(m.isActive ? "· clic pour mettre en pause" : "· clic pour reprendre").font(.ui(11.5)).foregroundStyle(Theme.text3)
             }
             .foregroundStyle(Theme.text)
             .padding(.horizontal, 12)
@@ -86,6 +89,7 @@ struct ClipboardStatePill: View {
             .contentShape(PillShape())
         }
         .buttonStyle(.plain)
+        .help(m.isActive ? "Mettre l'historique en pause" : "Reprendre l'historique")
     }
 }
 
@@ -98,50 +102,43 @@ struct ClipboardIntro: View {
         let m = app.clipboard
         // The demo shows the screen of someone who has never been asked.
         let access = DemoData.isEnabled ? ClipboardAccess.notAsked : ClipboardAccess.current
-        VStack(alignment: .leading, spacing: 14) {
-            Card(padding: 24) {
-                HStack(alignment: .top, spacing: 30) {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Text("Retrouve tout ce que tu as copié").font(.serif(26)).foregroundStyle(Theme.text)
-                        Text("L'historique est désactivé tant que tu ne l'allumes pas. Voici exactement ce qu'il fait :")
-                            .font(.ui(13)).foregroundStyle(Theme.text2)
-                        VStack(alignment: .leading, spacing: 10) {
-                            point("tray.full", "Il garde le texte, les liens, les images et les fichiers que tu copies, avec l'app d'où ils viennent.")
-                            point("lock.shield", "Il ignore les mots de passe : tout ce qu'un gestionnaire marque comme confidentiel, ce qui est copié pendant que 1Password, Bitwarden, Mots de passe ou une autre app de ta liste est au premier plan, et ce qui ressemble à un secret (clé d'API, jeton, clé privée, code à usage unique).")
-                            point("internaldrive", "Tout reste sur ce Mac, dans le dossier de Chamois. Rien n'est envoyé nulle part.")
-                            point("slider.horizontal.3", "Tu choisis combien garder (200 éléments, 200 Mo et 30 jours par défaut), tu épingles, tu effaces quand tu veux.")
-                            point("macwindow", "Son raccourci (ou « cb » dans le lanceur) ouvre sa propre fenêtre : tu cherches, tu vois l'élément en entier, ↩ le recolle.")
-                        }
-                        HStack(spacing: 10) {
-                            Button {
-                                m.showIntro = false
-                                m.setEnabled(true)
-                            } label: {
-                                Label("Activer l'historique", systemImage: "doc.on.clipboard.fill")
-                            }
-                            .buttonStyle(SoftButtonStyle(prominent: true))
-                            .disabled(DemoData.isEnabled && !Snapshot.isActive)
-                            Text("Tu pourras le mettre en pause à tout moment.").font(.ui(11.5)).foregroundStyle(Theme.text3)
-                        }
-                        .padding(.top, 4)
+        Card(padding: 24) {
+            HStack(alignment: .top, spacing: 30) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Retrouve tout ce que tu as copié").font(.serif(26)).foregroundStyle(Theme.text)
+                    VStack(alignment: .leading, spacing: 10) {
+                        point("tray.full", "Le texte, les liens, les images et les fichiers que tu copies, avec leur app.")
+                        point("lock.shield", "Jamais les mots de passe, ni ce qui ressemble à un secret.")
+                            .help("Ce qu'un gestionnaire marque comme confidentiel, ce qui est copié pendant que 1Password, Bitwarden, Mots de passe ou une autre app de ta liste est au premier plan, et ce qui ressemble à un secret : clé d'API, jeton, clé privée, code à usage unique.")
+                        point("internaldrive", "Tout reste sur ce Mac : 200 éléments et 30 jours par défaut.")
                     }
-                    Spacer(minLength: 0)
-                    ClipboardIllustration().padding(.top, 8)
+                    HStack(spacing: 10) {
+                        Button {
+                            m.showIntro = false
+                            m.setEnabled(true)
+                        } label: {
+                            Label("Activer l'historique", systemImage: "doc.on.clipboard.fill")
+                        }
+                        .buttonStyle(SoftButtonStyle(prominent: true))
+                        .disabled(DemoData.isEnabled && !Snapshot.isActive)
+                        Text("Tu pourras le mettre en pause à tout moment.").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    }
+                    .padding(.top, 4)
+                    Divider().overlay(Theme.border)
+                    ClipboardAccessRow(access: access, badgeAtEnd: false)
                 }
+                Spacer(minLength: 0)
+                ClipboardIllustration().padding(.top, 8)
             }
-            HStack(alignment: .top, spacing: 14) {
-                ClipboardAccessCard(access: access)
-                Callout(symbol: "hand.raised", title: "Et si macOS te pose une question ?",
-                        text: "Depuis macOS 15.4, le système peut demander si une app a le droit de lire le presse-papiers. C'est normal pour un historique : choisis « Toujours autoriser » pour \(AppEdition.name). Sans cet accord, rien ne peut être enregistré.",
-                        tint: Theme.palette[4])
-            }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private func point(_ symbol: String, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol).font(.ui(12, .medium)).foregroundStyle(Theme.palette[4]).frame(width: 18).padding(.top, 1)
+            if Theme.icons != .hidden {
+                Image(systemName: symbol).font(.ui(12, .medium))
+                    .foregroundStyle(Theme.icons == .tinted ? Theme.palette[4] : Theme.text2).frame(width: 18).padding(.top, 1)
+            }
             Text(text).font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -174,26 +171,30 @@ struct ClipboardIllustration: View {
     }
 }
 
-/// What macOS says about reading the clipboard (15.4 and later).
-struct ClipboardAccessCard: View {
+/// What macOS says about reading the clipboard (15.4 and later), in one row: its sentence only when something is to be done.
+struct ClipboardAccessRow: View {
     var access: ClipboardAccess
+    /// In a column of settings, the badge sits at the end of the row like the other values.
+    var badgeAtEnd = true
 
     var body: some View {
-        Card(padding: 16) {
-            HStack(alignment: .top, spacing: 12) {
-                IconBadge(symbol: access == .allowed ? "checkmark.shield" : "doc.on.clipboard", tint: access.status.color, size: 30)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Accès au presse-papiers").font(.ui(13, .semibold)).foregroundStyle(Theme.text)
-                    StatusBadge(status: access.status, text: access.label)
-                    Text(access.explanation).font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    if access == .denied || access == .ask {
-                        Button("Ouvrir Confidentialité et sécurité") { Finder.open("x-apple.systempreferences:com.apple.preference.security") }
-                            .buttonStyle(SoftButtonStyle(small: true))
-                    }
-                }
-                Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("Accès macOS").font(.ui(12.5)).foregroundStyle(Theme.text)
+                if badgeAtEnd { Spacer(minLength: 6) }
+                StatusBadge(status: access.status, text: access.label)
+            }
+            if access != .allowed && access != .unknown {
+                Text(access.explanation)
+                    .font(.ui(11.5)).foregroundStyle(access == .denied ? Theme.bad : Theme.text3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if access == .denied || access == .ask {
+                Button("Ouvrir Confidentialité et sécurité") { Finder.open("x-apple.systempreferences:com.apple.preference.security") }
+                    .buttonStyle(SoftButtonStyle(small: true))
             }
         }
+        .help(access.explanation)
     }
 }
 
@@ -254,8 +255,6 @@ struct ClipboardHistoryColumn: View {
                 if let id = m.selection { m.delete(id) }
                 return .handled
             }
-            Text("Clic ou ↩ pour recopier · ↑ ↓ pour choisir · ⌫ pour supprimer" + (m.combo.map { " · \($0.display) ouvre la fenêtre de l'historique" } ?? ""))
-                .font(.ui(11)).foregroundStyle(Theme.text3)
         }
         .onChange(of: m.search) { _, _ in limit = 60 }
         .onChange(of: m.filter) { _, _ in limit = 60 }
@@ -489,65 +488,84 @@ struct ClipboardRow: View {
 
 struct ClipboardSideColumn: View {
     @Environment(AppModel.self) private var app
+    /// The list of ignored apps stays folded: its count says enough most of the time.
+    @State private var showExcluded = false
 
     var body: some View {
         @Bindable var m = app.clipboard
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                stat(Fmt.int(m.items.count), m.items.count > 1 ? "éléments" : "élément")
-                stat(Fmt.bytes(m.totalBytes), "sur ce Mac")
-                stat(Fmt.int(m.skipped), m.skipped > 1 ? "ignorés" : "ignoré")
-                    .help("Copies laissées de côté depuis le lancement : mots de passe, secrets probables, données temporaires, apps ignorées.")
-            }
             Panel(title: "Réglages", symbol: "slider.horizontal.3", tint: Theme.palette[4]) {
-                choice("Garder au plus", [50, 100, 200, 500, 1000], m.settings.maxItems, { Fmt.int($0) }) { m.settings.maxItems = $0; m.prune() }
-                choice("Taille maximale", [50, 200, 500, 1000], m.settings.maxStorageMB, { $0 >= 1000 ? "1 Go" : "\($0) Mo" }) { m.settings.maxStorageMB = $0; m.prune() }
-                choice("Conserver", [1, 7, 30, 0], m.settings.retentionDays, { $0 == 0 ? "Toujours" : ($0 == 1 ? "1 jour" : "\($0) jours") }) {
-                    m.settings.retentionDays = $0
-                    m.prune()
+                if m.skipped > 0 {
+                    Text(m.skipped > 1 ? "\(Fmt.int(m.skipped)) ignorés" : "1 ignoré")
+                        .font(.ui(11.5)).foregroundStyle(Theme.text3).monospacedDigit()
+                        .help("Copies laissées de côté depuis le lancement : mots de passe, secrets probables, données temporaires, apps ignorées.")
                 }
-                Text("Les épingles ne sont jamais effacées automatiquement.").font(.ui(11)).foregroundStyle(Theme.text3)
+            } content: {
+                VStack(spacing: 8) {
+                    choice("Garder au plus", [50, 100, 200, 500, 1000], m.settings.maxItems, { Fmt.plural($0, "élément", "éléments") }) {
+                        m.settings.maxItems = $0
+                        m.prune()
+                    }
+                    choice("Jusqu'à", [50, 200, 500, 1000], m.settings.maxStorageMB, { $0 >= 1000 ? "1 Go" : "\($0) Mo" }) {
+                        m.settings.maxStorageMB = $0
+                        m.prune()
+                    }
+                    choice("Pendant", [1, 7, 30, 0], m.settings.retentionDays, { $0 == 0 ? "Toujours" : ($0 == 1 ? "1 jour" : "\($0) jours") }) {
+                        m.settings.retentionDays = $0
+                        m.prune()
+                    }
+                }
+                .help("Les épingles ne sont jamais effacées automatiquement.")
                 Divider().overlay(Theme.border)
                 VStack(spacing: 10) {
-                    ClipboardSwitch(title: "Garder les images", detail: "Captures, photos copiées : enregistrées en PNG dans le dossier de l'app.", isOn: $m.settings.keepImages)
-                    ClipboardSwitch(title: "Garder les fichiers", detail: "Seul le chemin est gardé, pas une copie du fichier.", isOn: $m.settings.keepFiles)
-                    ClipboardSwitch(title: "Coller directement depuis la fenêtre", detail: "Sinon, l'élément est copié et tu colles avec ⌘V.", isOn: $m.settings.pasteDirectly)
+                    ClipboardSwitch(title: "Garder les images", help: "Captures et photos copiées, enregistrées en PNG dans le dossier de l'app.", isOn: $m.settings.keepImages)
+                    ClipboardSwitch(title: "Garder les fichiers", help: "Seul le chemin est gardé, pas une copie du fichier.", isOn: $m.settings.keepFiles)
+                    ClipboardSwitch(title: "Coller directement", help: "Depuis la fenêtre de l'historique, dans l'app au premier plan. Sinon, l'élément est copié et tu colles avec ⌘V.",
+                                    isOn: $m.settings.pasteDirectly)
                     ClipboardSwitch(title: "Ignorer les secrets probables",
-                                    detail: "Clés d'API, jetons, clés privées, codes à usage unique, mots de passe copiés depuis un navigateur ou un terminal : reconnus à leur forme, ils ne sont pas enregistrés.",
+                                    help: "Clés d'API, jetons, clés privées, codes à usage unique, mots de passe copiés depuis un navigateur ou un terminal : reconnus à leur forme, ils ne sont pas enregistrés.",
                                     isOn: $m.settings.skipSecrets)
                 }
                 Divider().overlay(Theme.border)
                 HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Raccourci de l'historique").font(.ui(12.5)).foregroundStyle(Theme.text)
-                        Text("Ouvre sa fenêtre, partout").font(.ui(11)).foregroundStyle(Theme.text3)
-                    }
+                    Text("Raccourci").font(.ui(12.5)).foregroundStyle(Theme.text)
+                        .help("Ouvre la fenêtre de l'historique depuis n'importe quelle app")
                     Spacer()
                     ShortcutRecorder(combo: m.combo) { m.setCombo($0) }
                 }
+                Divider().overlay(Theme.border)
+                ClipboardAccessRow(access: ClipboardAccess.current)
             }
-            if m.settings.pasteDirectly {
+            if m.settings.pasteDirectly && !AppPermission.accessibility.isGranted {
                 PermissionCard(permission: .accessibility,
-                               reason: "Pour coller directement dans l'app au premier plan quand tu choisis un élément dans la fenêtre de l'historique. Sans elle, l'élément est simplement copié.")
+                               reason: "Pour coller dans l'app au premier plan. Sans elle, l'élément est simplement copié.")
             }
-            ClipboardAccessCard(access: ClipboardAccess.current)
-            Panel(title: "Apps ignorées", subtitle: "Rien de ce que tu copies dans ces apps n'est gardé", symbol: "eye.slash", tint: Theme.palette[4]) {
-                FlowLayout(spacing: 5, lineSpacing: 5) {
-                    ForEach(m.settings.excluded) { a in
-                        HStack(spacing: 4) {
-                            Text(a.name).font(.ui(11.5, .medium)).foregroundStyle(Theme.text).lineLimit(1)
-                            Button { m.removeExclusion(a.bundleID) } label: {
-                                Image(systemName: "xmark").font(.ui(8.5, .bold)).foregroundStyle(Theme.text3).frame(width: 14, height: 14)
+            Panel(title: "Apps ignorées",
+                  subtitle: Fmt.plural(m.settings.excluded.count, "app", "apps"),
+                  symbol: "eye.slash", tint: Theme.palette[4]) {
+                if !m.settings.excluded.isEmpty {
+                    Button(showExcluded ? "Masquer" : "Voir la liste") { showExcluded.toggle() }
+                        .buttonStyle(SoftButtonStyle(small: true))
+                }
+            } content: {
+                if showExcluded {
+                    FlowLayout(spacing: 5, lineSpacing: 5) {
+                        ForEach(m.settings.excluded) { a in
+                            HStack(spacing: 4) {
+                                Text(a.name).font(.ui(11.5, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                                Button { m.removeExclusion(a.bundleID) } label: {
+                                    Image(systemName: "xmark").font(.ui(8.5, .bold)).foregroundStyle(Theme.text3).frame(width: 14, height: 14)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Ne plus ignorer \(a.name)")
                             }
-                            .buttonStyle(.plain)
-                            .help("Ne plus ignorer \(a.name)")
+                            .padding(.leading, 9)
+                            .padding(.trailing, 4)
+                            .padding(.vertical, 4)
+                            .background(PillShape().fill(Theme.bg))
+                            .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
+                            .help(a.bundleID)
                         }
-                        .padding(.leading, 9)
-                        .padding(.trailing, 4)
-                        .padding(.vertical, 4)
-                        .background(PillShape().fill(Theme.bg))
-                        .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
-                        .help(a.bundleID)
                     }
                 }
                 HStack(spacing: 8) {
@@ -562,65 +580,35 @@ struct ClipboardSideColumn: View {
         }
     }
 
-    private func stat(_ value: String, _ label: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(value).font(.serif(21)).foregroundStyle(Theme.text).monospacedDigit().lineLimit(1).minimumScaleFactor(0.6)
-            Text(label).font(.ui(11)).foregroundStyle(Theme.text3)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.card))
-        .overlay(RoundedRectangle(cornerRadius: Theme.r(12)).strokeBorder(Theme.border, lineWidth: Theme.line))
-    }
-
+    /// "Garder au plus ……… 200 éléments ⌄": a value chosen from a short menu, on one line.
     private func choice(_ title: String, _ values: [Int], _ current: Int, _ label: @escaping (Int) -> String,
                         _ pick: @escaping (Int) -> Void) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).font(.ui(12)).foregroundStyle(Theme.text2)
-            HStack(spacing: 5) {
-                ForEach(values, id: \.self) { v in
-                    ClipboardChip(title: label(v), selected: v == current) { pick(v) }
+        HStack {
+            Text(title).font(.ui(12.5)).foregroundStyle(Theme.text)
+            Spacer()
+            BorderlessMenu {
+                Picker(title, selection: Binding(get: { current }, set: pick)) {
+                    ForEach(values, id: \.self) { Text(label($0)).tag($0) }
                 }
+                .pickerStyle(.inline)
+            } label: {
+                Text(label(current)).font(.ui(12, .medium)).foregroundStyle(Theme.text2)
             }
         }
-    }
-}
-
-struct ClipboardChip: View {
-    var title: String
-    var selected: Bool
-    var action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.ui(11.5, selected ? .semibold : .medium))
-                .foregroundStyle(selected ? Theme.ink(on: Theme.palette[4]) : Theme.text2)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 5)
-                .background(PillShape().fill(selected ? Theme.palette[4] : Theme.bg))
-                .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border, lineWidth: Theme.line))
-                .contentShape(PillShape())
-        }
-        .buttonStyle(.plain)
     }
 }
 
 struct ClipboardSwitch: View {
     var title: String
-    var detail: String? = nil
+    var help: String? = nil
     @Binding var isOn: Bool
 
     var body: some View {
         Toggle(isOn: $isOn) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(12.5)).foregroundStyle(Theme.text)
-                if let detail {
-                    Text(detail).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            Text(title).font(.ui(12.5)).foregroundStyle(Theme.text)
         }
         .switchToggles()
         .controlSize(.small)
+        .help(help ?? title)
     }
 }

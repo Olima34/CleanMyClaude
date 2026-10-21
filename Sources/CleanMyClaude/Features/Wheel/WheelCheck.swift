@@ -1,7 +1,7 @@
 import AppKit
 import ImageIO
 
-/// `--wheel-check [secondes]` : the wheel alone, without the rest of the app (no setting nor history written), for a
+/// `--wheel-check [secondes]` : the wheel alone, without the rest of the app (no setting written), for a
 /// while: it says what it sees (the gestures, the segment under the pointer, the drop) and runs the actions done at once
 /// next to the original. The small windows are only named.
 @MainActor
@@ -40,8 +40,10 @@ enum WheelCheck {
             watcher.rearm()
         }
         overlay.onChoose = { action, files, point in
-            guard let action else { return print("lâché au centre : la liste de toutes les actions") }
+            guard let action else { return print("lâché au centre : la fenêtre du Convertisseur s'ouvrirait") }
             if let kind = action.editor { return print("lâché sur \(action.label) : la fenêtre « \(kind.rawValue) » s'ouvrirait") }
+            if action.opensHub { return print("lâché sur \(action.label) : la fenêtre du Convertisseur s'ouvrirait, sur « \(action.title) »") }
+            if action == .sign { return print("lâché sur \(action.label) : Remplir et signer s'ouvrirait") }
             print("lâché sur \(action.label) pour \(files.map(\.name).joined(separator: ", "))")
             let ffmpeg = Shell.which("ffmpeg")
             runner.run(action, files: files, at: point) { control, onStep in
@@ -145,6 +147,46 @@ enum WheelEngineCheck {
             if ConverterImageEngine.hasGPS(out) { throw ConverterError.failed("la position est restée") }
             return [out]
         }
+        await attempt("Photo · Retirer le GPS") {
+            let out = try await WheelJobs.perform(.strip, files: [image], context: ctx, control: control) { _ in }.outputs
+            if out.contains(where: ConverterImageEngine.hasGPS) { throw ConverterError.failed("la position est restée") }
+            return out
+        }
+        await attempt("Photos · Changer de format (fenêtre : AVIF, sans métadonnées)") {
+            var o = ConverterOptions()
+            o.imageFormat = .avif
+            o.stripOnConvert = true
+            return try await WheelJobs.converter(.imageConvert, [image], options: o, context: ctx, control: control) { _ in }.outputs
+        }
+        if let qr = makeQR(dir.appendingPathComponent("affiche.png")) {
+            let r = try? await WheelJobs.perform(.qrRead, files: [WheelFile(url: qr, kind: .image)], context: ctx, control: control) { _ in }
+            lines.append(r?.codes == ["https://exemple.fr/concert"] ? "✓ Image · Lire un QR code → « \(r?.codes.first ?? "") »"
+                                                                     : "✗ Image · Lire un QR code : \(r?.codes ?? [])")
+        }
+        await attempt("Renommer (fenêtre), puis Annuler") {
+            let a = try FileOps.write(Data("a".utf8), to: dir.appendingPathComponent("note 1.txt"))
+            let b = try FileOps.write(Data("b".utf8), to: dir.appendingPathComponent("note 2.txt"))
+            let files = [WheelFile(url: a, kind: .document), WheelFile(url: b, kind: .document)]
+            let r = try await WheelJobs.converter(.rename, files, options: ConverterOptions(), names: ["Réunion 1.txt", "Réunion 2.txt"],
+                                                  context: ctx, control: control) { _ in }
+            guard r.renamed.count == 2, r.outputs.map(\.lastPathComponent) == ["Réunion 1.txt", "Réunion 2.txt"] else {
+                throw ConverterError.failed("renommés : \(r.outputs.map(\.lastPathComponent))")
+            }
+            // « Annuler » : the old names come back.
+            _ = try ConverterRename.apply(r.renamed.map { (url: $0.to, newName: $0.from.lastPathComponent) }, control: control)
+            guard FileManager.default.fileExists(atPath: a.path), FileManager.default.fileExists(atPath: b.path) else {
+                throw ConverterError.failed("les anciens noms ne sont pas revenus")
+            }
+            return [a, b]
+        }
+        let markdown = try? FileOps.write(Data("# Compte rendu\n\nLa *réunion* a duré **une heure**.\n\n- un\n- deux\n".utf8),
+                                          to: dir.appendingPathComponent("compte rendu.md"))
+        if let markdown {
+            let note = WheelFile(url: markdown, kind: .markdown)
+            for action in [WheelAction.rtf, .odt, .pdf] {
+                await attempt("Markdown · \(action.title)") { try await WheelJobs.perform(action, files: [note], context: ctx, control: control) { _ in }.outputs }
+            }
+        }
         let sensitive = WheelImageEngine.sensitiveText(try! WheelImageEngine.load(makeCard(dir.appendingPathComponent("carte.png"))!).image)
         lines.append(sensitive.count >= 2 ? "✓ Masquer · \(sensitive.count) zones sensibles trouvées sur la carte de visite" : "✗ Masquer · \(sensitive.count) zone(s) sensible(s) seulement")
         let doc = WheelFile(url: pdf, kind: .pdf)
@@ -156,6 +198,15 @@ enum WheelEngineCheck {
             }
         }
         await attempt("PDF · Pages (3, 1 pivotée)") { [try WheelDocEngine.pages(pdf, [.init(index: 2, turns: 0), .init(index: 0, turns: 1)], folder: nil, control: control)] }
+        await attempt("PDF · Découper (fenêtre : pages 1 et 3, une par fichier)") {
+            var o = ConverterOptions()
+            o.pdfPages = "1, 3"
+            o.splitMode = .eachPage
+            return try await WheelJobs.converter(.pdfSplit, [doc], options: o, context: ctx, control: control) { _ in }.outputs
+        }
+        await attempt("PDF et photo · Fusionner (fenêtre)") {
+            try await WheelJobs.converter(.pdfMerge, [doc, image], options: ConverterOptions(), context: ctx, control: control) { _ in }.outputs
+        }
         await attempt("PDF · Fusionner") {
             try await WheelJobs.perform(.merge, files: [doc, WheelFile(url: pdf2, kind: .pdf)], context: ctx, control: control) { _ in }.outputs
         }
@@ -168,7 +219,7 @@ enum WheelEngineCheck {
                                    "-i", "sine=frequency=440:duration=4", "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", video.path], timeout: 60)
         guard r.ok else { return lines + ["✗ vidéo d'essai : \(r.err)"] }
         let movie = WheelFile(url: video, kind: .video)
-        for action in [WheelAction.mp4, .gif, .sound, .mute] {
+        for action in [WheelAction.mp4, .mkv, .webm, .gif, .sound, .mute] {
             await attempt("Vidéo · \(action.title)") { try await WheelJobs.perform(action, files: [movie], context: ctx, control: control) { _ in }.outputs }
         }
         await attempt("Vidéo · Couper 1 s → 3 s") { [try await WheelMediaEngine.trim(video, start: 1, end: 3, folder: nil, control: control)] }
@@ -180,7 +231,7 @@ enum WheelEngineCheck {
             try? FileManager.default.moveItem(at: s, to: sound)
         }
         let audio = WheelFile(url: sound, kind: .audio)
-        for action in [WheelAction.wav, .flac, .mp3] {
+        for action in [WheelAction.wav, .aiff, .flac, .mp3] {
             await attempt("Son · \(action.title)") { try await WheelJobs.perform(action, files: [audio], context: ctx, control: control) { _ in }.outputs }
         }
         await attempt("Son · Couper") { [try await WheelMediaEngine.trim(sound, start: 0.5, end: 2, folder: nil, control: control)] }
@@ -196,6 +247,12 @@ enum WheelEngineCheck {
                                     kCGImagePropertyGPSLongitude: 6.86, kCGImagePropertyGPSLongitudeRef: "E"]
         CGImageDestinationAddImage(dest, image, [kCGImagePropertyGPSDictionary: gps] as CFDictionary)
         return CGImageDestinationFinalize(dest) ? url : nil
+    }
+
+    /// A poster with a QR code on it.
+    private static func makeQR(_ url: URL) -> URL? {
+        guard let code = ConverterVision.qrImage("https://exemple.fr/concert"), let png = ConverterImageEngine.pngData(code) else { return nil }
+        return try? FileOps.write(png, to: url)
     }
 
     /// A business card with an e-mail address and a phone number.

@@ -16,46 +16,23 @@ enum ConverterDocumentEngine {
         let out = FileOps.outputURL(for: input, extension: format.ext, folder: folder)
         let title = input.deletingPathExtension().lastPathComponent
 
+        if format == .pdf {
+            let data = try pdfData(input, kind: kind, control: control)
+            return try FileOps.write(data, to: out)
+        }
+
         if kind == .markdown {
             let source = try readText(input)
             let blocks = ConverterMarkdown.parse(source)
             let data: Data?
             switch format {
             case .html: data = Data(ConverterMarkdown.html(blocks, title: title).utf8)
-            case .pdf: data = ConverterTextPDF.render(ConverterMarkdown.attributed(blocks), title: title)
             case .txt: data = Data(ConverterMarkdown.attributed(blocks).string.utf8)
             case .docx, .rtf, .odt: data = documentData(ConverterMarkdown.attributed(blocks), format: format)
+            case .pdf: data = nil
             }
             guard let data else { throw ConverterError.failed("La conversion du Markdown a échoué.") }
             try control.check()
-            return try FileOps.write(data, to: out)
-        }
-
-        if format == .pdf {
-            // Word: read and laid out like Word does (styles, tables, pictures, headers, footers, page size).
-            if ["docx", "docm", "dotx", "dotm"].contains(ext) {
-                do {
-                    let doc = try ConverterDocx.read(try Data(contentsOf: input))
-                    try control.check()
-                    if let data = try ConverterPageLayout.render(doc, title: title, control: control) {
-                        return try FileOps.write(data, to: out)
-                    }
-                } catch ConverterError.cancelled {
-                    throw ConverterError.cancelled
-                } catch {
-                    // A document this reader does not understand still goes through textutil below.
-                }
-            }
-            // textutil turns anything else into RTF on stdout; the text system lays it out on the document's own page size.
-            let r = Shell.run(textutil, ["-convert", "rtf", "-stdout"] + encodingArgs(input) + [input.path], timeout: 180)
-            var info: NSDictionary?
-            guard r.ok, let attributed = NSAttributedString(rtf: Data(r.out.utf8), documentAttributes: &info) else {
-                throw ConverterError.failed(r.err.isEmpty ? "textutil n'a pas pu lire ce document." : r.err)
-            }
-            try control.check()
-            guard let data = ConverterTextPDF.render(attributed, title: title, page: ConverterTextPDF.page(info)) else {
-                throw ConverterError.failed("Le PDF n'a pas pu être dessiné.")
-            }
             return try FileOps.write(data, to: out)
         }
 
@@ -67,6 +44,42 @@ enum ConverterDocumentEngine {
         FileOps.didCreate(out)
         control.progress(1)
         return out
+    }
+
+    /// The PDF of a text document, in memory: written by `convert`, opened as is by Remplir et signer.
+    static func pdfData(_ input: URL, kind: ConverterKind, control: ConverterControl) throws -> Data {
+        let ext = input.pathExtension.lowercased()
+        let title = input.deletingPathExtension().lastPathComponent
+        if kind == .markdown {
+            guard let data = ConverterTextPDF.render(ConverterMarkdown.attributed(ConverterMarkdown.parse(try readText(input))), title: title) else {
+                throw ConverterError.failed("La conversion du Markdown a échoué.")
+            }
+            try control.check()
+            return data
+        }
+        // Word: read and laid out like Word does (styles, tables, pictures, headers, footers, page size).
+        if ["docx", "docm", "dotx", "dotm"].contains(ext) {
+            do {
+                let doc = try ConverterDocx.read(try Data(contentsOf: input))
+                try control.check()
+                if let data = try ConverterPageLayout.render(doc, title: title, control: control) { return data }
+            } catch ConverterError.cancelled {
+                throw ConverterError.cancelled
+            } catch {
+                // A document this reader does not understand still goes through textutil below.
+            }
+        }
+        // textutil turns anything else into RTF on stdout; the text system lays it out on the document's own page size.
+        let r = Shell.run(textutil, ["-convert", "rtf", "-stdout"] + encodingArgs(input) + [input.path], timeout: 180)
+        var info: NSDictionary?
+        guard r.ok, let attributed = NSAttributedString(rtf: Data(r.out.utf8), documentAttributes: &info) else {
+            throw ConverterError.failed(r.err.isEmpty ? "textutil n'a pas pu lire ce document." : r.err)
+        }
+        try control.check()
+        guard let data = ConverterTextPDF.render(attributed, title: title, page: ConverterTextPDF.page(info)) else {
+            throw ConverterError.failed("Le PDF n'a pas pu être dessiné.")
+        }
+        return data
     }
 
     /// Plain text files are read as UTF-8 when they are valid UTF-8 (textutil guesses otherwise).

@@ -5,12 +5,15 @@ struct BatteryPage: View {
     @Environment(AppModel.self) private var app
     static var tint: Color { Theme.good }
 
+    static let tip = HelpTip(id: "battery.page", title: "Ménager ta batterie",
+                             text: "Une batterie lithium vieillit plus vite quand elle reste pleine, surtout au chaud : entre 20 et 80 %, elle garde sa capacité plus longtemps. Avant un voyage, passe la limite à 100 % la veille, puis reviens à 80 % au retour. Depuis le lanceur, tape « limite 80 », « limite 100 » ou « batterie ».")
+
     var body: some View {
         let m = app.battery
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: Page.battery.symbol, title: "Batterie",
-                     subtitle: "Ménage ta batterie : la limite de recharge de macOS en un clic, une alerte avant qu'elle ne soit vide, et son état de santé en clair.",
-                     tint: Self.tint, seed: 83) {
+                     subtitle: "Sa limite de recharge, tes alertes et sa santé.",
+                     tint: Self.tint, seed: 83, tip: Self.tip) {
                 if let r = m.reading { BatteryLevelPill(reading: r) }
             }
             if let r = m.reading {
@@ -20,16 +23,6 @@ struct BatteryPage: View {
                     BatteryAlertsPanel()
                 }
                 BatteryHealthRow(reading: r)
-                TileRow {
-                    Callout(symbol: "leaf", title: "Pourquoi s'arrêter à 80 % ?",
-                            text: "Une batterie lithium vieillit plus vite quand elle reste pleine, surtout au chaud. Entre 20 et 80 %, elle garde sa capacité plus longtemps.",
-                            tint: Self.tint)
-                    Callout(symbol: "airplane", title: "Avant un voyage",
-                            text: "Passe la limite à 100 % la veille pour partir avec une recharge complète, puis reviens à 80 % au retour.",
-                            tint: Self.tint)
-                    Callout(symbol: "command", title: "Depuis le lanceur",
-                            text: "Tape « limite 80 », « limite 100 » ou « batterie » pour voir où elle en est.", tint: Self.tint)
-                }
             } else {
                 Card(padding: 24) {
                     EmptyHint(text: "Pas de batterie sur ce Mac : il tourne toujours sur le secteur, rien à protéger ici.", symbol: "powerplug")
@@ -166,11 +159,11 @@ private struct BatteryLimitPanel: View {
     var body: some View {
         let m = app.battery
         Panel(title: "Limite de recharge",
-              subtitle: "Branché, ton Mac s'arrête de recharger à ce niveau et tourne sur le secteur. 80 % est le plus doux pour la batterie.",
+              subtitle: "80 % est le plus doux pour la batterie.",
               symbol: "bolt.badge.checkmark", tint: BatteryPage.tint) {
             VStack(alignment: .leading, spacing: 12) {
                 if let l = m.limit, !l.supported {
-                    Text("Ton Mac ou ta version de macOS n'a pas de limite de recharge. Active plutôt l'alerte de charge à côté : elle te dit quand débrancher.")
+                    Text("Pas de limite de recharge sur ce Mac ou ce macOS : l'alerte de charge, à côté, te dit quand débrancher.")
                         .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                 } else if let l = m.limit {
                     HStack(spacing: 8) {
@@ -185,9 +178,9 @@ private struct BatteryLimitPanel: View {
                             .help(v >= 100 ? "Recharger jusqu'à 100 %" : "Arrêter la recharge à \(v) %")
                         }
                     }
-                    Text(l.limit.map { $0 >= 100 ? "Pas de limite : ton Mac se recharge jusqu'à 100 %." : "macOS arrête la recharge à \($0) % tant que le chargeur reste branché." }
-                         ?? "macOS n'a pas donné sa limite actuelle.")
-                        .font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    if l.limit == nil {
+                        Text("macOS n'a pas donné sa limite actuelle.").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    }
                 } else {
                     HStack(spacing: 8) {
                         BusyMascot(.charging, pixel: 1.5)
@@ -196,7 +189,7 @@ private struct BatteryLimitPanel: View {
                 }
                 if let asked = m.limitRefused {
                     Callout(symbol: "gearshape", title: "À finir dans Réglages Système",
-                            text: "macOS garde ce réglage pour lui : dans Batterie, règle « Limite de recharge » sur \(asked) %. Chamois verra le changement tout seul.",
+                            text: "Dans Batterie, règle « Limite de recharge » sur \(asked) % : je verrai le changement tout seul.",
                             tint: Theme.warn)
                 }
                 Button("Ouvrir les réglages Batterie") { m.openSettings() }
@@ -237,14 +230,14 @@ private struct BatteryAlertsPanel: View {
 
     var body: some View {
         let m = app.battery
-        Panel(title: "Alertes", subtitle: "Une notification quand la batterie passe ces seuils, une seule fois à chaque passage",
+        Panel(title: "Alertes", subtitle: "Une notification à chaque passage de seuil",
               symbol: "bell", tint: BatteryPage.tint) {
             VStack(alignment: .leading, spacing: 14) {
-                alert(title: "Batterie faible", detail: "Sur batterie, quand elle descend jusqu'à ce niveau : il est temps de brancher le chargeur.",
+                alert(title: "Batterie faible", detail: "Sur batterie : il est temps de brancher le chargeur.",
                       isOn: Binding(get: { m.settings.lowAlert }, set: { m.setLowAlert($0) }),
                       choices: BatteryRules.lowChoices, value: m.settings.lowLevel) { m.setLowLevel($0) }
                 Divider().overlay(Theme.border)
-                alert(title: "Charge atteinte", detail: "En recharge, quand elle arrive à ce niveau : tu peux débrancher. Utile sans limite de recharge, ou pour viser plus bas.",
+                alert(title: "Charge atteinte", detail: "En recharge : tu peux débrancher.",
                       isOn: Binding(get: { m.settings.highAlert }, set: { m.setHighAlert($0) }),
                       choices: BatteryRules.highChoices, value: m.settings.highLevel) { m.setHighLevel($0) }
                 if !Notifier.available && !DemoData.isEnabled {
@@ -283,26 +276,27 @@ private struct BatteryHealthRow: View {
     private var r: BatteryReading { reading }
 
     var body: some View {
-        TileRow {
-            StatTile(symbol: "heart", value: r.health.map(Fmt.pct) ?? "—", label: "Capacité maximale",
-                     detail: capacityDetail, tint: (r.health ?? 1) < 0.8 ? Theme.warn : BatteryPage.tint)
-            StatTile(symbol: "arrow.triangle.2.circlepath", value: r.cycleCount.map(Fmt.int) ?? "—", label: "Cycles",
-                     detail: r.designCycles.map { "Prévue pour \(Fmt.int($0)) cycles" } ?? "Recharges complètes cumulées", tint: Theme.palette[1])
-            StatTile(symbol: "powerplug", value: r.adapterWatts.map { "\($0) W" } ?? "—", label: "Chargeur",
-                     detail: r.onAC ? (r.adapterName ?? "Branché") : "Débranché", tint: Theme.palette[4])
-            if let t = r.temperature {
-                StatTile(symbol: "thermometer.medium", value: "\(Fmt.dec(t)) °C", label: "Température",
-                         detail: t >= 40 ? "Chaude : la recharge peut ralentir" : "Normale", tint: t >= 40 ? Theme.warn : Theme.palette[2])
-            } else {
-                StatTile(symbol: "bolt", value: r.batteryPower.map { power($0) } ?? "—", label: "Flux de la batterie",
-                         detail: flowDetail, tint: Theme.palette[2])
-            }
+        var list = [
+            DashboardMetric(symbol: "heart", value: r.health.map(Fmt.pct) ?? "—", label: "Capacité maximale",
+                            detail: capacityDetail, tint: (r.health ?? 1) < 0.8 ? Theme.warn : BatteryPage.tint),
+            DashboardMetric(symbol: "arrow.triangle.2.circlepath", value: r.cycleCount.map(Fmt.int) ?? "—", label: "Cycles",
+                            detail: r.designCycles.map { "prévue pour \(Fmt.int($0))" }, tint: Theme.palette[1]),
+            DashboardMetric(symbol: "powerplug", value: r.adapterWatts.map { "\($0) W" } ?? "—", label: "Chargeur",
+                            detail: r.onAC ? (r.adapterName ?? "branché") : "débranché", tint: Theme.palette[4])
+        ]
+        if let t = r.temperature {
+            list.append(DashboardMetric(symbol: "thermometer.medium", value: "\(Fmt.dec(t)) °C", label: "Température",
+                                        detail: t >= 40 ? "chaude : la recharge peut ralentir" : "normale", tint: t >= 40 ? Theme.warn : Theme.palette[2]))
+        } else {
+            list.append(DashboardMetric(symbol: "bolt", value: r.batteryPower.map { power($0) } ?? "—", label: "Flux de la batterie",
+                                        detail: flowDetail, tint: Theme.palette[2]))
         }
+        return DashboardMetricStrip(metrics: list)
     }
 
     private var capacityDetail: String {
-        guard let m = r.maxCapacity, let d = r.designCapacity else { return "Par rapport à une batterie neuve" }
-        return "\(Fmt.int(m)) mAh sur \(Fmt.int(d)) à l'origine"
+        guard let m = r.maxCapacity, let d = r.designCapacity else { return "par rapport à une batterie neuve" }
+        return "\(Fmt.int(m)) mAh sur \(Fmt.int(d))"
     }
 
     private func power(_ w: Double) -> String {
@@ -310,7 +304,7 @@ private struct BatteryHealthRow: View {
     }
 
     private var flowDetail: String {
-        guard let w = r.batteryPower, abs(w) >= 0.05 else { return "Ni recharge ni décharge" }
-        return w > 0 ? "Elle se recharge" : "Elle alimente le Mac"
+        guard let w = r.batteryPower, abs(w) >= 0.05 else { return "ni recharge ni décharge" }
+        return w > 0 ? "elle se recharge" : "elle alimente le Mac"
     }
 }

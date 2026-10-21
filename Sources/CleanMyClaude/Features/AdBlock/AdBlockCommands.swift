@@ -6,8 +6,21 @@ enum AdBlockCommands {
     static let keywords = ["pub", "pubs", "publicité", "publicités", "bloqueur", "adblock", "pisteurs", "trackers", "dns", "bloquer"]
 
     static func list(_ m: AdBlockModel) -> [AppCommand] {
-        let tint = AdBlockPage.tint
+        let tint = AdBlockStyle.tint
         return [
+            AppCommand(id: "adblock_open", title: "Bloqueur de pub", subtitle: "Les pubs et les pisteurs bloqués pour tout le Mac",
+                       keywords: keywords + ["ouvrir"], icon: .symbol("hand.raised", tint), group: .tools,
+                       assistantSafe: true, urlSafe: true, hint: "Ouvrir") { _ in
+                m.openPage(.blocker)
+                return .done
+            },
+            AppCommand(id: "adblock_player_open", title: "Lecteur sans pub",
+                       subtitle: "YouTube, Twitch et les plateformes gratuites sans pub, Vidéo seule et tes comptes",
+                       keywords: ["lecteur", "sans pub", "youtube", "twitch", "vidéo seule", "comptes", "signet", "ouvrir"],
+                       icon: .symbol("play.tv", tint), group: .tools, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { _ in
+                m.openPage(.player)
+                return .done
+            },
             AppCommand(id: "adblock_install", title: m.installed ? "Réinstaller le bloqueur de pub" : "Installer le bloqueur de pub",
                        subtitle: "Pubs et pisteurs bloqués pour tout le Mac · niveau \(m.settings.level.title)",
                        keywords: keywords + ["installer", "activer"], icon: .symbol("hand.raised", tint), group: .actions,
@@ -44,7 +57,7 @@ enum AdBlockCommands {
                        risk: m.handoff.enabled ? .safe : .confirm("YouTube et Twitch ouverts dans ton navigateur passeront dans le lecteur sans pub, et leur onglet se fermera dans le navigateur."),
                        hint: m.handoff.enabled ? "Éteindre" : "Allumer") { _ in
                 m.handoff.setEnabled(!m.handoff.enabled)
-                m.openPage()
+                m.openPage(.player)
                 return .done
             }
         ] + AdBlockAccount.all.map { account in
@@ -71,7 +84,7 @@ enum AdBlockCommands {
             AppCommand(id: "adblock_youtube", title: "Bloquer les pubs YouTube dans Safari", subtitle: "L'extension de Safari qui coupe les pubs des vidéos",
                        keywords: keywords + ["youtube", "vidéo", "vidéos", "safari", "extension", "ublock"], icon: .symbol("play.rectangle", tint),
                        group: .actions, assistantSafe: true, hint: "Ouvrir") { _ in
-                m.openPage()
+                m.openPage(.player)
                 m.refreshExtensions()
                 return .done
             },
@@ -86,7 +99,7 @@ enum AdBlockCommands {
 
     /// A pasted YouTube or Twitch link, "yt …" or "twitch …": opened in the ad-free player.
     static func playerResults(_ q: String, _ m: AdBlockModel) -> [AppCommand] {
-        let tint = AdBlockPage.tint
+        let tint = AdBlockStyle.tint
         if q.contains("."), !q.contains(" "), let url = AdBlockPlayer.playable(q) {
             return [AppCommand(id: "adblock_player_link", title: "Regarder sans pub dans Chamois", subtitle: url.absoluteString,
                                icon: .symbol("play.tv", tint), group: .actions, hint: "Regarder", boost: 1925) { _ in
@@ -126,7 +139,7 @@ enum AdBlockCommands {
               let domain = AdBlockDomain.normalize(String(q[space...]), keepWWW: true) else { return [] }
         return [AppCommand(id: "adblock_check", title: "Vérifier « \(domain) » dans le bloqueur de pub",
                            subtitle: m.isExcepted(domain) ? "Dans tes exceptions" : "Bloqué sur ce Mac ? Dans la liste \(m.settings.level.list) ?",
-                           icon: .symbol("magnifyingglass", AdBlockPage.tint), group: .actions, hint: "Vérifier", boost: 1500) { _ in
+                           icon: .symbol("magnifyingglass", AdBlockStyle.tint), group: .actions, hint: "Vérifier", boost: 1500) { _ in
             m.checkText = domain
             m.openPage()
             m.checkDomain()

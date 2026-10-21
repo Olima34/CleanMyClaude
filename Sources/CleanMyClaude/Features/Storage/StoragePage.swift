@@ -7,8 +7,8 @@ struct StoragePage: View {
         @Bindable var model = app.storage
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "chart.pie", title: "Exploration du stockage",
-                     subtitle: "Une carte de ton disque où chaque dossier a la taille de ce qu'il pèse. Repère les mastodontes, les gros fichiers oubliés et les doublons.",
-                     tint: Theme.palette[1], seed: 69) {
+                     subtitle: "La carte de ton disque, les gros fichiers et les doublons.",
+                     tint: Theme.palette[1], seed: 69, tip: Self.tip) {
                 HStack(spacing: 10) {
                     BorderlessMenu {
                         Button("Dossier personnel") { Task { await model.scan(FS.home) } }
@@ -43,6 +43,10 @@ struct StoragePage: View {
             }
         }
     }
+
+    static let tip = HelpTip(
+        id: "storage.page", title: "La carte de ton disque",
+        text: "Chaque bloc a la taille de ce qu'il pèse : clique dessus pour y entrer. Un clic droit dans la liste l'affiche dans le Finder, demande à Claude ce que c'est ou le met à la Corbeille. Les doublons sont comparés par leur contenu exact, pas par leur nom.")
 }
 
 struct DiskOverview: View {
@@ -116,8 +120,9 @@ struct ExplorerTab: View {
                 }
                 .fixedSize(horizontal: false, vertical: true)
                 if model.unreadable > 0 {
-                    Text("\(Fmt.plural(model.unreadable, "dossier n'a", "dossiers n'ont")) pas pu être lus (protégés par macOS). " +
-                         (app.fullDiskAccess ? "" : "L'accès complet au disque permet de tout mesurer."))
+                    Text((model.unreadable == 1 ? "Un dossier protégé par macOS n'a pas pu être lu."
+                                                : "\(Fmt.int(model.unreadable)) dossiers protégés par macOS n'ont pas pu être lus.") +
+                         (app.fullDiskAccess ? "" : " L'accès complet au disque permet de tout mesurer."))
                         .font(.ui(11)).foregroundStyle(Theme.text3)
                 }
             } else {
@@ -125,13 +130,15 @@ struct ExplorerTab: View {
                     HStack(spacing: 24) {
                         VStack(alignment: .leading, spacing: 10) {
                             Text("Où est passé mon espace ?").font(.serif(24)).foregroundStyle(Theme.text)
-                            Text("Lance l'analyse : je mesure chaque dossier (quelques secondes pour un dossier personnel bien rempli) et je te montre une carte cliquable. Clique sur un bloc pour y entrer.")
+                            Text("Lance l'analyse : chaque dossier devient un bloc de la taille de ce qu'il pèse.")
                                 .font(.ui(13)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                            Text("macOS peut te demander l'accès à Documents, Bureau ou Téléchargements la première fois.")
+                            Text("macOS peut te demander l'accès à Documents, Bureau ou Téléchargements.")
                                 .font(.ui(11.5)).foregroundStyle(Theme.text3)
                         }
                         Spacer()
-                        Image(systemName: "square.grid.3x3.square").font(.system(size: 60)).foregroundStyle(Theme.palette[1])
+                        if Theme.icons != .hidden {
+                            Image(systemName: "square.grid.3x3.square").font(.ui(60)).foregroundStyle(Theme.palette[1])
+                        }
                     }
                 }
             }
@@ -196,6 +203,7 @@ struct ExplorerTab: View {
                         }
                         .buttonStyle(.plain)
                         .onHover { hovered = $0 ? c.id : nil }
+                        .help("Clic droit : Finder, Claude ou Corbeille")
                         .contextMenu {
                             if c.isDirectory { Button("Ouvrir") { model.open(c) } }
                             Button("Afficher dans le Finder") { Finder.reveal(c.path) }
@@ -223,8 +231,7 @@ struct ExplorerTab: View {
                     }
                 }
             }
-            .frame(height: 400)
-            Text("Clic droit pour afficher ou jeter un élément.").font(.ui(10.5)).foregroundStyle(Theme.text3)
+            .frame(height: 418)
         }
     }
 }
@@ -426,7 +433,7 @@ struct DuplicatesTab: View {
     var body: some View {
         let model = app.storage
         VStack(alignment: .leading, spacing: 14) {
-            Panel(title: "Où chercher", subtitle: "Je compare le contenu exact des fichiers de plus de 1 Mo (empreinte SHA-256), pas seulement leur nom.",
+            Panel(title: "Où chercher", subtitle: "Les fichiers de plus de 1 Mo au contenu identique",
                   symbol: "doc.on.doc", tint: Theme.palette[1]) {
                 HStack(spacing: 8) {
                     Button("Ajouter un dossier…") { model.addDupRoot() }.buttonStyle(SoftButtonStyle(small: true))

@@ -51,8 +51,10 @@ final class WheelRunner {
     /// Newest first.
     private(set) var tasks: [WheelTask] = []
     @ObservationIgnored let toast = WheelToast()
-    /// A task ended well: the history of the page.
+    /// A task ended well (the tool was used).
     @ObservationIgnored var onDone: ((WheelTask) -> Void)?
+    /// Files were renamed (or got their old names back): the Convertisseur's window follows them.
+    @ObservationIgnored var onRenamed: (([ConverterRenamePair]) -> Void)?
     @ObservationIgnored private var queue: [(WheelTask, @Sendable (ConverterControl, @escaping @Sendable (Int) -> Void) async throws -> WheelResult)] = []
     @ObservationIgnored private var busy = false
 
@@ -61,16 +63,18 @@ final class WheelRunner {
     }
 
     var isBusy: Bool { tasks.contains { $0.isRunning } }
+    var running: Int { tasks.filter(\.isRunning).count }
 
-    /// Queues `work` (it runs off the main thread) and shows it in the toast near `point`.
-    func run(_ action: WheelAction, files: [WheelFile], at point: NSPoint?,
+    /// Queues `work` (it runs off the main thread) and shows it in the toast near `point`, or under `window` (a window
+    /// that stays open, the Convertisseur's).
+    func run(_ action: WheelAction, files: [WheelFile], at point: NSPoint?, under window: NSRect? = nil,
              work: @escaping @Sendable (ConverterControl, @escaping @Sendable (Int) -> Void) async throws -> WheelResult) {
         let title = files.count == 1 ? files[0].name : Self.summary(files)
         let task = WheelTask(action: action, title: title, count: files.count)
         tasks.insert(task, at: 0)
         if tasks.count > 6 { tasks.removeLast(tasks.count - 6) }
         queue.append((task, work))
-        toast.show(near: point)
+        if let window { toast.show(under: window) } else { toast.show(near: point) }
         pump()
     }
 
@@ -114,12 +118,24 @@ final class WheelRunner {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(text, forType: .string)
             }
+            if !result.renamed.isEmpty { onRenamed?(result.renamed) }
             onDone?(task)
         case .failure(let error):
             if case ConverterError.cancelled = error { task.state = .cancelled } else { task.state = .failed(error.localizedDescription) }
         }
+        notifyIfLong(task)
         toast.taskEnded()
         pump()
+    }
+
+    /// A long job that ends while Chamois is in the background: a notification says so.
+    private func notifyIfLong(_ task: WheelTask) {
+        guard let end = task.finished, end.timeIntervalSince(task.started) > 15, !NSApp.isActive else { return }
+        switch task.state {
+        case .done: Notifier.post(id: "wheel.done", title: "\(task.action.title) : terminé", body: task.title, throttle: 0)
+        case .failed(let why): Notifier.post(id: "wheel.done", title: "\(task.action.title) : échec", body: why, throttle: 0)
+        default: break
+        }
     }
 
     // MARK: Toast buttons
@@ -152,11 +168,26 @@ final class WheelRunner {
                  symbol: "doc.on.doc.fill")
     }
 
-    /// The copies go to the Trash (the original was never touched).
+    /// The copies go to the Trash (the original was never touched); renamed files get their old names back.
     func undo(_ task: WheelTask) {
         let outputs = task.result.outputs
         guard !outputs.isEmpty, task.state == .done else { return }
         task.state = .undone
+        if !task.result.renamed.isEmpty {
+            let back = task.result.renamed.map { (url: $0.to, newName: $0.from.lastPathComponent) }
+            Task.detached(priority: .userInitiated) {
+                let r = Result { try ConverterRename.apply(back, control: ConverterControl { _ in }) }
+                await MainActor.run {
+                    switch r {
+                    case .success(let pairs): self.onRenamed?(pairs)
+                    case .failure(let error):
+                        task.state = .done
+                        HUD.show("Les anciens noms ne sont pas revenus : \(error.localizedDescription)", symbol: "exclamationmark.triangle.fill")
+                    }
+                }
+            }
+            return
+        }
         Task.detached(priority: .userInitiated) {
             let failed = outputs.filter { !Remover.trashOwnOutput($0) }.count
             await MainActor.run {
@@ -204,15 +235,33 @@ final class WheelToast {
         didSet { if hovering { hideWork?.cancel() } else { scheduleHide() } }
     }
 
-    func show(near point: NSPoint?) {
-        guard let runner, !Snapshot.isActive else { return }
+    private func makePanel() -> WheelToastPanel? {
+        guard let runner, !Snapshot.isActive else { return nil }
         hideWork?.cancel()
-        let p = panel ?? {
-            let p = WheelToastPanel()
-            p.setContent(WheelToastView(runner: runner, toast: self))
-            panel = p
-            return p
-        }()
+        if let panel { return panel }
+        let p = WheelToastPanel()
+        p.setContent(WheelToastView(runner: runner, toast: self))
+        panel = p
+        return p
+    }
+
+    /// Under a window that stays open (above it when there is no room below), whole on its screen.
+    func show(under rect: NSRect) {
+        guard let p = makePanel() else { return }
+        let screen = NSScreen.screens.first { NSMouseInRect(NSPoint(x: rect.midX, y: rect.midY), $0.frame, false) } ?? NSScreen.main
+        guard let f = screen?.visibleFrame else { return }
+        let height = p.frame.height
+        var origin = NSPoint(x: rect.midX - Self.width / 2, y: rect.minY - 10 - height)
+        if origin.y < f.minY + 12 { origin.y = rect.maxY + 10 }
+        origin.x = min(max(origin.x, f.minX + 12), f.maxX - Self.width - 12)
+        origin.y = min(max(origin.y, f.minY + 12), f.maxY - height - 12)
+        p.setFrameOrigin(origin)
+        p.alphaValue = 1
+        p.orderFrontRegardless()
+    }
+
+    func show(near point: NSPoint?) {
+        guard let p = makePanel() else { return }
         let screen = point.flatMap { pt in NSScreen.screens.first { NSMouseInRect(pt, $0.frame, false) } } ?? NSScreen.main
         guard let f = screen?.visibleFrame else { return }
         let height = p.frame.height
@@ -355,6 +404,8 @@ struct WheelTaskRow: View {
     private var headline: String {
         switch task.state {
         case .done:
+            if !task.result.codes.isEmpty { return task.result.codes.count == 1 ? "Code lu et copié" : "\(Fmt.int(task.result.codes.count)) codes lus et copiés" }
+            if !task.result.renamed.isEmpty { return Fmt.plural(task.result.renamed.count, "fichier renommé", "fichiers renommés") }
             if task.result.copied != nil { return "Texte copié" }
             if let first = task.result.outputs.first {
                 return task.result.outputs.count == 1 ? first.lastPathComponent : "\(Fmt.int(task.result.outputs.count)) fichiers créés"
@@ -372,6 +423,8 @@ struct WheelTaskRow: View {
             let pct = task.progress.map { $0 > 0 ? " · \(Fmt.pct($0))" : "" } ?? ""
             return "\(step)\(task.action.title(count: task.count, family: .other))…\(pct)"
         case .done:
+            if let code = task.result.codes.first { return code }
+            if !task.result.renamed.isEmpty { return "Sur place · Annuler remet les anciens noms" }
             if let text = task.result.copied {
                 let words = text.split { $0 == " " || $0 == "\n" }.count
                 return "\(Fmt.plural(words, "mot", "mots")) dans le presse-papiers, prêts à coller"
@@ -385,7 +438,7 @@ struct WheelTaskRow: View {
         case .cancelled:
             return "Arrêté : rien n'a été gardé."
         case .undone:
-            return "Mis à la Corbeille."
+            return task.result.renamed.isEmpty ? "Mis à la Corbeille." : "Les anciens noms sont revenus."
         }
     }
 
@@ -399,18 +452,32 @@ struct WheelTaskRow: View {
         switch task.state {
         case .running:
             WheelSmallButton(title: "Arrêter", symbol: "stop.fill") { runner.cancel(task) }
+        case .done where task.result.codes.first.flatMap(WheelTaskRow.link) != nil:
+            WheelSmallButton(title: "Ouvrir le lien", symbol: "safari") {
+                if let url = task.result.codes.first.flatMap(WheelTaskRow.link) { NSWorkspace.shared.open(url) }
+            }
         case .done where !task.result.outputs.isEmpty:
             HStack(spacing: 4) {
                 WheelSmallButton(title: "Afficher", symbol: "magnifyingglass") { runner.reveal(task) }
                     .help("Afficher dans le Finder")
                 WheelIconButton(symbol: "doc.on.doc", help: "Copier le fichier, prêt à coller") { runner.copy(task) }
-                WheelIconButton(symbol: "arrow.uturn.backward", help: "Annuler : la copie va à la Corbeille") { runner.undo(task) }
+                WheelIconButton(symbol: "arrow.uturn.backward",
+                                help: task.result.renamed.isEmpty ? "Annuler : la copie va à la Corbeille" : "Annuler : les anciens noms reviennent") { runner.undo(task) }
             }
         default:
             if hovering {
                 WheelIconButton(symbol: "xmark", help: "Retirer") { runner.dismiss(task) }
             }
         }
+    }
+}
+
+extension WheelTaskRow {
+    /// A web link read in a QR code.
+    static func link(_ text: String) -> URL? {
+        guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
     }
 }
 

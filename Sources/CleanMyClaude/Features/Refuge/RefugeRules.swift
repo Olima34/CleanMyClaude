@@ -602,20 +602,12 @@ enum RefugeRules {
         RefugeRoom(page: .apps, name: "La Cave"),
         RefugeRoom(page: .storage, name: "Le Grenier"),
         RefugeRoom(page: .phone, name: "La Cabine"),
-        RefugeRoom(page: .converter, name: "L'Atelier"),
         RefugeRoom(page: .wheel, name: "Le Moulin"),
-        RefugeRoom(page: .fillsign, name: "Le Secrétaire"),
-        RefugeRoom(page: .youtube, name: "La Salle de projection"),
-        RefugeRoom(page: .cinema, name: "Le Ciné-club"),
-        RefugeRoom(page: .translator, name: "La Bibliothèque"),
+        RefugeRoom(page: .media, name: "Le Ciné-club"),
         RefugeRoom(page: .toolbox, name: "L'Établi"),
         RefugeRoom(page: .clipboard, name: "Le Tiroir à souvenirs"),
-        RefugeRoom(page: .network, name: "La Tour radio"),
-        RefugeRoom(page: .adblock, name: "Le Toit"),
-        RefugeRoom(page: .darkmode, name: "La Chambre noire"),
         RefugeRoom(page: .launcher, name: "Le Bureau"),
         RefugeRoom(page: .hotkeys, name: "Le Tableau des clés"),
-        RefugeRoom(page: .windows, name: "La Véranda"),
         RefugeRoom(page: .automation, name: "Le Jardin"),
         RefugeRoom(page: .assistant, name: "Le Salon"),
         RefugeRoom(page: .menubar, name: "La Lucarne"),
@@ -716,10 +708,10 @@ enum RefugeRules {
         s.declined = true
         if s.awaitingAdoption { f.append("Refuge : un refus attend encore une réponse") }
         s.declined = false
-        adopt(&s, name: "  Pom\npon ", known: [.converter, .refuge], returning: true, now: start, calendar: cal)
+        adopt(&s, name: "  Pom\npon ", known: [.wheel, .refuge], returning: true, now: start, calendar: cal)
         if !s.welcomed || s.born == nil || s.name != "Pom pon" { f.append("Refuge : adoption mal enregistrée") }
         if s.basket != welcomeGift || s.harvested != welcomeGift || s.eaten != 0 { f.append("Refuge : le buisson ne donne pas 10 myrtilles (\(s.basket))") }
-        if !s.claimed.contains("page:converter") || s.claimed.contains("page:refuge") { f.append("Refuge : pièces déjà connues mal allumées") }
+        if !s.claimed.contains("page:wheel") || s.claimed.contains("page:refuge") { f.append("Refuge : pièces déjà connues mal allumées") }
         if s.daysTogether != 1 || s.journal.count != 3 { f.append("Refuge : naissance mal notée") }
 
         // Daily limits.
@@ -733,7 +725,7 @@ enum RefugeRules {
         if earn(&s, .fix, now: start, calendar: cal) != 0 { f.append("Refuge : un point de sécurité payé sans clé") }
         _ = earn(&s, .fix, key: "fix:firewall", now: day(1), calendar: cal)
         if earn(&s, .fix, key: "fix:firewall", now: day(2), calendar: cal) != 0 { f.append("Refuge : un point de sécurité payé deux fois") }
-        if earn(&s, .discovery, key: "page:converter", now: day(1), calendar: cal) != 0 { f.append("Refuge : une pièce déjà connue repayée") }
+        if earn(&s, .discovery, key: "page:wheel", now: day(1), calendar: cal) != 0 { f.append("Refuge : une pièce déjà connue repayée") }
         if earn(&s, .discovery, key: "page:toolbox", now: day(1), calendar: cal) != 5 { f.append("Refuge : découverte non payée") }
         for p in ["page:cinema", "page:network", "page:windows"] { _ = earn(&s, .discovery, key: p, now: day(1), calendar: cal) }
         if s.total(.discovery) != 3 || !s.claimed.contains("page:windows") { f.append("Refuge : plus de 3 découvertes payées par jour, ou une pièce pas allumée") }

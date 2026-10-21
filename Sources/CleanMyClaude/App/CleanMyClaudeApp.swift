@@ -183,7 +183,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     if w.identifier?.rawValue.hasPrefix("main") ?? false {
                         AppContext.applyDockIcon(windowClosing: true)
                         AppContext.noteMainWindowVisibility(closing: true)
-                    } else if !(w is NSPanel), w.styleMask.contains(.titled), w.isKeyWindow {
+                    } else if !(w is NSPanel), w.styleMask.contains(.titled), w.isKeyWindow,
+                              w.identifier?.rawValue != "fillsign" {
+                        // (The signing window opens over the Finder: closing it leaves the user where they were.)
                         // Without a Dock icon, closing the settings would send the app behind the others and hide its
                         // main window: it comes back to the front instead.
                         DispatchQueue.main.async {
@@ -231,6 +233,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 statusItem = StatusItemController(app: app)
                 AppContext.noteMainWindowVisibility()
                 app.startModules()
+                // Sombre partout is gone: what it had changed on this Mac is put back, once.
+                RetiredDarkMode.restore()
             }
             NotificationCenter.default.addObserver(forName: .openMainWindow, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { AppContext.showMainWindow() }
@@ -238,22 +242,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Files dropped on the Dock icon go to the converter; `cleanmyclaude://` links drive the app
+    /// Files dropped on the Dock icon go to the Convertisseur's window; `cleanmyclaude://` links drive the app
     /// (Shortcuts, Raycast, Terminal: `open cleanmyclaude://launcher`).
     func application(_ application: NSApplication, open urls: [URL]) {
         MainActor.assumeIsolated {
             guard let app = AppContext.model else { return }
             let files = urls.filter(\.isFileURL)
-            if !files.isEmpty {
-                app.converter.receive(files)
-                app.page = .converter
-                NotificationCenter.default.post(name: .openMainWindow, object: nil)
-            }
+            if !files.isEmpty { app.converter.present(files) }
             for url in urls where url.scheme == "cleanmyclaude" { URLActions.handle(url, app: app) }
         }
     }
 
     /// Modules release what they hold (Caféine, timers) and save their data.
+    /// ⌘Q with a document being signed and not saved asks first, like closing its window.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated { AppContext.model?.fillSign.windowMayClose() ?? true } ? .terminateNow : .terminateCancel
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated {
             if let app = AppContext.model { ModuleRegistry.stopAll(app, only: app.startedModules) }
@@ -366,14 +371,12 @@ final class FinderServices: NSObject {
         }
         MainActor.assumeIsolated {
             guard let app = AppContext.model else { return }
-            app.converter.receive(urls)
-            app.page = .converter
-            NotificationCenter.default.post(name: .openMainWindow, object: nil)
+            app.converter.present(urls)
         }
     }
 }
 
-/// `cleanmyclaude://launcher` opens the launcher, `cleanmyclaude://page/converter` a section,
+/// `cleanmyclaude://launcher` opens the launcher, `cleanmyclaude://page/wheel` a section,
 /// `cleanmyclaude://run/act_smart_scan` a launcher command. Any web page, mail or app can open such a link (`open -g` too):
 /// only `urlSafe` commands (navigation, read-only analyses) run straight away; any other asks first, "Annuler" being the
 /// default answer; a risky (`.confirm`) one never runs from a link: the launcher opens with it selected, the user decides there.
@@ -386,15 +389,32 @@ enum URLActions {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { MainActor.assumeIsolated { open() } }
     }
 
+    /// The links of pages that were folded into others (Shortcuts, bookmarks made before) lead to where they went.
+    private static func openFormerPage(_ name: String, app: AppModel) {
+        switch name {
+        case "converter", "fillsign": LauncherAppActions.openMain(app, .wheel)
+        case "youtube": inPanel { app.launcher.show() }
+        case "translator": inPanel { app.launcher.showTranslator() }
+        case "network": app.network.showInSettings(.connection)
+        case "cinema": app.media.show(.watch, app: app)
+        case "adblock": app.media.show(.blocker, app: app)
+        case "windows": app.hotkeys.show(.windows, app: app)
+        default: break
+        }
+    }
+
     static func handle(_ url: URL, app: AppModel) {
         let parts = [url.host ?? ""] + url.pathComponents.filter { $0 != "/" }
         switch parts.first {
         case "launcher":
             inPanel { app.launcher.show() }
         case "page":
-            if let name = parts.dropFirst().first, let page = Page(rawValue: name) {
+            guard let name = parts.dropFirst().first else { return }
+            if let page = Page(rawValue: name) {
                 app.page = page
                 NotificationCenter.default.post(name: .openMainWindow, object: nil)
+            } else {
+                openFormerPage(name, app: app)
             }
         case "regarder":
             // A YouTube or Twitch page sent by the Safari bookmark: shown in the ad-free player (nothing else is accepted).

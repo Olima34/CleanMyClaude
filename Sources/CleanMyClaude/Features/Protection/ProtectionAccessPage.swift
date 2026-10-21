@@ -8,9 +8,10 @@ struct AccessTab: View {
     var body: some View {
         let model = app.protection
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .top) {
-                Callout(symbol: "hand.raised", title: "Qui t'observe",
-                        text: "Ce qui peut lire ce que tu tapes, voir les pages que tu visites ou accepter des connexions du réseau. La plupart du temps ce sont des outils que tu as choisis ; ce qui ne l'est pas saute aux yeux.")
+            HStack(alignment: .center) {
+                Text(model.accessChecked.map { "Vérifié \(Fmt.relative($0))." } ?? "Le clavier, les extensions de navigateur et les ports ouverts.")
+                    .font(.ui(12)).foregroundStyle(Theme.text3)
+                Spacer()
                 Button {
                     Task { await model.checkAccess() }
                 } label: {
@@ -23,7 +24,7 @@ struct AccessTab: View {
                 .disabled(model.isCheckingAccess)
             }
             if model.accessChecked == nil && !model.isCheckingAccess {
-                Card { EmptyHint(text: "Lance la vérification pour voir les espions du clavier, les extensions et les ports ouverts.", symbol: "eye") }
+                Card { EmptyHint(text: "Lance la vérification pour voir qui lit ton clavier, tes pages et ton réseau.", symbol: "eye") }
             } else {
                 KeyboardTapsPanel()
                 ExtensionsPanel()
@@ -42,7 +43,7 @@ struct KeyboardTapsPanel: View {
         let others = taps.filter { $0.risk != .ok }
         Panel(title: "Peut lire tout ce que tu tapes",
               subtitle: others.isEmpty ? "Seuls des composants d'Apple écoutent le clavier. Aucun enregistreur de frappe."
-                                       : "Ces programmes reçoivent chaque touche, mots de passe compris. Normal pour un lanceur ou un utilitaire de raccourcis ; pas pour un programme inconnu.",
+                                       : "Ils reçoivent chaque touche, mots de passe compris : normal pour un lanceur, pas pour un inconnu.",
               symbol: "keyboard", tint: others.contains { $0.risk == .bad } ? Theme.bad : (others.isEmpty ? Theme.good : Theme.warn)) {
             VStack(spacing: 2) {
                 ForEach(others) { t in
@@ -138,10 +139,10 @@ struct PortsPanel: View {
         let ports = app.protection.exposedPorts
         Panel(title: "Ouvert sur le réseau",
               subtitle: ports.isEmpty ? "Aucun de tes programmes n'accepte de connexion venue d'un autre appareil."
-                                      : "Ces programmes acceptent des connexions des autres appareils du réseau (un Wi-Fi public aussi). Le coupe-feu filtre ceux que tu n'as pas autorisés.",
+                                      : "Ils acceptent des connexions des autres appareils du réseau, Wi-Fi public compris.",
               symbol: "network", tint: ports.contains { !$0.isSystem } ? Theme.warn : Theme.good) {
             Button("Détails") {
-                app.page = .network
+                app.network.showInSettings(.ports)
             }
             .buttonStyle(SoftButtonStyle(small: true))
         } content: {
@@ -170,36 +171,50 @@ struct GrantsSection: View {
         if let grants = model.grants {
             let services = TCCService.all.filter { s in grants.contains { $0.service == s } }
             if !services.isEmpty {
-                SectionLabel(text: "Autorisations accordées")
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], alignment: .leading, spacing: 14) {
-                    ForEach(services, id: \.key) { s in
-                        let list = grants.filter { $0.service == s }
-                        Panel(title: s.title, subtitle: Fmt.plural(list.count, "app autorisée", "apps autorisées"), symbol: s.symbol,
-                              tint: s.sensitive ? Theme.warn : Theme.accent) {
-                            Button("Gérer") { Finder.open(SettingsPane.privacy(s.anchor)) }
-                                .buttonStyle(SoftButtonStyle(small: true))
-                        } content: {
-                            VStack(alignment: .leading, spacing: 8) {
-                                ForEach(list.prefix(8)) { g in
-                                    HStack(spacing: 9) {
-                                        if let p = g.path { FileIcon(path: p, size: 20) } else { IconBadge(symbol: "app.dashed", tint: Theme.text3, size: 20) }
-                                        Text(g.name).font(.ui(12)).foregroundStyle(Theme.text).lineLimit(1)
-                                        Spacer()
-                                        if let d = g.lastModified {
-                                            Text(Fmt.relative(d)).font(.ui(10.5)).foregroundStyle(Theme.text3)
-                                        }
-                                    }
-                                }
-                                if list.count > 8 {
-                                    Text("et \(list.count - 8) autres").font(.ui(11)).foregroundStyle(Theme.text3)
-                                }
-                            }
+                Panel(title: "Autorisations accordées", symbol: "hand.raised", tint: Theme.accent) {
+                    VStack(spacing: 2) {
+                        ForEach(services, id: \.key) { s in
+                            GrantRow(service: s, grants: grants.filter { $0.service == s })
                         }
                     }
                 }
             }
         } else if model.hasAudit || model.accessChecked != nil {
-            FullDiskAccessCard(reason: "macOS cache la liste des autorisations (caméra, micro, écran, accessibilité…) aux apps qui n'ont pas l'accès complet au disque.")
+            FullDiskAccessCard(reason: "macOS ne montre les autorisations (caméra, micro, écran, accessibilité…) qu'aux apps qui ont l'accès complet au disque.")
+        }
+    }
+}
+
+/// One permission on one line: its apps as icons (name and date on hover), and the way to the setting.
+private struct GrantRow: View {
+    var service: TCCService
+    var grants: [PermissionGrant]
+
+    var body: some View {
+        HoverRow {
+            HStack(spacing: 10) {
+                IconBadge(symbol: service.symbol, tint: service.sensitive ? Theme.warn : Theme.accent, size: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(service.title).font(.ui(12.5, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                    Text(grants.map(\.name).joined(separator: ", "))
+                        .font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.tail)
+                }
+                .frame(width: 330, alignment: .leading)
+                HStack(spacing: 4) {
+                    ForEach(grants.prefix(10)) { g in
+                        Group {
+                            if let p = g.path { FileIcon(path: p, size: 20) } else { IconBadge(symbol: "app.dashed", tint: Theme.text3, size: 20) }
+                        }
+                        .help(g.name + (g.lastModified.map { " · autorisée \(Fmt.relative($0))" } ?? ""))
+                    }
+                    if grants.count > 10 {
+                        Text("+\(grants.count - 10)").font(.ui(11)).foregroundStyle(Theme.text3)
+                    }
+                }
+                Spacer(minLength: 8)
+                Button("Gérer") { Finder.open(SettingsPane.privacy(service.anchor)) }
+                    .buttonStyle(SoftButtonStyle(small: true))
+            }
         }
     }
 }
@@ -213,33 +228,33 @@ struct RealtimeTab: View {
         @Bindable var model = app.protection
         VStack(alignment: .leading, spacing: 14) {
             if !model.realtime.anyOn {
-                Card(padding: 22) {
-                    HStack(alignment: .center, spacing: 18) {
-                        IconBadge(symbol: "shield.lefthalf.filled.badge.checkmark", tint: Theme.good, size: 52)
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text("Une protection qui veille pendant que tu travailles").font(.serif(22)).foregroundStyle(Theme.text)
-                            Text("Je te préviens dès qu'un programme s'ajoute au démarrage, qu'une menace arrive dans Téléchargements, que la caméra ou le micro s'allume, ou que tes réglages réseau changent. Tout réagit aux événements de macOS : aucune analyse permanente, ton Mac ne ralentit pas.")
-                                .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                Card(padding: 18) {
+                    HStack(alignment: .center, spacing: 14) {
+                        IconBadge(symbol: "shield.lefthalf.filled.badge.checkmark", tint: Theme.good, size: 40)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Une protection qui veille pendant que tu travailles").font(.serif(20)).foregroundStyle(Theme.text)
+                            Text("Sans analyse permanente : ton Mac ne ralentit pas.")
+                                .font(.ui(12.5)).foregroundStyle(Theme.text2)
                         }
                         Spacer()
                         Button("Tout activer") { model.enableRealtime() }.buttonStyle(SoftButtonStyle(prominent: true))
                     }
                 }
             }
-            Panel(title: "Surveillance", subtitle: "Chaque alerte arrive en notification et s'inscrit dans le journal ci-dessous.",
+            Panel(title: "Surveillance", subtitle: "Chaque alerte arrive en notification.",
                   symbol: "dot.radiowaves.left.and.right", tint: model.realtime.anyOn ? Theme.good : Theme.text3) {
                 VStack(spacing: 10) {
                     RealtimeToggle(title: "Nouveaux éléments de démarrage", symbol: "arrow.clockwise.circle",
-                                   text: "Un agent ou un service qui s'installe : je vérifie sa signature et son comportement aussitôt.",
+                                   text: "Un agent ou un service qui s'installe, vérifié aussitôt.",
                                    isOn: $model.realtime.persistence)
                     RealtimeToggle(title: "Fichiers téléchargés", symbol: "arrow.down.circle",
-                                   text: "Chaque app, script ou installeur qui arrive dans Téléchargements passe aux signatures d'Apple avant que tu l'ouvres.",
+                                   text: "Ce qui arrive dans Téléchargements passe aux signatures d'Apple.",
                                    isOn: $model.realtime.downloads)
                     RealtimeToggle(title: "Caméra et micro", symbol: "camera",
-                                   text: "Une alerte quand l'un d'eux s'allume, même pour une seconde.",
+                                   text: "Dès que l'un d'eux s'allume.",
                                    isOn: $model.realtime.devices)
                     RealtimeToggle(title: "Réglages réseau", symbol: "network",
-                                   text: "Un serveur DNS inconnu ou un proxy qui apparaît : la signature des pirates de navigation.",
+                                   text: "Un serveur DNS ou un proxy inconnu qui apparaît.",
                                    isOn: $model.realtime.network)
                 }
                 .switchToggles()

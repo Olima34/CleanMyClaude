@@ -103,6 +103,28 @@ struct PermissionCard: View {
     var body: some View {
         let _ = refresh
         let granted = permission.isGranted
+        Group {
+            if granted {
+                // Once granted, a line is enough: the reason was for the decision, not for every visit.
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.shield").font(.ui(13, .medium)).foregroundStyle(Theme.good)
+                    Text(permission.title).font(.ui(12.5, .medium)).foregroundStyle(Theme.text)
+                    StatusBadge(status: .ok, text: "Accordée")
+                    Spacer(minLength: 0)
+                }
+                .help(reason)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).fill(Theme.card))
+                .overlay(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).strokeBorder(Theme.border, lineWidth: Theme.line))
+            } else {
+                full(granted: false)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh += 1 }
+    }
+
+    private func full(granted: Bool) -> some View {
         Card(padding: 18) {
             HStack(alignment: .top, spacing: 14) {
                 IconBadge(symbol: granted ? "checkmark.shield" : "hand.raised", tint: granted ? Theme.good : Theme.warn, size: 34)
@@ -125,7 +147,6 @@ struct PermissionCard: View {
                 Spacer(minLength: 0)
             }
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh += 1 }
     }
 }
 

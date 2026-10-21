@@ -107,20 +107,12 @@ struct PageView: View {
         case .phone: PhonePage()
         case .menubar: MenuBarPage()
         case .launcher: LauncherPage()
-        case .converter: ConverterPage()
         case .wheel: WheelPage()
-        case .fillsign: FillSignPage()
-        case .youtube: YouTubePage()
-        case .cinema: CinemaPage()
-        case .translator: TranslatorPage()
+        case .media: MediaPage()
         case .hotkeys: HotkeysPage()
         case .toolbox: ToolboxPage()
         case .clipboard: ClipboardPage()
         case .updates: UpdatesPage()
-        case .network: NetworkPage()
-        case .adblock: AdBlockPage()
-        case .darkmode: DarkModePage()
-        case .windows: WindowsPage()
         case .automation: AutomationPage()
         case .assistant: AssistantPage()
         }
@@ -146,20 +138,12 @@ struct BottomBar: View {
         case .battery: BatteryBottomBar()
         case .phone where !app.phone.selection.isEmpty: PhoneBottomBar()
         case .launcher: LauncherBottomBar()
-        case .converter: ConverterBottomBar()
         case .wheel: WheelBottomBar()
-        case .fillsign: FillSignBottomBar()
-        case .youtube: YouTubeBottomBar()
-        case .cinema: CinemaBottomBar()
-        case .translator: TranslatorBottomBar()
+        case .media: MediaBottomBar()
         case .hotkeys: HotkeysBottomBar()
         case .toolbox: ToolboxBottomBar()
         case .clipboard: ClipboardBottomBar()
         case .updates: UpdatesBottomBar()
-        case .network: NetworkBottomBar()
-        case .adblock: AdBlockBottomBar()
-        case .darkmode: DarkModeBottomBar()
-        case .windows: WindowsBottomBar()
         case .automation: AutomationBottomBar()
         case .assistant: AssistantBottomBar()
         default:
@@ -212,9 +196,10 @@ struct Sidebar: View {
             }
 
             Spacer(minLength: 0)
-            // A video downloading shows here from every page, even when Vidéos YouTube is folded in « Autres outils ».
-            if let activity = app.youtube.activity {
-                YouTubeActivityCard(activity: activity)
+            // The YouTube downloads (they have no page: pasted in the launcher), from every page: the one under way,
+            // or what ended; a click shows the list.
+            if !app.youtube.jobs.isEmpty {
+                YouTubeActivityCard()
                     .padding(.horizontal, 12)
                     .padding(.bottom, 10)
             }

@@ -2,66 +2,58 @@ import SwiftUI
 
 // Small controls drawn in SwiftUI only, so they look the same in `--snapshot` renders (no AppKit-backed views).
 
-/// A pill to pick an option or an operation.
+/// A pill to pick an option.
 struct ConverterChip: View {
     var title: String
     var symbol: String? = nil
     var selected: Bool
     var tint: Color = Theme.accent
-    var badge: String? = nil
-    var disabled = false
     var action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                if let symbol { Image(systemName: symbol).font(.ui(10.5, .semibold)) }
-                Text(title).font(.ui(12, selected ? .semibold : .regular)).lineLimit(1)
-                if let badge {
-                    Text(badge).font(.ui(10, .semibold)).monospacedDigit().opacity(0.75)
-                }
+            HStack(spacing: 4) {
+                if let symbol, Theme.icons != .hidden { Image(systemName: symbol).font(.ui(10, .semibold)) }
+                Text(title).font(.ui(11.5, selected ? .semibold : .medium)).lineLimit(1)
             }
-            .foregroundStyle(selected ? Theme.ink(on: tint) : Theme.text)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(PillShape().fill(selected ? tint : Theme.bg))
-            .overlay(PillShape().strokeBorder(selected ? Color.clear : Theme.border))
+            .foregroundStyle(selected ? Theme.ink(on: tint) : Theme.text2)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(PillShape().fill(selected ? tint : Theme.track.opacity(0.7)))
             .contentShape(PillShape())
         }
         .buttonStyle(.plain)
-        .disabled(disabled)
-        .opacity(disabled ? 0.4 : 1)
     }
 }
 
-/// A two-line choice (video presets, PDF compression levels).
-struct ConverterChoiceCard: View {
-    var title: String
-    var subtitle: String
-    var selected: Bool
-    var tint: Color = Theme.accent
-    var action: () -> Void
+/// A choice among a few, as pills that wrap.
+struct ConverterChips<T: Hashable>: View {
+    var options: [T]
+    @Binding var selection: T
+    var symbol: ((T) -> String?)? = nil
+    var label: (T) -> String
 
     var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                    .font(.ui(12, .medium))
-                    .foregroundStyle(selected ? tint : Theme.text3)
-                    .padding(.top, 1)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                    Text(subtitle).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
+        FlowLayout(spacing: 5, lineSpacing: 5) {
+            ForEach(options, id: \.self) { o in
+                ConverterChip(title: label(o), symbol: symbol?(o), selected: o == selection) { selection = o }
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).fill(selected ? tint.opacity(0.1) : Theme.bg))
-            .overlay(RoundedRectangle(cornerRadius: Theme.r(10), style: .continuous).strokeBorder(selected ? tint.opacity(0.6) : Theme.border))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+    }
+}
+
+/// A short remark under a setting (a missing tool, a choice that changes nothing).
+struct ConverterNote: View {
+    var symbol: String
+    var text: String
+    var tint: Color = Theme.text3
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: symbol).font(.ui(10.5, .medium))
+            Text(text).font(.ui(11)).fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(tint)
     }
 }
 
@@ -130,21 +122,22 @@ struct ConverterTextField: View {
     }
 }
 
-/// A labelled block of options.
+/// A setting: its name on the left (and a few words under it), its controls on the right.
 struct ConverterOptionRow<Content: View>: View {
     var label: String
     var hint: String? = nil
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(label).font(.ui(11.5, .semibold)).foregroundStyle(Theme.text2)
-                if let hint { Text(hint).font(.ui(11)).foregroundStyle(Theme.text3) }
+                if let hint { Text(hint).font(.ui(10.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true) }
             }
-            content
+            .frame(width: 118, alignment: .leading)
+            .padding(.top, 4)
+            content.frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -171,10 +164,22 @@ struct ConverterStepper: View {
     }
 }
 
-/// The mascot at its gear machine while a job runs (a still frame in snapshots).
-struct ConverterSpinner: View {
+/// A scrolling area that never makes its window grow: the content scrolls inside the space it gets (in snapshots, where
+/// scroll views come out empty, it is cut there).
+struct ConverterScroll<Content: View>: View {
+    var axes: Axis.Set = .vertical
+    @ViewBuilder var content: Content
+
     var body: some View {
-        BusyMascot(.converting, pixel: 1)
+        if Snapshot.isActive {
+            Color.clear
+                .overlay(alignment: .topLeading) {
+                    content.fixedSize(horizontal: axes == .horizontal, vertical: axes == .vertical)
+                }
+                .clipped()
+        } else {
+            ScrollView(axes, showsIndicators: false) { content }
+        }
     }
 }
 
@@ -194,17 +199,5 @@ struct ConverterDropTarget: ViewModifier {
                 return true
             } isTargeted: { targeted = $0 }
         }
-    }
-}
-
-/// The shared `DropZone` (it leaves out its drop target in snapshots).
-struct ConverterDropZone: View {
-    var title: String
-    var subtitle: String
-    var symbol: String
-    var onFiles: ([URL]) -> Void
-
-    var body: some View {
-        DropZone(title: title, subtitle: subtitle, symbol: symbol, allowsFolders: true, onFiles: onFiles)
     }
 }

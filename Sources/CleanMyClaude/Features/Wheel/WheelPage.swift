@@ -1,115 +1,149 @@
 import SwiftUI
 import AppKit
 
+/// Le Convertisseur: the wheel of each kind of file and when it opens. Everything else happens around the files
+/// themselves (the wheel, its small windows, the Convertisseur's window).
 struct WheelPage: View {
     @Environment(AppModel.self) private var app
 
+    static let tip = HelpTip(
+        id: "wheel.page", title: "La roue du Convertisseur",
+        text: "Pas besoin d'ouvrir l'app : tout part d'un fichier que tu glisses.",
+        steps: ["Glisse un fichier, depuis le Finder ou une autre app : la roue s'ouvre sous ton pointeur.",
+                "Lâche-le sur une action : la copie apparaît à côté de l'original, qui ne change pas.",
+                "Lâche-le au centre : toutes les opérations, avec leurs réglages et un aperçu.",
+                "Éloigne-toi de la roue pour simplement déplacer ton fichier."])
+
     var body: some View {
-        let m = app.wheel
         VStack(alignment: .leading, spacing: 18) {
-            PageHero(symbol: Page.wheel.symbol, title: "Roue des fichiers",
-                     subtitle: "Dès que tu glisses un fichier, une roue d'actions s'ouvre sous ton pointeur. Lâche-le sur une action : la copie apparaît à côté de l'original, qui ne bouge pas. Éloigne-toi de la roue pour simplement déplacer ton fichier.",
-                     tint: Theme.brand, seed: 53) {
-                WheelStatePill()
+            PageHero(symbol: Page.wheel.symbol, title: Page.wheel.title, subtitle: "Glisse un fichier : sa roue s'ouvre sous ton pointeur.",
+                     tint: Theme.brand, seed: 53, tip: Self.tip) {
+                WheelDestinationMenu()
             }
             HStack(alignment: .top, spacing: 14) {
-                WheelDesigner().fixedSize(horizontal: false, vertical: true)
-                VStack(spacing: 14) {
-                    WheelGesturesPanel()
-                    WheelTryZone()
-                    WheelDestinationPanel()
-                    if !m.history.isEmpty { WheelHistoryPanel() }
-                }
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: 340)
+                WheelDesigner()
+                WheelGesturesPanel()
+                    .frame(width: 320)
             }
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
 
-/// "Active · clic pour mettre en pause".
-struct WheelStatePill: View {
+/// Where the copies go, as a small menu: « Copies : À côté de l'original ▾ ».
+struct WheelDestinationMenu: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let m = app.wheel
-        let on = m.isActive
-        Button { m.setEnabled(!m.settings.enabled) } label: {
-            HStack(spacing: 7) {
-                Circle().fill(on ? Theme.good : Theme.warn).frame(width: 7, height: 7)
-                Text(on ? "Active" : "En pause").font(.ui(12, .semibold))
-                Text(on ? "· clic pour mettre en pause" : "· clic pour l'activer").font(.ui(11.5)).foregroundStyle(Theme.text3)
+        HStack(spacing: 5) {
+            if Theme.icons != .hidden {
+                Image(systemName: m.destinationSymbol).font(.ui(11.5, .medium)).foregroundStyle(Theme.text3)
             }
-            .foregroundStyle(Theme.text)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(PillShape().fill(Theme.card))
-            .overlay(PillShape().strokeBorder(Theme.border, lineWidth: Theme.line))
-            .contentShape(PillShape())
+            Text("Copies").font(.ui(11.5)).foregroundStyle(Theme.text3)
+            BorderlessMenu {
+                Button("À côté de l'original") { m.setDestination(.beside) }
+                Button("Dans Téléchargements") { m.setDestination(.downloads) }
+                Button("Dans un dossier choisi…") { m.chooseFolder() }
+                if m.settings.destination != .beside {
+                    Divider()
+                    Button("Ouvrir ce dossier") {
+                        if let folder = m.copiesFolder { NSWorkspace.shared.open(folder) }
+                    }
+                }
+            } label: {
+                Text(m.destinationTitle).font(.ui(11.5, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+            }
         }
-        .buttonStyle(.plain)
+        .help("Où vont les copies")
     }
 }
 
 // MARK: - The wheel of each kind of file
 
-/// The wheel of a kind of file, live (point at a segment to read what it does), and what sits on it.
+/// The wheel of a kind of file, live (point at a segment to read what it does), and what sits on its two rings.
 struct WheelDesigner: View {
     @Environment(AppModel.self) private var app
     @State private var preview = WheelOverlayState()
+    /// The pill clicked in a ring: moved or taken off with the buttons of that ring.
+    @State private var picked: WheelAction?
+
+    static let scale: CGFloat = 0.8
 
     var body: some View {
         let m = app.wheel
         let family = m.family
         let file = WheelModel.sample(family)
         let menu = m.menu(for: [file])
-        Panel(title: "Ta roue", subtitle: "Ce qu'elle propose dépend du fichier. Survole-la pour lire chaque action ; coche, décoche et range les tiennes.",
-              symbol: "dial.medium", tint: Theme.brand) {
-            Button("Rétablir") { m.resetLayout(family) }
-                .buttonStyle(SoftButtonStyle(small: true))
-                .disabled(m.settings.layouts[family.rawValue] == nil)
+        let chosen = m.actions(for: family)
+        let pool = family.pool
+        Panel(title: "Ta roue", symbol: "dial.medium", tint: Theme.brand) {
+            Button("Rétablir") {
+                m.resetLayout(family)
+                picked = nil
+            }
+            .buttonStyle(SoftButtonStyle(small: true))
+            .disabled(m.settings.layouts[family.rawValue] == nil)
         } content: {
             VStack(alignment: .leading, spacing: 14) {
-                WheelChips(options: WheelFamily.allCases.filter { $0 != .folder }, selection: Binding(get: { m.family }, set: { m.family = $0 }),
+                WheelChips(options: WheelFamily.allCases.filter { $0 != .folder }, selection: Binding(get: { m.family }, set: { m.family = $0; picked = nil }),
                            label: \.title, symbol: { $0.symbol })
-                ZStack {
-                    WheelWallpaper()
-                    WheelView(state: preview, inWindow: true)
-                        .scaleEffect(0.86)
-                        .frame(width: WheelGeometry.side * 0.86, height: WheelGeometry.side * 0.86)
-                        .onContinuousHover { phase in
-                            switch phase {
-                            case .active(let p):
-                                let s = WheelGeometry.side * 0.86
-                                let hit = preview.geometry.hit(CGPoint(x: (p.x - s / 2) / 0.86, y: (p.y - s / 2) / 0.86))
-                                if preview.hovered != hit { preview.hovered = hit }
-                            case .ended:
-                                preview.hovered = nil
-                            }
-                        }
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: WheelGeometry.side * 0.86 + 24)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous))
-                Group {
-                    if let a = preview.action(at: preview.hovered) {
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
-                            Text(a.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                            Text(a.detail).font(.ui(12)).foregroundStyle(Theme.text2)
-                            if a.editor != nil { Tag(text: "petite fenêtre", symbol: "macwindow", tint: Theme.brand, filled: true) }
-                        }
-                    } else {
-                        Text("Ici pour « \(file.name) ». Le centre, quand tu y lâches le fichier, montre toutes les actions possibles.")
-                            .font(.ui(12)).foregroundStyle(Theme.text3)
+                HStack(alignment: .top, spacing: 18) {
+                    wheel
+                    VStack(alignment: .leading, spacing: 16) {
+                        WheelRingEditor(title: "Anneau intérieur", limit: WheelMenu.maxFormats, family: family,
+                                        chosen: chosen.filter(\.isFormat), aside: pool.filter { $0.isFormat && !chosen.contains($0) },
+                                        picked: $picked)
+                        WheelRingEditor(title: "Anneau extérieur", limit: WheelMenu.maxTools, family: family,
+                                        chosen: chosen.filter { !$0.isFormat }, aside: pool.filter { !$0.isFormat && !chosen.contains($0) },
+                                        picked: $picked)
+                        about(preview.action(at: preview.hovered) ?? picked)
                     }
                 }
-                .frame(minHeight: 34, alignment: .topLeading)
-                .fixedSize(horizontal: false, vertical: true)
-                WheelLayoutList(family: family)
             }
         }
         .onAppear { refresh(menu, file) }
         .onChange(of: menu) { _, new in refresh(new, file) }
+    }
+
+    private var wheel: some View {
+        let s = WheelGeometry.side * Self.scale
+        return ZStack {
+            WheelWallpaper()
+            WheelView(state: preview, inWindow: true)
+                .scaleEffect(Self.scale)
+                .frame(width: s, height: s)
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(let p):
+                        let hit = preview.geometry.hit(CGPoint(x: (p.x - s / 2) / Self.scale, y: (p.y - s / 2) / Self.scale))
+                        if preview.hovered != hit { preview.hovered = hit }
+                    case .ended:
+                        preview.hovered = nil
+                    }
+                }
+        }
+        .frame(width: s + 16, height: s + 16)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.r(12), style: .continuous))
+    }
+
+    /// What the action pointed at (or picked) does, in one line.
+    private func about(_ a: WheelAction?) -> some View {
+        Group {
+            if let a {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(a.title).font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
+                        if a.opensWindow { Image(systemName: "macwindow").font(.ui(10)).foregroundStyle(Theme.text3).help("Ouvre une petite fenêtre") }
+                        if a.needsFFmpeg && !app.wheel.capabilities.ffmpeg { Tag(text: "demande ffmpeg", tint: Theme.text3) }
+                    }
+                    Text(a.detail).font(.ui(11.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                }
+            } else {
+                Text("Le centre de la roue ouvre toutes les opérations.").font(.ui(11.5)).foregroundStyle(Theme.text3)
+            }
+        }
+        .frame(minHeight: 40, alignment: .topLeading)
     }
 
     private func refresh(_ menu: WheelMenu, _ file: WheelFile) {
@@ -132,80 +166,79 @@ struct WheelWallpaper: View {
     }
 }
 
-/// The actions of a family: on the wheel (in their order) or left aside.
-struct WheelLayoutList: View {
+/// One ring of a family's wheel: its actions in their order (click one to move it or take it off), and « Ajouter ».
+struct WheelRingEditor: View {
     @Environment(AppModel.self) private var app
+    var title: String
+    var limit: Int
     var family: WheelFamily
+    var chosen: [WheelAction]
+    var aside: [WheelAction]
+    @Binding var picked: WheelAction?
 
     var body: some View {
         let m = app.wheel
-        let chosen = m.actions(for: family)
-        let pool = family.pool
-        let sample = WheelModel.sample(family)
-        let fits = Set(WheelMenu.available([sample], in: pool, capabilities: m.capabilities))
-        VStack(alignment: .leading, spacing: 10) {
-            ring("Anneau intérieur · convertir", limit: WheelMenu.maxFormats, chosen: chosen.filter(\.isFormat),
-                 aside: pool.filter { $0.isFormat && !chosen.contains($0) }, fits: fits)
-            ring("Anneau extérieur · outils", limit: WheelMenu.maxTools, chosen: chosen.filter { !$0.isFormat },
-                 aside: pool.filter { !$0.isFormat && !chosen.contains($0) }, fits: fits)
-        }
-    }
-
-    @ViewBuilder
-    private func ring(_ title: String, limit: Int, chosen: [WheelAction], aside: [WheelAction], fits: Set<WheelAction>) -> some View {
-        if !chosen.isEmpty || !aside.isEmpty {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    SectionLabel(text: title)
-                    Text("\(Fmt.int(limit)) au plus").font(.ui(10.5)).foregroundStyle(Theme.text3).padding(.top, 6)
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Text(title.uppercased()).font(.ui(10.5, .semibold)).tracking(0.8).foregroundStyle(Theme.text3)
+                Text("\(min(chosen.count, limit))/\(limit)").font(.ui(10.5).monospacedDigit()).foregroundStyle(Theme.text3)
+                Spacer(minLength: 4)
+                if let p = picked, let i = chosen.firstIndex(of: p) {
+                    WheelIconButton(symbol: "chevron.left", help: "Plus tôt sur la roue") { m.move(p, in: family, by: -1) }
+                        .disabled(i == 0).opacity(i == 0 ? 0.35 : 1)
+                    WheelIconButton(symbol: "chevron.right", help: "Plus tard sur la roue") { m.move(p, in: family, by: 1) }
+                        .disabled(i == chosen.count - 1).opacity(i == chosen.count - 1 ? 0.35 : 1)
+                    WheelIconButton(symbol: "minus", help: "Retirer de la roue") {
+                        m.toggle(p, in: family)
+                        picked = nil
+                    }
                 }
+            }
+            .frame(height: 24)
+            FlowLayout(spacing: 5, lineSpacing: 5) {
                 ForEach(Array(chosen.enumerated()), id: \.element) { i, a in
-                    row(a, on: true, overflow: i >= limit, first: i == 0, last: i == chosen.count - 1, fits: fits.contains(a))
+                    pill(a, overflow: i >= limit)
                 }
-                ForEach(aside) { a in row(a, on: false, overflow: false, first: true, last: true, fits: fits.contains(a)) }
-            }
-        }
-    }
-
-    private func row(_ a: WheelAction, on: Bool, overflow: Bool, first: Bool, last: Bool, fits: Bool) -> some View {
-        let m = app.wheel
-        return HoverRow {
-            HStack(spacing: 10) {
-                CheckBox(state: on ? .on : .off) { m.toggle(a, in: family) }
-                IconBadge(symbol: a.symbol, tint: a.tint, size: 22)
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 6) {
-                        Text(a.title).font(.ui(12.5, .medium)).foregroundStyle(on ? Theme.text : Theme.text2)
-                        if a.editor != nil { Image(systemName: "macwindow").font(.ui(9.5)).foregroundStyle(Theme.text3).help("Ouvre une petite fenêtre") }
-                        if overflow { Tag(text: "pas de place", tint: Theme.warn, filled: true) }
-                        if a.needsFFmpeg && !m.capabilities.ffmpeg { Tag(text: "demande ffmpeg", tint: Theme.text3) }
-                        if a.needsSeveral { Tag(text: "plusieurs fichiers", tint: Theme.text3) }
-                        if !fits && !a.needsFFmpeg && !a.needsSeveral { Tag(text: "selon le fichier", tint: Theme.text3) }
+                if !aside.isEmpty {
+                    BorderlessMenu(indicator: false) {
+                        ForEach(aside) { a in
+                            Button(a.title + (a.needsFFmpeg && !m.capabilities.ffmpeg ? " (demande ffmpeg)" : "")) { m.toggle(a, in: family) }
+                        }
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "plus").font(.ui(10, .semibold))
+                            Text("Ajouter").font(.ui(11.5, .medium))
+                        }
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 4)
                     }
-                    Text(a.detail).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
-                }
-                Spacer(minLength: 6)
-                if on {
-                    HStack(spacing: 2) {
-                        arrow("chevron.up", disabled: first) { m.move(a, in: family, by: -1) }
-                        arrow("chevron.down", disabled: last) { m.move(a, in: family, by: 1) }
-                    }
+                    .help("Mettre une autre action sur la roue")
                 }
             }
         }
     }
 
-    private func arrow(_ symbol: String, disabled: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.ui(10, .semibold)).foregroundStyle(Theme.text2).frame(width: 22, height: 22).contentShape(Rectangle())
+    private func pill(_ a: WheelAction, overflow: Bool) -> some View {
+        let on = picked == a
+        return Button { picked = on ? nil : a } label: {
+            HStack(spacing: 4) {
+                if Theme.icons != .hidden { Image(systemName: a.symbol).font(.ui(10, .semibold)) }
+                Text(a.title).font(.ui(11.5, on ? .semibold : .medium)).lineLimit(1)
+            }
+            .foregroundStyle(on ? Theme.onAccent : Theme.text)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(PillShape().fill(on ? Theme.accent : Theme.track.opacity(0.7)))
+            .contentShape(PillShape())
+            .opacity(overflow ? 0.45 : 1)
         }
         .buttonStyle(.plain)
-        .disabled(disabled)
-        .opacity(disabled ? 0.3 : 1)
+        .help(overflow ? "Plus de place sur la roue : remonte-la ou retire une autre action" : a.detail)
     }
 }
 
-// MARK: - Side column
+// MARK: - When it opens
 
 struct WheelGesturesPanel: View {
     @Environment(AppModel.self) private var app
@@ -213,46 +246,33 @@ struct WheelGesturesPanel: View {
     var body: some View {
         let m = app.wheel
         let instant = m.settings.instant
-        Panel(title: "Quand elle s'ouvre", subtitle: "Pendant que tu glisses un ou plusieurs fichiers, depuis le Finder ou une autre app.",
-              symbol: "hand.draw", tint: Theme.brand) {
+        Panel(title: "Quand elle s'ouvre", symbol: "hand.draw", tint: Theme.brand) {
             VStack(alignment: .leading, spacing: 12) {
                 WheelChips(options: [true, false], selection: Binding(get: { m.settings.instant }, set: { m.settings.instant = $0 }),
                            label: { $0 ? "Dès que le fichier bouge" : "Avec un geste" })
-                if instant {
-                    Text("Elle apparaît sous ton pointeur au premier mouvement. Pour simplement déplacer le fichier, éloigne-toi : elle s'estompe puis disparaît.")
-                        .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-                } else {
-                    gesture("Maintenir puis glisser", "Appuie sur le fichier, garde-le immobile un instant, puis glisse-le.",
-                            isOn: Binding(get: { m.settings.hold }, set: { m.settings.hold = $0 }))
+                if !instant {
+                    Toggle(isOn: Binding(get: { m.settings.hold }, set: { m.settings.hold = $0 })) { label("Maintenir puis glisser") }
                     if m.settings.hold {
-                        HStack(spacing: 8) {
-                            Text("Pause").font(.ui(11)).foregroundStyle(Theme.text3)
+                        row("Pause") {
                             WheelChips(options: [0.3, 0.45, 0.7], selection: Binding(get: { m.settings.holdDelay }, set: { m.settings.holdDelay = $0 }),
                                        label: { String(format: "%g s", $0).replacingOccurrences(of: ".", with: ",") })
                         }
-                        .padding(.leading, 2)
                     }
                 }
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Elle disparaît à").font(.ui(12, .medium)).foregroundStyle(Theme.text)
+                row("Disparaît à") {
                     WheelChips(options: [2.0, 3.5, 5.0], selection: Binding(get: { m.settings.leaveDistance }, set: { m.settings.leaveDistance = $0 }),
                                label: { "\(String(format: "%g", $0).replacingOccurrences(of: ".", with: ",")) cm" })
-                    Text("de son bord : au-delà, ton fichier se déplace comme d'habitude.")
-                        .font(.ui(11)).foregroundStyle(Theme.text3)
                 }
-                gesture(instant ? "La faire revenir en secouant" : "Secouer le fichier", "Deux ou trois petits allers-retours de côté pendant le glisser.",
-                        isOn: Binding(get: { m.settings.shake }, set: { m.settings.shake = $0 }))
-                gesture(instant ? "La faire revenir avec ⇧" : "Glisser avec ⇧", "Appuie sur Maj pendant que tu glisses.",
-                        isOn: Binding(get: { m.settings.shift }, set: { m.settings.shift = $0 }))
+                Toggle(isOn: Binding(get: { m.settings.shake }, set: { m.settings.shake = $0 })) {
+                    label(instant ? "Revenir en secouant le fichier" : "Secouer le fichier")
+                }
+                Toggle(isOn: Binding(get: { m.settings.shift }, set: { m.settings.shift = $0 })) {
+                    label(instant ? "Revenir avec ⇧" : "Glisser avec ⇧")
+                }
                 Divider().overlay(Theme.border)
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Raccourci : la roue du fichier sélectionné dans le Finder").font(.ui(12, .medium)).foregroundStyle(Theme.text)
-                    HStack {
-                        ShortcutRecorder(combo: m.combo) { m.setCombo($0) }
-                        Spacer()
-                    }
-                    Text("Ensuite, clique une action (ou ← → et ↩). Le Finder te demandera une fois l'autorisation.")
-                        .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
+                    label("Raccourci : la sélection du Finder")
+                    ShortcutRecorder(combo: m.combo) { m.setCombo($0) }
                 }
             }
             .switchToggles()
@@ -261,78 +281,15 @@ struct WheelGesturesPanel: View {
         }
     }
 
-    private func gesture(_ title: String, _ detail: String, isOn: Binding<Bool>) -> some View {
-        Toggle(isOn: isOn) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.ui(12.5, .medium)).foregroundStyle(Theme.text)
-                Text(detail).font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-            }
-        }
+    private func label(_ text: String) -> some View {
+        Text(text).font(.ui(12.5, .medium)).foregroundStyle(Theme.text)
     }
-}
 
-/// Drop a file here: its wheel opens under the pointer, to try it out.
-struct WheelTryZone: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        DropZone(title: "Essaie ici", subtitle: "dépose un fichier : sa roue s'ouvre", symbol: "dial.medium") { urls in
-            app.wheel.openWheel(urls, at: NSEvent.mouseLocation, clicking: true)
-        }
-    }
-}
-
-struct WheelDestinationPanel: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let m = app.wheel
-        Panel(title: "Où vont les copies", symbol: "folder", tint: Theme.palette[1]) {
-            VStack(alignment: .leading, spacing: 8) {
-                WheelChips(options: WheelDestination.allCases, selection: Binding(get: { m.settings.destination }, set: { m.settings.destination = $0 }),
-                           label: \.title)
-                Text(m.settings.destination == .beside
-                     ? "« photo recadrée.jpg » à côté de « photo.jpg ». Sur un disque en lecture seule, elle va dans Téléchargements. La première copie sur le Bureau, macOS te demandera d'autoriser l'accès."
-                     : "Toutes les copies dans Téléchargements, quel que soit l'endroit d'où vient le fichier.")
-                    .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-}
-
-struct WheelHistoryPanel: View {
-    @Environment(AppModel.self) private var app
-
-    var body: some View {
-        let m = app.wheel
-        Panel(title: "Dernières copies", subtitle: Fmt.plural(m.history.count, "copie faite avec la roue", "copies faites avec la roue"),
-              symbol: "clock.arrow.circlepath", tint: Theme.good) {
-            Button("Effacer") { m.clearHistory() }.buttonStyle(SoftButtonStyle(small: true))
-        } content: {
-            VStack(spacing: 2) {
-                ForEach(m.history.prefix(8)) { r in
-                    HoverRow {
-                        HStack(spacing: 9) {
-                            FileIcon(path: r.outputs.first ?? r.source, size: 24)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(r.outputs.first.map { ($0 as NSString).lastPathComponent } ?? r.source)
-                                    .font(.ui(12, .medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
-                                Text("\(r.wheelAction?.title ?? r.action) · \(Fmt.relative(r.date))")
-                                    .font(.ui(10.5)).foregroundStyle(Theme.text3).lineLimit(1)
-                            }
-                            Spacer(minLength: 4)
-                            if let path = r.outputs.first {
-                                Button { Finder.reveal(path) } label: {
-                                    Image(systemName: "magnifyingglass").font(.ui(10.5)).foregroundStyle(Theme.text2).frame(width: 22, height: 22)
-                                }
-                                .buttonStyle(.plain)
-                                .help("Afficher dans le Finder")
-                                .disabled(DemoData.isEnabled)
-                            }
-                        }
-                    }
-                }
-            }
+    private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(.ui(12, .medium)).foregroundStyle(Theme.text2)
+            Spacer(minLength: 4)
+            content()
         }
     }
 }
@@ -344,18 +301,32 @@ struct WheelBottomBar: View {
 
     var body: some View {
         let m = app.wheel
-        let running = m.runner.tasks.filter(\.isRunning).count
+        let running = m.runner.running
         ActionBar {
             VStack(alignment: .leading, spacing: 2) {
                 Text(m.isActive ? "Roue active" : "Roue en pause").font(.serif(17)).foregroundStyle(Theme.text)
-                Text(running > 0 ? "\(Fmt.plural(running, "action en cours", "actions en cours"))"
-                     : (m.isActive ? (m.settings.instant ? "Elle s'ouvre dès que tu glisses un fichier" : "Glisse un fichier en marquant une pause, ou secoue-le")
+                Text(running > 0 ? Fmt.plural(running, "action en cours", "actions en cours")
+                     : (m.isActive ? (m.settings.instant ? "Elle s'ouvre dès que tu glisses un fichier" : "Glisse un fichier avec un geste pour l'ouvrir")
                         : "Les fichiers que tu glisses ne l'ouvrent plus"))
                     .font(.ui(11)).foregroundStyle(Theme.text3)
             }
             Spacer()
+            Button("Créer un QR code") { app.converter.present(focus: .qrGenerate) }
+                .buttonStyle(SoftButtonStyle())
+            Button("Choisir des fichiers…") { choose() }
+                .buttonStyle(SoftButtonStyle())
             Button(m.settings.enabled ? "Mettre en pause" : "Activer") { m.setEnabled(!m.settings.enabled) }
                 .buttonStyle(SoftButtonStyle(prominent: !m.settings.enabled))
         }
+    }
+
+    /// The Convertisseur's window without dragging anything.
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.prompt = "Choisir"
+        if panel.runModal() == .OK, !panel.urls.isEmpty { app.converter.present(panel.urls) }
     }
 }

@@ -12,7 +12,7 @@ extension WheelModel {
 
 enum WheelChecks {
     static func all() -> [String] {
-        geometry() + gestures() + menus() + settings() + crop() + sizes() + sensitive() + photoInfo() + drawings()
+        geometry() + gestures() + menus() + hub() + settings() + crop() + sizes() + sensitive() + photoInfo() + drawings()
     }
 
     private static func geometry() -> [String] {
@@ -132,8 +132,75 @@ enum WheelChecks {
         }
         if s.layouts["image"] != [.crop, .png] { f.append("Une action inconnue efface toute la roue choisie") }
         if let back = try? JSONDecoder().decode(WheelSettings.self, from: JSONEncoder().encode(s)), back != s { f.append("Les réglages ne se relisent pas") }
-        let record = #"[{"id": "6E2C1C0A-0000-4000-8000-000000000001", "date": "2026-10-21T10:00:00Z", "action": "disparue", "source": "a.jpg", "outputs": []}]"#
-        if (try? JSONDecoder.store.decode([WheelRecord].self, from: Data(record.utf8)))?.count != 1 { f.append("L'historique ne se relit pas avec une action inconnue") }
+        if s.folder != nil || s.lastUsed != nil { f.append("Un dossier des copies ou une date d'usage sortis de nulle part") }
+        let folder = #"{"destination": "folder", "folder": "/Users/exemple/Copies"}"#
+        if let d = try? JSONDecoder().decode(WheelSettings.self, from: Data(folder.utf8)), d.destination != .folder || d.folder != "/Users/exemple/Copies" {
+            f.append("Le dossier choisi pour les copies ne se relit pas")
+        }
+        let unknown = #"{"destination": "nulle-part", "enabled": false}"#
+        if let d = try? JSONDecoder().decode(WheelSettings.self, from: Data(unknown.utf8)) {
+            if d.destination != .beside || d.enabled { f.append("Une destination inconnue efface les autres réglages") }
+        } else {
+            f.append("Une destination inconnue rend les réglages illisibles")
+        }
+        var used = WheelSettings()
+        used.lastUsed = Date(timeIntervalSince1970: 1_800_000_000)
+        if let back = try? JSONDecoder().decode(WheelSettings.self, from: JSONEncoder().encode(used)), back.lastUsed != used.lastUsed {
+            f.append("La date de la dernière copie ne se relit pas")
+        }
+        let place = WheelJobs.folder(for: URL(fileURLWithPath: "/tmp/a.jpg"), destination: .folder, custom: "/dossier/qui/n'existe/pas")
+        if place.folder != ConverterDestination.downloadsURL || place.note == nil { f.append("Un dossier choisi disparu ne renvoie pas vers Téléchargements") }
+        if WheelJobs.folder(for: URL(fileURLWithPath: "/tmp/a.jpg"), destination: .downloads).folder != ConverterDestination.downloadsURL {
+            f.append("« Dans Téléchargements » ne va pas dans Téléchargements")
+        }
+        return f
+    }
+
+    /// The Convertisseur's window: what it lists for each kind of file, and how the launcher's operations reach it.
+    private static func hub() -> [String] {
+        var f: [String] = []
+        let all = WheelCapabilities(ffmpeg: true, webp: true)
+        func list(_ names: [String]) -> [WheelAction] {
+            let files = names.map(file)
+            let fam = WheelFamily.of(files.map(\.kind))
+            return WheelMenu.available(files, in: WheelAction.allCases, capabilities: all).filter { !$0.coveredInHub(fam) }
+        }
+        let photo = list(["photo.jpg"])
+        if !photo.contains(.convert) || photo.contains(.png) || photo.contains(.heic) { f.append("Une photo : « Changer de format » absent ou formats en double") }
+        for a in [WheelAction.crop, .strip, .rename, .sign, .qrRead, .compress, .pdf] where !photo.contains(a) { f.append("Une photo sans « \(a.title) »") }
+        let pdf = list(["contrat.pdf"])
+        for a in [WheelAction.sign, .pdfSplit, .pdfImages, .pdfRotate, .pdfCompress, .word] where !pdf.contains(a) { f.append("Un PDF sans « \(a.title) »") }
+        if pdf.contains(.jpeg) || pdf.contains(.merge) { f.append("Un seul PDF : « En JPEG » en double ou une fusion") }
+        if list(["a.pdf", "b.pdf"]).contains(.sign) { f.append("Deux PDF à signer à la fois") }
+        let around = list(["a.pdf", "photo.jpg"])
+        if !around.contains(.merge) || around.contains(.convert) { f.append("Un PDF et une photo : pas de fusion, ou un format commun") }
+        if list(["a.jpg", "b.jpg"]).contains(.merge) { f.append("Des photos seules se fusionnent au lieu de s'assembler") }
+        let mixed = list(["a.jpg", "b.mov"])
+        if !mixed.contains(.rename) || !mixed.contains(.zip) || mixed.contains(.convert) { f.append("Une photo et une vidéo : \(mixed.map(\.label))") }
+        if !list(["mémo.m4a"]).contains(.convert) || list(["mémo.m4a"]).contains(.wav) { f.append("Un son : formats mal regroupés") }
+        if !list(["vacances.mov"]).contains(.gif) || list(["vacances.mov"]).contains(.mp4) { f.append("Une vidéo : GIF absent ou MP4 en double") }
+        if list(["rapport.docx"]).contains(.pdf) || !list(["rapport.docx"]).contains(.convert) { f.append("Un document : « En PDF » en double") }
+        for op in ConverterOperation.allCases where op != .qrGenerate {
+            guard let a = WheelAction.forOperation(op) else { f.append("« \(op.commandTitle) » ne mène à rien dans la fenêtre"); continue }
+            guard let kind = ConverterKind.allCases.first(where: { op.accepts.contains($0) }) else { continue }
+            if a.hubOperation(WheelFamily.of(kind)) != op { f.append("« \(op.commandTitle) » ouvre « \(a.title) », qui fait autre chose") }
+        }
+        for family in WheelFamily.allCases {
+            let a = WheelAction.suggested(family, count: 1)
+            if !list([WheelModel.sample(family).name]).contains(a) && family != .folder && family != .other {
+                f.append("Les \(family.title) s'ouvrent sur « \(a.title) », qu'ils n'ont pas")
+            }
+        }
+        for a in WheelAction.allCases {
+            if a.opensHub && a.isFormat { f.append("Le format \(a.label) ouvre la fenêtre") }
+            if a.opensHub && a.hubOperation(.image) == nil && a.hubOperation(.pdf) == nil && a.hubOperation(.document) == nil {
+                f.append("« \(a.title) » ouvre la fenêtre sans réglages")
+            }
+            if a.verb(.image, count: 1).isEmpty { f.append("« \(a.title) » n'a pas de bouton") }
+        }
+        if WheelAction.copyText.hubOperation(.image) != .ocr || WheelAction.copyText.runsWithOptions(.image) {
+            f.append("« Copier le texte » passe par l'OCR du convertisseur au lieu du presse-papiers")
+        }
         return f
     }
 

@@ -388,23 +388,15 @@ struct UpdatesSelfCard: View {
                 .controlSize(.mini)
                 .fixedSize()
                 .disabled(DemoData.isEnabled || !m.canCheck)
-                .help("Au lancement puis toutes les 6 h, l'app demande à GitHub le numéro de sa dernière version publiée.")
+                .help("Au lancement puis toutes les 6 h, l'app demande à GitHub le numéro de sa dernière version publiée : c'est la seule connexion qu'elle fait sans ton clic, et elle n'envoie rien d'autre.")
                 UpdatesCheckButton(state: m.state) { Task { await m.check(announce: false) } }
                     .disabled(!m.canCheck || m.step.isBusy)
             }
         } content: {
-            VStack(alignment: .leading, spacing: 10) {
-                if let r = m.release {
-                    available(m, r)
-                } else if case .failed(let message) = m.state {
-                    Text(message).font(.ui(12)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
-                }
-                Text(auto && m.canCheck
-                     ? "Au lancement puis toutes les 6 h, l'app demande à GitHub le numéro de sa dernière version publiée : c'est la seule connexion qu'elle fait sans ton clic, et elle n'envoie rien d'autre. Rien ne s'installe sans ton accord."
-                     : "Vérification automatique coupée : clique sur « Vérifier » quand tu veux savoir si une nouvelle version est publiée.")
-                    .font(.ui(11))
-                    .foregroundStyle(Theme.text3)
-                    .fixedSize(horizontal: false, vertical: true)
+            if let r = m.release {
+                available(m, r)
+            } else if case .failed(let message) = m.state {
+                Text(message).font(.ui(12)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
             }
         }
     }

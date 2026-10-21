@@ -219,15 +219,14 @@ struct ProfileInvite: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        Card(padding: 18) {
-            HStack(alignment: .center, spacing: 16) {
-                IconBadge(symbol: "person.crop.rectangle.stack", tint: Theme.brand, size: 40)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Une app à ta mesure").font(.serif(20)).foregroundStyle(Theme.text)
-                    Text("Dis-moi ce que tu fais avec ton Mac : études, travail, création, loisirs ou juste l'essentiel. Je mets en avant les outils qui te servent et je range les autres, toujours à un clic.")
-                        .font(.ui(12.5))
+        Card(padding: 14) {
+            HStack(alignment: .center, spacing: 14) {
+                IconBadge(symbol: "person.crop.rectangle.stack", tint: Theme.brand, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Une app à ta mesure").font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                    Text("Choisis ton profil : je mets en avant les outils qui te servent.")
+                        .font(.ui(12))
                         .foregroundStyle(Theme.text2)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
                 Button("Plus tard") { app.profile.dismissInvite() }

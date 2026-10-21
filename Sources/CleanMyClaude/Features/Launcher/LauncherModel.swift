@@ -234,8 +234,20 @@ final class LauncherModel: AppModule {
             refresh()
         }
         switch parts.first ?? tab {
-        case "translator":
+        case "translator", "traducteur":
+            // The translator in the panel (`--tab traducteur:reglages` for its settings).
             mode = .translator
+            if parts.count > 1 { app?.translator.applySnapshotTab(parts[1]) }
+        case "youtube":
+            // A YouTube link pasted, its pane at the right (`--tab youtube:outils`, `installation`, `audio`, `attente`…).
+            if parts.count > 1 { app?.youtube.applySnapshotTab(parts[1]) }
+            query = YouTubeModel.demoLink
+            refresh()
+        case "telechargements":
+            // The download list, from its launcher result.
+            query = "téléchargements youtube"
+            refresh()
+            if let i = flat.firstIndex(where: { $0.id == YouTubeModel.listCommandID }) { selection = i }
         case "assign":
             let target = apps.first.map { HotkeysTarget.app(path: $0.path, name: $0.name) } ?? .command(id: "open_translator", title: "Traducteur")
             mode = .assign(target: target, title: target.title)
@@ -511,10 +523,10 @@ final class LauncherModel: AppModule {
         }
         // The slowest modules for one letter, the widest search.
         var slow: [(String, Double)] = []
-        for (page, module) in ModuleRegistry.modules(app) {
+        for e in ModuleRegistry.modules(app) {
             let t = DispatchTime.now().uptimeNanoseconds
-            for q in ["c", "ch", "fa"] { _ = module.results(for: q, app: app) }
-            slow.append((page.title, Double(DispatchTime.now().uptimeNanoseconds - t) / 3e6))
+            for q in ["c", "ch", "fa"] { _ = e.module.results(for: q, app: app) }
+            slow.append((e.title, Double(DispatchTime.now().uptimeNanoseconds - t) / 3e6))
         }
         lines.append("résultats des modules : " + slow.sorted { $0.1 > $1.1 }.prefix(5).map { "\($0.0) \(String(format: "%.2f", $0.1)) ms" }.joined(separator: " · "))
         stopFileSearch()
@@ -547,8 +559,9 @@ final class LauncherModel: AppModule {
         isOpen && scope == .files ? hide() : showFiles()
     }
 
-    func show() {
-        open(.all, query: "")
+    /// The launcher, empty or with a text already typed (a YouTube link copied, for its download).
+    func show(query text: String = "") {
+        open(.all, query: text)
     }
 
     /// The file search in its own window, `text` already typed (from the launcher's "Chercher « … » dans les fichiers").
@@ -623,6 +636,7 @@ final class LauncherModel: AppModule {
         assignMessage = nil
         closeActions()
         app?.translator.panelActive = false
+        app?.translator.showSettings = false
     }
 
     /// The apps the launcher knows (read only: the Raccourcis page lists them).
@@ -742,10 +756,28 @@ final class LauncherModel: AppModule {
             }
     }
 
-    /// ↩ copies the translation, ⌘↩ asks Claude, ⇥ changes the language, ⎋ clears then goes back to the search.
+    /// ↩ copies the translation, ⌘↩ asks Claude, ⇥ changes the language, ⌘, opens the settings, ⎋ clears then goes
+    /// back to the search. In the settings, ⎋ (or ⌘,) goes back to the translation.
     private func translatorKey(_ event: NSEvent) -> NSEvent? {
         guard let t = app?.translator else { return event }
         let flags = event.modifierFlags
+        let settingsKey = flags.contains(.command) && event.charactersIgnoringModifiers == ","
+        if t.showSettings {
+            switch Int(event.keyCode) {
+            case kVK_Escape:
+                t.showSettings = false
+                return nil
+            case kVK_Return, kVK_ANSI_KeypadEnter:
+                return nil
+            default:
+                if settingsKey { t.showSettings = false; return nil }
+                return event
+            }
+        }
+        if settingsKey {
+            t.showSettings = true
+            return nil
+        }
         switch Int(event.keyCode) {
         case kVK_Return, kVK_ANSI_KeypadEnter:
             if flags.contains(.option) || flags.contains(.shift) { return event } // a new line in the text

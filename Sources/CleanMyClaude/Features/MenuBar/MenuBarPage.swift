@@ -11,8 +11,8 @@ struct MenuBarPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "menubar.rectangle", title: "Menu d'état en temps réel",
-                     subtitle: "Ton Mac en un coup d'œil depuis la barre des menus : processeur, mémoire, disque, réseau, batterie, les apps les plus gourmandes et quatre actions express.",
-                     tint: Theme.brand, seed: 81)
+                     subtitle: "Ton Mac en un coup d'œil, depuis la barre des menus.",
+                     tint: Theme.brand, seed: 81, tip: Self.tip)
             HStack(alignment: .top, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Aperçu en direct").font(.ui(12, .semibold)).foregroundStyle(Theme.text3)
@@ -22,7 +22,7 @@ struct MenuBarPage: View {
                         .themedShadow(color: .black.opacity(0.25), radius: 18, y: 8)
                 }
                 VStack(alignment: .leading, spacing: 14) {
-                    Panel(title: "Dans la barre des menus", subtitle: "Ce qui s'affiche à côté de la mascotte", symbol: "textformat") {
+                    Panel(title: "Dans la barre des menus", symbol: "textformat") {
                         VStack(alignment: .leading, spacing: 6) {
                             ForEach(MenuMetric.allCases) { mm in
                                 Button { metric = mm } label: {
@@ -42,9 +42,10 @@ struct MenuBarPage: View {
                     }
                     Panel(title: "Réglages", symbol: "slider.horizontal.3") {
                         VStack(alignment: .leading, spacing: 12) {
-                            Toggle("M'alerter si le disque est presque plein ou si la mémoire sature", isOn: $alerts)
+                            Toggle("M'alerter si le disque ou la mémoire saturent", isOn: $alerts)
                                 .onChange(of: alerts) { _, on in if on { Alerts.requestPermission() } }
                                 .disabled(!Alerts.available)
+                                .help("Disque plein à plus de 92 %, mémoire saturée ou chaleur critique : au plus une alerte de chaque sorte toutes les 6 heures.")
                             if !Alerts.available {
                                 Text("Les alertes demandent l'app assemblée (scripts/build_app.sh).").font(.ui(11)).foregroundStyle(Theme.text3)
                             }
@@ -70,13 +71,16 @@ struct MenuBarPage: View {
                         .switchToggles()
                         .controlSize(.small)
                     }
-                    Callout(symbol: "leaf", title: "Léger par conception",
-                            text: "Les mesures viennent directement du noyau (quelques appels système toutes les \(Int(refresh)) s), et seulement quand quelque chose les affiche : fenêtre, panneau ou chiffre dans la barre des menus. La liste des processus n'est lue que lorsque le panneau est ouvert.",
-                            tint: Theme.good)
                 }
+                // As tall as its settings, not as the preview beside it.
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
+
+    static let tip = HelpTip(
+        id: "menubar.page", title: "Le menu d'état",
+        text: "Clique sur la mascotte de la barre des menus : processeur, mémoire, disque, réseau, batterie, les apps les plus gourmandes et quatre actions express. Les mesures viennent directement du noyau, seulement quand quelque chose les affiche, pour rester léger.")
 
     /// The refresh picker drawn by hand, for snapshots.
     private var refreshSegments: some View {

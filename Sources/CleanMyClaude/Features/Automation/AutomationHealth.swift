@@ -69,13 +69,14 @@ enum AutomationHealth {
 
 // MARK: - Views
 
-/// The health history tab: tiles with today's values, then one chart per measure.
+/// The health history tab: one chart per measure, today's value and the change over the period in its header.
 struct AutomationHealthView: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
         let model = app.automation
         let shown = AutomationHealth.window(model.samples, range: model.range, now: Date())
+        let last = shown.last
         VStack(alignment: .leading, spacing: 18) {
             if !model.settings.healthEnabled && model.samples.isEmpty {
                 AutomationHealthIntro()
@@ -83,7 +84,7 @@ struct AutomationHealthView: View {
                 HStack(spacing: 12) {
                     PillPicker(options: AutomationHealthRange.allCases, selection: Binding(get: { model.range }, set: { model.range = $0 }),
                                label: { $0.title })
-                    Text(shown.isEmpty ? "Aucun instantané sur cette période" : "\(Fmt.plural(shown.count, "instantané", "instantanés")) · un par jour où le Mac a servi")
+                    Text(shown.isEmpty ? "Aucun instantané sur cette période" : Fmt.plural(shown.count, "instantané", "instantanés"))
                         .font(.ui(11.5)).foregroundStyle(Theme.text3)
                     Spacer()
                     if !model.settings.healthEnabled {
@@ -96,20 +97,25 @@ struct AutomationHealthView: View {
                     }
                     .buttonStyle(SoftButtonStyle(small: true))
                 }
-                tiles(shown)
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                    chartPanel("Score de santé", subtitle: "Le score du tableau de bord, sur 100", symbol: "heart.text.square", tint: Theme.good) {
+                    chartPanel("Score de santé", value: last.map { "\($0.score)" },
+                               change: delta(AutomationHealth.change(shown) { Double($0.score) }, { Fmt.int($0) }, unit: " pts"),
+                               symbol: "heart.text.square", tint: Theme.good) {
                         let scores = shown.map { ($0.day, Double($0.score)) }
                         AutomationHealthChart(points: scores, tint: Theme.good,
                                               yDomain: max(0, (scores.map(\.1).min() ?? 50) - 10)...100, unit: "")
                     }
-                    chartPanel("Espace libre", subtitle: "Sur le disque de démarrage, en Go", symbol: "internaldrive", tint: Theme.accent) {
+                    chartPanel("Espace libre", value: last.map { Fmt.bytes($0.diskFree) },
+                               change: delta(AutomationHealth.change(shown) { Double($0.diskFree) / 1e9 }, { Fmt.dec($0) }, unit: " Go"),
+                               symbol: "internaldrive", tint: Theme.accent) {
                         AutomationHealthChart(points: shown.map { ($0.day, Double($0.diskFree) / 1e9) }, tint: Theme.accent, yDomain: nil, unit: " Go")
                     }
-                    chartPanel("Mémoire utilisée", subtitle: "Au moment de l'instantané", symbol: "memorychip", tint: Theme.palette[4]) {
+                    chartPanel("Mémoire utilisée", value: last.map { Fmt.pct($0.memoryUsed) }, change: nil,
+                               symbol: "memorychip", tint: Theme.palette[4]) {
                         AutomationHealthChart(points: shown.map { ($0.day, $0.memoryUsed * 100) }, tint: Theme.palette[4], yDomain: 0...100, unit: " %")
                     }
-                    chartPanel("Santé de la batterie", subtitle: batterySubtitle(shown), symbol: "battery.75percent", tint: Theme.palette[1]) {
+                    chartPanel("Santé de la batterie", value: last?.batteryHealth.map(Fmt.pct), change: batteryLine(shown),
+                               symbol: "battery.75percent", tint: Theme.palette[1]) {
                         let points = shown.compactMap { s in s.batteryHealth.map { (s.day, $0 * 100) } }
                         if points.isEmpty {
                             EmptyHint(text: "Pas de batterie sur ce Mac.", symbol: "powerplug")
@@ -118,43 +124,33 @@ struct AutomationHealthView: View {
                         }
                     }
                 }
-                chartPanel("Fichiers inutiles trouvés", subtitle: "Ce que le nettoyage conseillé libérerait ce jour-là, en Go", symbol: "sparkles", tint: Theme.brand) {
+                chartPanel("Fichiers inutiles trouvés", value: last?.junk.map(Fmt.bytes), change: nil, symbol: "sparkles", tint: Theme.brand) {
                     AutomationJunkChart(points: shown.compactMap { s in s.junk.map { (s.day, Double($0) / 1e9) } })
                 }
-                Callout(symbol: "lock", title: "Reste sur ton Mac",
-                        text: "L'historique est un petit fichier JSON dans le dossier de données de l'app. Rien n'est envoyé nulle part.",
-                        tint: Theme.good)
             }
         }
     }
 
-    private func batterySubtitle(_ shown: [AutomationHealthSample]) -> String {
-        guard let cycles = shown.last(where: { $0.batteryCycles != nil })?.batteryCycles else { return "Capacité maximale" }
-        return "Capacité maximale · \(Fmt.plural(cycles, "cycle", "cycles")) de charge"
+    /// "+3 pts sur la période"
+    private func delta(_ v: Double?, _ fmt: (Double) -> String, unit: String) -> String? {
+        guard let v else { return nil }
+        let sign = v > 0 ? "+" : (v < 0 ? "−" : "±")
+        return "\(sign)\(fmt(abs(v)))\(unit) sur la période"
     }
 
-    private func tiles(_ shown: [AutomationHealthSample]) -> some View {
-        let last = shown.last
-        func delta(_ v: Double?, _ fmt: (Double) -> String, unit: String) -> String? {
-            guard let v else { return nil }
-            let sign = v > 0 ? "+" : (v < 0 ? "−" : "±")
-            return "\(sign)\(fmt(abs(v)))\(unit) sur la période"
-        }
-        return TileRow(spacing: 12) {
-            StatTile(symbol: "heart.text.square", value: last.map { "\($0.score)" } ?? "—", label: "Score de santé",
-                     detail: delta(AutomationHealth.change(shown) { Double($0.score) }, { Fmt.int($0) }, unit: " pts"), tint: Theme.good)
-            StatTile(symbol: "internaldrive", value: last.map { Fmt.bytes($0.diskFree) } ?? "—", label: "Espace libre",
-                     detail: delta(AutomationHealth.change(shown) { Double($0.diskFree) / 1e9 }, { Fmt.dec($0) }, unit: " Go"), tint: Theme.accent)
-            StatTile(symbol: "battery.75percent", value: last?.batteryHealth.map(Fmt.pct) ?? "—", label: "Batterie",
-                     detail: delta(AutomationHealth.change(shown) { $0.batteryHealth.map { $0 * 100 } }, { Fmt.dec($0) }, unit: " pts"),
-                     tint: Theme.palette[1])
-            StatTile(symbol: "sparkles", value: last?.junk.map(Fmt.bytes) ?? "—", label: "Fichiers inutiles",
-                     detail: "Mesurés chaque jour", tint: Theme.brand)
-        }
+    /// The change of the battery's capacity, and its charge cycles.
+    private func batteryLine(_ shown: [AutomationHealthSample]) -> String? {
+        let change = delta(AutomationHealth.change(shown) { $0.batteryHealth.map { $0 * 100 } }, { Fmt.dec($0) }, unit: " pts")
+        let cycles = shown.last(where: { $0.batteryCycles != nil })?.batteryCycles.map { Fmt.plural($0, "cycle", "cycles") }
+        let parts = [change, cycles].compactMap { $0 }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private func chartPanel<C: View>(_ title: String, subtitle: String, symbol: String, tint: Color, @ViewBuilder chart: () -> C) -> some View {
-        Panel(title: title, subtitle: subtitle, symbol: symbol, tint: tint) {
+    private func chartPanel<C: View>(_ title: String, value: String?, change: String?, symbol: String, tint: Color,
+                                     @ViewBuilder chart: () -> C) -> some View {
+        Panel(title: title, subtitle: change, symbol: symbol, tint: tint) {
+            if let value { Text(value).font(.serif(20)).foregroundStyle(Theme.text).monospacedDigit() }
+        } content: {
             chart().frame(height: 150)
         }
     }
@@ -169,10 +165,8 @@ private struct AutomationHealthIntro: View {
             HStack(alignment: .top, spacing: 22) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Suis la forme de ton Mac au fil des mois").font(.serif(22)).foregroundStyle(Theme.text)
-                    Text("Une fois par jour, Chamois note l'espace libre, la mémoire utilisée, la santé et les cycles de la batterie, le score de santé et les fichiers inutiles trouvés. Tu vois ensuite les courbes sur 30 jours, 90 jours ou un an.")
+                    Text("Un instantané par jour, puis ses courbes sur 30 jours, 90 jours ou un an.")
                         .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    Text("Un instantané pèse quelques centaines d'octets et reste sur ton Mac. Tu peux arrêter quand tu veux.")
-                        .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
                     Button {
                         app.automation.setHealthEnabled(true, app: app)
                     } label: {

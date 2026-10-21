@@ -129,9 +129,7 @@ struct PerformanceModePanel: View {
 
     var body: some View {
         @Bindable var b = app.performance.boost
-        Panel(title: "Mode du Boost",
-              subtitle: "Ce qui tourne en arrière-plan passe sur les cœurs économes de la puce : il continue, plus lentement et plus au frais, et retrouve toute sa vitesse dès que tu y reviens.",
-              symbol: "bolt") {
+        Panel(title: "Mode du Boost", symbol: "bolt") {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .top, spacing: 10) {
                     ForEach(PerformanceMode.allCases) { m in
@@ -144,27 +142,27 @@ struct PerformanceModePanel: View {
                     Toggle(isOn: $b.gameBoost) {
                         PerformanceOptionLabel(title: "Passer en Performance quand un jeu est au premier plan",
                                                detail: b.gameInFront.map { "En ce moment : \($0) au premier plan, mode Performance actif." }
-                                                   ?? "Les jeux sont reconnus à leur catégorie ou à leur bibliothèque (Steam, Epic, GOG).")
+                                                   ?? "Reconnus à leur catégorie ou à Steam, Epic, GOG.")
                     }
                     .switchToggles()
                     Toggle(isOn: $b.heatAssist) {
                         PerformanceOptionLabel(title: "Refroidir automatiquement quand le Mac chauffe",
                                                detail: b.coolingDown ? "En ce moment : la puce chauffe, tout l'arrière-plan est sur les cœurs économes."
-                                                   : "Dès que macOS signale que la puce chauffe, tout l'arrière-plan passe sur les cœurs économes, jusqu'au retour au calme.")
+                                                   : "L'arrière-plan passe sur les cœurs économes jusqu'au retour au calme.")
                     }
                     .switchToggles()
                 }
                 if b.mode == .performance {
                     Toggle(isOn: Binding(get: { b.forceGameMode }, set: { b.setForceGameMode($0) })) {
                         PerformanceOptionLabel(title: "Forcer le mode Jeu de macOS",
-                                               detail: b.gameModeAvailable ? "Priorité maximale au jeu sur le processeur et le GPU, latence Bluetooth divisée par deux (manettes, AirPods)."
-                                                   : "Disponible avec Xcode installé ; sinon macOS l'active seul pour les jeux en plein écran.")
+                                               detail: b.gameModeAvailable ? "Priorité au jeu, latence Bluetooth divisée par deux."
+                                                   : "Il faut Xcode ; sinon macOS l'active seul en plein écran.")
                     }
                     .switchToggles()
                     .disabled(!b.gameModeAvailable)
                 }
                 if b.mode == .cool {
-                    Text("Fraîcheur active aussi l'économie d'énergie de macOS (mot de passe), et la remet comme avant quand tu changes de mode.")
+                    Text("Fraîcheur active aussi l'économie d'énergie de macOS (mot de passe demandé), remise comme avant ensuite.")
                         .font(.ui(11.5)).foregroundStyle(Theme.text3)
                 }
 
@@ -172,7 +170,7 @@ struct PerformanceModePanel: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Mode d'énergie de macOS").font(.ui(12.5, .semibold)).foregroundStyle(Theme.text)
-                        Text("La vitesse maximale autorisée à la puce. Demande ton mot de passe.")
+                        Text("Demande ton mot de passe.")
                             .font(.ui(11)).foregroundStyle(Theme.text3)
                     }
                     Spacer(minLength: 8)
@@ -248,7 +246,7 @@ struct PerformanceDemotedPanel: View {
 
     var body: some View {
         let b = app.performance.boost
-        Panel(title: "Sur les cœurs économes", subtitle: "Ralenties en ce moment : elles continuent leur travail, plus au frais.", symbol: "tortoise") {
+        Panel(title: "Sur les cœurs économes", subtitle: "Elles continuent leur travail, plus au frais.", symbol: "tortoise") {
             if !b.demotions.isEmpty {
                 Button("Tout rétablir") { b.restoreAll() }.buttonStyle(SoftButtonStyle(small: true))
             }
@@ -305,7 +303,7 @@ struct PerformanceBusyPanel: View {
         let b = app.performance.boost
         Panel(title: "S'agitent en arrière-plan",
               subtitle: b.mode == .smart ? "Au-delà de \(Fmt.int(PerformancePlanner.busyCPU)) % de processeur pendant 20 s, le mode Intelligent les ralentit."
-                  : "Les apps en arrière-plan qui travaillent encore à pleine vitesse.",
+                  : "Les apps en arrière-plan à pleine vitesse.",
               symbol: "flame") {
             VStack(spacing: 2) {
                 if b.mode == .off {
@@ -429,9 +427,7 @@ struct PerformanceRulesPanel: View {
 
     var body: some View {
         let b = app.performance.boost
-        Panel(title: "Tes règles",
-              subtitle: "Les apps dont le travail en fond compte (exports, enregistrements, machines virtuelles) ne sont jamais ralenties. Clic droit sur une app pour changer.",
-              symbol: "slider.horizontal.3") {
+        Panel(title: "Tes règles", subtitle: "Clic droit sur une app pour changer.", symbol: "slider.horizontal.3") {
             Button("Règles par défaut") { b.resetRules() }.buttonStyle(SoftButtonStyle(small: true))
         } content: {
             VStack(alignment: .leading, spacing: 10) {
@@ -447,7 +443,7 @@ struct PerformanceRulesPanel: View {
                 }
                 SectionLabel(text: "Toujours ralenties en arrière-plan")
                 if b.rules.alwaysSlow.isEmpty {
-                    Text("Aucune. Clic droit sur une app ralentie ou agitée pour l'ajouter.").font(.ui(11.5)).foregroundStyle(Theme.text3)
+                    Text("Aucune pour l'instant.").font(.ui(11.5)).foregroundStyle(Theme.text3)
                 } else {
                     FlowLayout(spacing: 6, lineSpacing: 6) {
                         ForEach(b.rules.alwaysSlow, id: \.self) { key in
@@ -455,8 +451,6 @@ struct PerformanceRulesPanel: View {
                         }
                     }
                 }
-                Text("Jamais ralenties non plus : l'app au premier plan, celles qui jouent ou enregistrent du son, celles qui surveillent le clavier, le Finder, le Dock et les composants de macOS.")
-                    .font(.ui(11)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
             }
         }
     }

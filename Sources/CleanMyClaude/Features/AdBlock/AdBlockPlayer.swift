@@ -526,6 +526,15 @@ private final class AdBlockScriptProxy: NSObject, WKScriptMessageHandler {
 
 // MARK: - The window
 
+/// The player's window in the snapshots, 16:9 in « Vidéo seule » (read when drawn, after `--tab`).
+struct AdBlockPlayerSnapshot: View {
+    var player: AdBlockPlayer
+
+    var body: some View {
+        AdBlockPlayerView(player: player).frame(height: player.videoOnly ? 540 : 520)
+    }
+}
+
 struct AdBlockPlayerView: View {
     var player: AdBlockPlayer
 

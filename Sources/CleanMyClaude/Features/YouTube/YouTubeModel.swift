@@ -4,12 +4,6 @@ import AppKit
 @Observable
 @MainActor
 final class YouTubeModel: AppModule {
-    /// What is typed or pasted in the page's field.
-    var link = "" {
-        didSet { if link != oldValue { linkChanged() } }
-    }
-    /// The video of the page's field, once it reads as a YouTube link.
-    private(set) var current: YouTubeLink?
     var options = YouTubeOptions.saved() {
         didSet { if options != oldValue { options.save(); refreshLauncher() } }
     }
@@ -26,8 +20,6 @@ final class YouTubeModel: AppModule {
     var loading: Set<String> = []
     var failures: [String: YouTubeFailure] = [:]
     var tools = YouTubeTools.find()
-    /// "2026.08.19", read when the page opens.
-    var ytdlpVersion: String?
     var install: YouTubeInstall?
     /// Newest first.
     var jobs: [YouTubeJob] = []
@@ -40,12 +32,6 @@ final class YouTubeModel: AppModule {
     var finishedJobs: [YouTubeJob] { jobs.filter { !$0.state.isActive } }
     /// The download under way, for the sidebar and the menu bar.
     var activity: YouTubeActivity? { YouTubeActivity.from(jobs) }
-
-    /// How far the download is ("62 %"), or how many wait.
-    var sidebarBadge: String? {
-        guard let a = activity else { return nil }
-        return a.running && a.progress != nil ? a.percent : "\(activeJobs.count)"
-    }
 
     // MARK: Module
 
@@ -70,27 +56,39 @@ final class YouTubeModel: AppModule {
         clips[id] = YouTubeClip(start: 65, end: 150)
         options = YouTubeOptions(format: .mp4, quality: .p1080)
         destination = .downloads
-        link = "https://youtu.be/\(id)?si=atelier"
         jobs = YouTubeDemo.jobs()
     }
 
+    static let listCommandID = "open_youtube"
+
+    /// The demo's link, pasted in the launcher by the snapshots (`--page launcher --tab youtube`).
+    static var demoLink: String { "https://youtu.be/\(YouTubeDemo.videoID)?si=atelier" }
+
+    /// The launcher's snapshots pass their own names (`--page launcher --tab youtube:outils`).
     func applySnapshotTab(_ tab: String) {
+        let id = YouTubeDemo.videoID
         switch tab {
         case "outils":
-            // A Mac without yt-dlp: the card that installs it.
+            // A Mac without yt-dlp: the line that installs it.
             tools = YouTubeTools(ytdlp: nil, ffmpeg: "/opt/homebrew/bin/ffmpeg", brew: "/opt/homebrew/bin/brew")
+            infos[id]?.detailed = false
+            infos[id]?.duration = nil
+            infos[id]?.streams = []
+            clips = [:]
         case "installation":
             tools = YouTubeTools(ytdlp: nil, ffmpeg: "/opt/homebrew/bin/ffmpeg", brew: "/opt/homebrew/bin/brew")
             install = YouTubeInstall(title: "Installation de yt-dlp", lines: YouTubeDemo.installLines)
         case "vide":
-            link = ""
             jobs = []
         case "entiere":
             clips = [:]
         case "audio":
             options.format = .mp3
+        case "echec":
+            failures[id] = YouTubeFailure(message: "YouTube a changé quelque chose : mets yt-dlp à jour, c'est en général réglé.", suggestsUpdate: true)
         case "attente":
-            if let id = current?.id { loading.insert(id); infos[id]?.detailed = false }
+            loading.insert(id)
+            infos[id]?.detailed = false
         default:
             break
         }
@@ -104,23 +102,22 @@ final class YouTubeModel: AppModule {
         let known = infos[id]
         let clip = clips[id]
         let red = YouTubeStyle.tint
+        let missing = tools.ready ? nil : tools.missing.joined(separator: " et ")
         return [
             // Over everything else: what was pasted is this video, not a file name nor a calculation.
+            // It stays in the launcher until the download starts: ↩ may install yt-dlp first, or read the video again.
             AppCommand(id: "youtube_download", title: known.map { "Télécharger « \($0.title) »" } ?? "Télécharger cette vidéo YouTube",
-                       subtitle: options.summary + (clip == nil ? "" : " · un extrait") + " · dans \(destination.label)",
-                       icon: .symbol("arrow.down.circle.fill", red), group: .tools, hint: "Télécharger", boost: 2000,
+                       subtitle: missing.map { "Il manque \($0) : ↩ l'installe" }
+                           ?? (options.summary + (clip == nil ? "" : " · un extrait") + " · dans \(destination.label)"),
+                       icon: .symbol("arrow.down.circle.fill", red), group: .tools, hint: missing == nil ? "Télécharger" : "Installer",
+                       boost: 2000, staysInLauncher: true,
                        pane: { AnyView(YouTubeLauncherPane(link: link)) }) { ctx in
                 if ctx.alternate {
+                    ctx.app.launcher.hide()
                     NSWorkspace.shared.open(URL(string: link.watchURL)!)
                 } else {
-                    ctx.app.youtube.download(link, from: .launcher)
+                    ctx.app.youtube.launcherReturn(link)
                 }
-                return .done
-            },
-            AppCommand(id: "youtube_page", title: "Régler et suivre dans Vidéos YouTube", subtitle: "Aperçu en grand, tailles par qualité, extrait à la seconde",
-                       icon: .symbol(Page.youtube.symbol, red), group: .tools, hint: "Ouvrir", boost: 1950) { ctx in
-                ctx.app.youtube.link = link.watchURL
-                LauncherAppActions.openMain(ctx.app, .youtube)
                 return .done
             },
             AppCommand(id: "youtube_open", title: "Ouvrir sur YouTube", subtitle: link.shortURL,
@@ -131,6 +128,48 @@ final class YouTubeModel: AppModule {
         ]
     }
 
+    /// The download list in the launcher ("téléchargements", "youtube"), the list itself at the right; and yt-dlp's update.
+    /// It keeps the identifier of the former page (`open_youtube`): the shortcuts and links made for it still work.
+    func commands(app: AppModel) -> [AppCommand] {
+        let red = YouTubeStyle.tint
+        let active = activeJobs.count
+        let finished = finishedJobs.count
+        var list = [
+            AppCommand(id: Self.listCommandID, title: "Téléchargements YouTube",
+                       subtitle: jobs.isEmpty ? "Colle un lien YouTube ici pour le télécharger"
+                           : [active > 0 ? "\(active) en cours" : nil, finished > 0 ? Fmt.plural(finished, "terminé", "terminés") : nil]
+                               .compactMap { $0 }.joined(separator: " · "),
+                       keywords: ["youtube", "vidéos youtube", "téléchargements", "vidéos", "mp4", "mp3", "file"],
+                       icon: .symbol("arrow.down.circle", red), group: .tools, assistantSafe: true, urlSafe: true,
+                       hint: "Ouvrir le dossier", pane: { AnyView(YouTubeQueuePane()) }) { ctx in
+                guard !DemoData.isEnabled else { return .message(DemoData.refusal) }
+                // From a shortcut, a link or Claude (nothing typed): a YouTube link just copied waits in the launcher,
+                // its options at the right, ↩ to download it.
+                if ctx.query.isEmpty, let copied = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   YouTubeLink.parse(copied) != nil {
+                    ctx.app.launcher.show(query: copied)
+                    return .done
+                }
+                // The last file downloaded, selected in its folder; or the folder where the next one goes.
+                if let file = ctx.app.youtube.jobs.first(where: { $0.output != nil })?.output {
+                    Finder.reveal(file.path)
+                } else {
+                    NSWorkspace.shared.open(ctx.app.youtube.destination.url)
+                }
+                return .done
+            }
+        ]
+        if tools.brew != nil, tools.ytdlp != nil {
+            list.append(AppCommand(id: "youtube_update", title: "Mettre à jour yt-dlp", subtitle: "YouTube change souvent : la dernière version suit",
+                                   keywords: ["yt-dlp", "youtube", "homebrew", "mise à jour"], icon: .symbol("arrow.triangle.2.circlepath", red),
+                                   group: .tools, hint: "Mettre à jour") { ctx in
+                ctx.app.youtube.updateYtdlp()
+                return .done
+            })
+        }
+        return list
+    }
+
     /// The launcher's row says the video's title and the chosen settings: it follows them while it is on screen.
     private func refreshLauncher(showing id: String? = nil) {
         guard let launcher = (app ?? AppContext.model)?.launcher, launcher.isOpen,
@@ -139,13 +178,6 @@ final class YouTubeModel: AppModule {
     }
 
     // MARK: Reading a video
-
-    private func linkChanged() {
-        let parsed = YouTubeLink.parse(link)
-        guard parsed != current else { return }
-        current = parsed
-        if let parsed { load(parsed.id) }
-    }
 
     /// Title, picture and channel at once, then yt-dlp's details (duration, streams). Started by the user: a pasted link.
     func load(_ id: String, retry: Bool = false) {
@@ -178,12 +210,6 @@ final class YouTubeModel: AppModule {
                 failures[id] = f
             }
         }
-    }
-
-    /// The pasted link, or nothing when the clipboard holds something else.
-    func pasteLink() {
-        guard let text = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-        link = text
     }
 
     // MARK: Extract
@@ -221,20 +247,45 @@ final class YouTubeModel: AppModule {
 
     // MARK: Downloads
 
-    enum Source { case launcher, page }
+    /// ↩ on the launcher's row: the download, once nothing stands in the way. Until then the launcher stays open and its
+    /// pane shows what happens: yt-dlp being installed, the video read again.
+    func launcherReturn(_ link: YouTubeLink) {
+        guard !DemoData.isEnabled else {
+            HUD.show(DemoData.refusal, symbol: "info.circle.fill")
+            return
+        }
+        tools = YouTubeTools.find()
+        if !tools.ready {
+            if install?.running == true { return }
+            if tools.brew != nil {
+                installTools()
+            } else {
+                (app ?? AppContext.model)?.launcher.hide()
+                Finder.open("https://brew.sh/fr/")
+            }
+            return
+        }
+        if failures[link.id] != nil {
+            load(link.id, retry: true)
+            return
+        }
+        if infos[link.id]?.isLive == true {
+            HUD.show("Un direct ne se télécharge pas pendant qu'il est en cours", symbol: "exclamationmark.triangle.fill")
+            return
+        }
+        (app ?? AppContext.model)?.launcher.hide()
+        download(link)
+    }
 
-    /// Queues the video with the current settings. From the launcher, a message says it started; the page shows it.
-    func download(_ link: YouTubeLink, from source: Source) {
+    /// Queues the video with the current settings; a message says it started, the menu bar shows how far it is.
+    func download(_ link: YouTubeLink) {
         guard !DemoData.isEnabled else {
             HUD.show(DemoData.refusal, symbol: "info.circle.fill")
             return
         }
         tools = YouTubeTools.find()
         guard tools.ready else {
-            // The page explains what to install, with the button that does it.
-            self.link = link.watchURL
-            if let app = app ?? AppContext.model { LauncherAppActions.openMain(app, .youtube) }
-            HUD.show("Il manque \(tools.missing.joined(separator: " et ")) : installe-le depuis Vidéos YouTube", symbol: "exclamationmark.triangle.fill")
+            HUD.show("Il manque \(tools.missing.joined(separator: " et ")) : colle le lien dans le lanceur pour l'installer", symbol: "exclamationmark.triangle.fill")
             return
         }
         if let failure = failures[link.id] {
@@ -249,9 +300,7 @@ final class YouTubeModel: AppModule {
         let job = YouTubeJob(videoID: link.id, title: info?.title ?? "Vidéo \(link.shortURL)", channel: info?.channel ?? "",
                              options: options, clip: effectiveClip(link.id), folder: destination.url)
         jobs.insert(job, at: 0)
-        if source == .launcher {
-            HUD.show("Téléchargement lancé · \(job.summary). Sa progression s'affiche dans la barre des menus.", symbol: "arrow.down.circle.fill")
-        }
+        HUD.show("Téléchargement lancé · \(job.summary)", symbol: "arrow.down.circle.fill")
         pump()
     }
 
@@ -267,7 +316,7 @@ final class YouTubeModel: AppModule {
     private func run(_ jobID: UUID) {
         guard let i = index(jobID) else { return }
         guard let ytdlp = tools.ytdlp, let ffmpeg = tools.ffmpeg else {
-            fail(jobID, YouTubeFailure(message: "yt-dlp ou ffmpeg a disparu : réinstalle-le depuis cette page."))
+            fail(jobID, YouTubeFailure(message: "yt-dlp ou ffmpeg a disparu : colle le lien dans le lanceur pour le réinstaller."))
             return
         }
         let job = jobs[i]
@@ -384,6 +433,10 @@ final class YouTubeModel: AppModule {
     }
 
     func retry(_ job: YouTubeJob) {
+        guard !DemoData.isEnabled else {
+            HUD.show(DemoData.refusal, symbol: "info.circle.fill")
+            return
+        }
         jobs.removeAll { $0.id == job.id }
         jobs.insert(YouTubeJob(videoID: job.videoID, title: job.title, channel: job.channel, options: job.options, clip: job.clip,
                                folder: job.folder), at: 0)
@@ -396,15 +449,10 @@ final class YouTubeModel: AppModule {
 
     // MARK: Tools
 
-    /// When the page opens: the tools (installed from the Terminal meanwhile?) and yt-dlp's version.
+    /// "Vérifier à nouveau": installed from the Terminal meanwhile?
     func refreshTools() {
         guard !DemoData.isEnabled, !Snapshot.isActive else { return }
         tools = YouTubeTools.find()
-        guard let ytdlp = tools.ytdlp else { ytdlpVersion = nil; return }
-        Task {
-            let out = await Task.detached(priority: .utility) { Shell.run(ytdlp, ["--version"], timeout: 20) }.value
-            ytdlpVersion = out.ok ? out.out.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-        }
     }
 
     /// The launcher's pane checks again only what is missing (a few file lookups).
@@ -421,6 +469,10 @@ final class YouTubeModel: AppModule {
 
     /// YouTube changes often: a newer yt-dlp follows.
     func updateYtdlp() {
+        guard !DemoData.isEnabled else {
+            HUD.show(DemoData.refusal, symbol: "info.circle.fill")
+            return
+        }
         runBrew(["upgrade", "yt-dlp"], title: "Mise à jour de yt-dlp")
     }
 
@@ -461,11 +513,21 @@ final class YouTubeModel: AppModule {
             install?.failed = out.status != 0 || cancel.isCancelled
             if cancel.isCancelled { install?.lines.append("Annulé.") }
             tools = YouTubeTools.find()
-            if install?.failed == false {
-                install?.lines.append(args.first == "upgrade" ? "yt-dlp est à jour." : "C'est installé : tu peux télécharger.")
-                // What failed with the old yt-dlp is read again.
-                failures = [:]
-                if let id = current?.id { load(id) }
+            let upgrade = args.first == "upgrade"
+            guard install?.failed == false else {
+                // The lines stay in the launcher's pane until closed; elsewhere a message says it failed.
+                if (app ?? AppContext.model)?.launcher.isOpen != true, !cancel.isCancelled {
+                    HUD.show("Homebrew n'a pas pu \(upgrade ? "mettre à jour" : "installer") yt-dlp", symbol: "exclamationmark.triangle.fill")
+                }
+                return
+            }
+            install = nil
+            HUD.show(upgrade ? "yt-dlp est à jour" : "C'est installé : tu peux télécharger", symbol: "checkmark.circle.fill")
+            // What failed with the old yt-dlp is read again, the video in the launcher first.
+            failures = [:]
+            if let launcher = (app ?? AppContext.model)?.launcher, launcher.isOpen, let shown = YouTubeLink.parse(launcher.query) {
+                load(shown.id)
+                launcher.refreshKeepingSelection()
             }
         }
     }
@@ -479,7 +541,14 @@ final class YouTubeModel: AppModule {
     // MARK: Checks
 
     func selfTest() -> [String] {
-        YouTubeChecks.run()
+        var failures = YouTubeChecks.run()
+        // The launcher's snapshots paste the demo's link: it must read as the demo's video.
+        if YouTubeLink.parse(Self.demoLink)?.id != YouTubeDemo.videoID { failures.append("lanceur : lien de démo non reconnu") }
+        // The sidebar and the menu bar show the download under way, then what ended (the list stays until cleared).
+        let jobs = YouTubeDemo.jobs()
+        if YouTubeActivity.from(jobs)?.running != true { failures.append("activité : le téléchargement en cours n'est pas vu") }
+        if YouTubeActivity.from(Array(jobs.dropFirst())) != nil { failures.append("activité : un téléchargement fini est encore en cours") }
+        return failures
     }
 
     func dump() -> [String] {

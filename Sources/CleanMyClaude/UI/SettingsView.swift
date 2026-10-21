@@ -1,15 +1,64 @@
 import SwiftUI
 import AppKit
 
+/// The tabs of the settings window. The one shown is remembered, and `SettingsWindow.show` opens on any of them.
+enum SettingsTab: String, CaseIterable {
+    case general, appearance, shortcuts, network, permissions, cleanup, about
+
+    static let key = "settings.tab"
+}
+
 struct SettingsView: View {
+    @AppStorage(SettingsTab.key) private var tab: SettingsTab = .general
+
     var body: some View {
-        TabView {
-            GeneralSettings().frame(width: 520, height: 520).tabItem { Label("Général", systemImage: "gearshape") }
-            AppearanceSettings().frame(width: AppearanceSettings.width, height: 680).tabItem { Label("Apparence", systemImage: "paintpalette") }
-            ShortcutSettings().frame(width: 520, height: 400).tabItem { Label("Raccourcis", systemImage: "keyboard") }
-            PermissionsSettings().frame(width: 520, height: 400).tabItem { Label("Autorisations", systemImage: "lock.shield") }
-            CleanupSettings().frame(width: 520, height: 400).tabItem { Label("Nettoyage", systemImage: "sparkles") }
-            AboutSettings().frame(width: 520, height: 400).tabItem { Label("À propos", systemImage: "info.circle") }
+        TabView(selection: $tab) {
+            GeneralSettings().frame(width: 520, height: 520)
+                .tabItem { Label("Général", systemImage: "gearshape") }.tag(SettingsTab.general)
+            AppearanceSettings().frame(width: AppearanceSettings.width, height: 680)
+                .tabItem { Label("Apparence", systemImage: "paintpalette") }.tag(SettingsTab.appearance)
+            ShortcutSettings().frame(width: 520, height: 400)
+                .tabItem { Label("Raccourcis", systemImage: "keyboard") }.tag(SettingsTab.shortcuts)
+            NetworkSettings().frame(width: NetworkSettings.width, height: NetworkSettings.height)
+                .tabItem { Label("Réseau", systemImage: "network") }.tag(SettingsTab.network)
+            PermissionsSettings().frame(width: 520, height: 400)
+                .tabItem { Label("Autorisations", systemImage: "lock.shield") }.tag(SettingsTab.permissions)
+            CleanupSettings().frame(width: 520, height: 400)
+                .tabItem { Label("Nettoyage", systemImage: "sparkles") }.tag(SettingsTab.cleanup)
+            AboutSettings().frame(width: 520, height: 400)
+                .tabItem { Label("À propos", systemImage: "info.circle") }.tag(SettingsTab.about)
+        }
+    }
+}
+
+/// Opens the settings window on a tab from anywhere: the launcher (floating over another app), a page, a link, even with
+/// the main window closed and no Dock icon.
+@MainActor
+enum SettingsWindow {
+    /// SwiftUI's own identifier for the window of the `Settings` scene.
+    static let identifier = "com_apple_SwiftUI_Settings_window"
+
+    static var window: NSWindow? {
+        NSApp.windows.first { $0.identifier?.rawValue == identifier && ($0.isVisible || $0.isMiniaturized) }
+    }
+
+    static func show(_ tab: SettingsTab) {
+        // The tab view follows the remembered tab, open or not.
+        UserDefaults.standard.set(tab.rawValue, forKey: SettingsTab.key)
+        guard !Snapshot.isActive else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        if let w = window {
+            if w.isMiniaturized { w.deminiaturize(nil) }
+            w.makeKeyAndOrderFront(nil)
+            return
+        }
+        // Since macOS 14 the `showSettingsWindow:` action is refused when sent by code; the app menu's own
+        // « Réglages… » item (⌘,), performed as if clicked, opens the scene with or without a window of the app.
+        if let menu = NSApp.mainMenu?.items.first?.submenu,
+           let i = menu.items.firstIndex(where: { $0.keyEquivalent == "," && $0.keyEquivalentModifierMask == .command }) {
+            menu.performActionForItem(at: i)
+        } else {
+            NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
         }
     }
 }
@@ -57,6 +106,17 @@ struct GeneralSettings: View {
                     }
                     .disabled(app.showOnboarding)
                 }
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Astuces")
+                        Text("Elles s'ouvrent seules la première fois, puis par leur « ? »").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Tout revoir") {
+                        HelpTips.resetAll()
+                        HUD.show("Les astuces se rouvriront")
+                    }
+                }
             }
             Section {
                 Toggle("Rechercher les nouvelles versions de \(AppEdition.name)", isOn: $autoUpdate)
@@ -73,7 +133,7 @@ struct GeneralSettings: View {
             } header: {
                 Text("Mises à jour de \(AppEdition.name)")
             } footer: {
-                Text("Au lancement puis toutes les 6 h, l'app demande à GitHub le numéro de sa dernière version publiée. C'est la seule connexion faite sans ton clic, et rien d'autre n'est envoyé. Une nouvelle version s'annonce dans un petit panneau : rien ne s'installe sans ton accord.")
+                Text("Au lancement puis toutes les 6 h, l'app demande à GitHub son dernier numéro de version. Rien d'autre ne part, et rien ne s'installe sans toi.")
                     .font(.caption).foregroundStyle(.secondary)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -86,8 +146,6 @@ struct GeneralSettings: View {
                     Spacer()
                     Button("Ouvrir le réglage") { Finder.open(Permissions.fullDiskAccessURL) }
                 }
-                Text("Après une recompilation, macOS peut considérer l'app comme nouvelle : réactive alors l'accès.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -119,7 +177,7 @@ struct ShortcutSettings: View {
                     Text("macOS a refusé ce raccourci : choisis-en un avec ⌘ ou ⌃.").font(.caption).foregroundStyle(Theme.warn)
                 }
             } footer: {
-                Text("Clique sur le raccourci puis tape le nouveau. ⎋ annule, ⌫ le supprime. Les raccourcis des fenêtres se règlent dans la section Fenêtres.")
+                Text("Clique, puis tape le nouveau raccourci. ⎋ annule, ⌫ l'efface. Ceux des fenêtres sont dans la page Raccourcis.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -137,7 +195,7 @@ struct CleanupSettings: View {
             Section {
                 Toggle("Toujours passer par la Corbeille", isOn: $alwaysTrash)
                     .disabled(DemoData.isEnabled)
-                Text("Par défaut, les caches et journaux sont supprimés directement (les apps les recréent). Avec ce réglage, tout part d'abord à la Corbeille.")
+                Text("Sinon, caches et journaux sont supprimés directement : les apps les recréent.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section("Ne jamais toucher à") {

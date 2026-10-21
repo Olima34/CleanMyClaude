@@ -73,9 +73,9 @@ enum ClipboardAccess {
     var explanation: String {
         switch self {
         case .allowed: return "macOS laisse \(AppEdition.name) lire le presse-papiers sans te déranger."
-        case .denied: return "Tu as refusé l'accès au presse-papiers : l'historique ne peut rien enregistrer. Rouvre Réglages Système › Confidentialité et sécurité, cherche le réglage du presse-papiers (« Coller depuis d'autres apps ») et choisis « Toujours autoriser » pour \(AppEdition.name)."
-        case .ask: return "macOS te demandera ton accord à chaque nouvelle copie. Pour un historique tranquille, choisis « Toujours autoriser » pour \(AppEdition.name) dans Réglages Système › Confidentialité et sécurité."
-        case .notAsked: return "À la première copie, macOS te demandera si \(AppEdition.name) peut lire le presse-papiers : choisis « Toujours autoriser ». Tu pourras changer d'avis dans Réglages Système › Confidentialité et sécurité."
+        case .denied: return "L'historique ne peut rien enregistrer. Dans Confidentialité et sécurité, au réglage « Coller depuis d'autres apps », choisis « Toujours autoriser » pour \(AppEdition.name)."
+        case .ask: return "macOS te demande ton accord à chaque copie : dans Confidentialité et sécurité, choisis « Toujours autoriser » pour \(AppEdition.name)."
+        case .notAsked: return "À la première copie, macOS te demandera ton accord : choisis « Toujours autoriser »."
         case .unknown: return "Ta version de macOS ne demande pas d'autorisation pour lire le presse-papiers."
         }
     }

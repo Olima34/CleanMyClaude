@@ -248,7 +248,7 @@ enum NetworkPorts {
             "sharingd": "AirDrop et partage", "mDNSResponder": "Bonjour : découverte des appareils du réseau",
             "launchd": "Service système lancé à la demande", "screensharingd": "Partage d'écran", "sshd": "Connexion à distance (SSH)",
             "smbd": "Partage de fichiers", "cupsd": "Impression", "remoted": "Service système d'Apple", "netbiosd": "Partage Windows (NetBIOS)",
-            "node": "Node.js (souvent un serveur de développement)", "Python": "Python", "python3": "Python", "java": "Java",
+            "node": "Node.js (serveur de dév)", "Python": "Python", "python3": "Python", "java": "Java",
             "ruby": "Ruby", "php": "PHP", "mysqld": "Base de données MySQL", "postgres": "Base de données PostgreSQL",
             "redis-server": "Base Redis", "mongod": "Base MongoDB", "nginx": "Serveur web nginx", "httpd": "Serveur web Apache",
             "com.docker.backend": "Docker", "docker": "Docker", "mailpit": "Boîte mail de test", "ollama": "Ollama (modèles d'IA en local)"

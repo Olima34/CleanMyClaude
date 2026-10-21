@@ -31,7 +31,7 @@ struct YouTubeThumbnail: View {
                 } else {
                     ZStack {
                         Theme.track
-                        Image(systemName: "play.rectangle").font(.ui(26)).foregroundStyle(Theme.text3)
+                        Image(systemName: "play.rectangle").font(.ui(18)).foregroundStyle(Theme.text3)
                     }
                 }
             }
@@ -39,11 +39,11 @@ struct YouTubeThumbnail: View {
             .overlay(alignment: .bottomTrailing) {
                 if badge, let duration, duration > 0 {
                     Text(YouTubeTime.format(duration))
-                        .font(.ui(10.5, .semibold)).monospacedDigit()
+                        .font(.ui(9.5, .semibold)).monospacedDigit()
                         .foregroundStyle(Theme.text)
-                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .padding(.horizontal, 4).padding(.vertical, 1.5)
                         .background(RoundedRectangle(cornerRadius: Theme.r(4)).fill(Theme.bg.opacity(0.86)))
-                        .padding(6)
+                        .padding(4)
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: Theme.r(corner)))
@@ -53,34 +53,35 @@ struct YouTubeThumbnail: View {
 
 // MARK: - Controls
 
-/// A row of small choices drawn by hand (no AppKit control: they render in snapshots and in the launcher panel).
+/// A row of small choices drawn by hand (no AppKit control: they render in snapshots and in the launcher panel),
+/// sharing the width of the row.
 struct YouTubeChips<T: Hashable>: View {
     var options: [T]
     var selection: T
     var label: (T) -> String
-    /// A second line under the label (the size of each quality on the page).
+    /// A second line under the label (the size of each quality).
     var detail: (T) -> String? = { _ in nil }
     /// Offered, but not by this video (a 1080p choice for a 720p video gives 720p).
     var dimmed: (T) -> Bool = { _ in false }
     var help: (T) -> String? = { _ in nil }
-    var compact = false
     var select: (T) -> Void
 
     var body: some View {
-        HStack(spacing: compact ? 4 : 6) {
+        HStack(spacing: 4) {
             ForEach(options, id: \.self) { o in
                 let on = o == selection
                 Button { select(o) } label: {
                     VStack(spacing: 1) {
-                        Text(label(o)).font(.ui(compact ? 11 : 12, on ? .semibold : .regular)).lineLimit(1)
+                        Text(label(o)).font(.ui(11, on ? .semibold : .regular)).lineLimit(1)
                         if let d = detail(o) {
-                            Text(d).font(.ui(9.5)).monospacedDigit().foregroundStyle(on ? Theme.text2 : Theme.text3).lineLimit(1)
+                            Text(d).font(.ui(9)).monospacedDigit().foregroundStyle(on ? Theme.text2 : Theme.text3)
+                                .lineLimit(1).minimumScaleFactor(0.8)
                         }
                     }
                     .foregroundStyle(on ? Theme.text : Theme.text2)
-                    .padding(.horizontal, compact ? 7 : 10)
-                    .padding(.vertical, compact ? 4 : 6)
-                    .frame(minWidth: compact ? 0 : 54)
+                    .padding(.horizontal, 3)
+                    .padding(.vertical, 4)
+                    .frame(maxWidth: .infinity)
                     .background(RoundedRectangle(cornerRadius: Theme.r(7)).fill(on ? Theme.selected : Theme.card))
                     .overlay(RoundedRectangle(cornerRadius: Theme.r(7))
                         .strokeBorder(on ? YouTubeStyle.tint.opacity(0.6) : Theme.border, lineWidth: max(1, Theme.line)))
@@ -165,80 +166,65 @@ private struct YouTubeKeepsWindowStill: ViewModifier {
 
 // MARK: - Settings
 
-/// Format, quality and extract: the same settings in the launcher's pane (compact) and on the page.
+/// Format, quality (with the size of each), extract, folder: everything a download asks, in the launcher's pane.
+/// Kept for the next video.
 struct YouTubeSettings: View {
     @Environment(AppModel.self) private var app
     var link: YouTubeLink
-    var compact = false
+
+    static let labelWidth: CGFloat = 46
 
     var body: some View {
-        @Bindable var model = app.youtube
+        let model = app.youtube
         let info = model.infos[link.id]
         let clip = model.clips[link.id]
-        VStack(alignment: .leading, spacing: compact ? 7 : 14) {
+        VStack(alignment: .leading, spacing: 7) {
             row("Format") {
-                YouTubeChips(options: YouTubeFormat.allCases, selection: model.options.format,
-                             label: { compact ? $0.label : $0.title }, compact: compact) { model.options.format = $0 }
+                YouTubeChips(options: YouTubeFormat.allCases, selection: model.options.format, label: \.title) { model.options.format = $0 }
             }
             if model.options.format == .mp4 {
                 row("Qualité") {
                     YouTubeChips(options: YouTubeQuality.allCases, selection: model.options.quality,
                                  label: { qualityLabel($0, info) },
-                                 detail: { q in compact ? nil : model.infos[link.id].flatMap { _ in
-                                     model.estimate(link.id, options: YouTubeOptions(format: .mp4, quality: q)).map { "≈ " + Fmt.bytes($0) } } },
+                                 detail: { q in
+                                     guard info?.detailed == true else { return nil }
+                                     return model.estimate(link.id, options: YouTubeOptions(format: .mp4, quality: q)).map(Fmt.bytes)
+                                 },
                                  dimmed: { q in (info?.maxHeight).map { max in (q.height ?? 0) > max } ?? false },
-                                 help: { q in qualityHelp(q, info) }, compact: compact) { model.options.quality = $0 }
-                }
-            } else if !compact {
-                row("Qualité") {
-                    Text(model.options.format == .mp3 ? "MP3 à débit variable, le meilleur (V0), avec la miniature en pochette."
-                                                       : "Le son d'origine en AAC, sans perte supplémentaire, avec la pochette.")
-                        .font(.ui(12)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
+                                 help: { q in qualityHelp(q, info) }) { model.options.quality = $0 }
                 }
             }
             row("Durée") {
                 YouTubeChips(options: [false, true], selection: clip != nil,
-                             label: { $0 ? "Un extrait" : (compact ? "En entier" : "La vidéo entière") },
+                             label: { $0 ? "Un extrait" : "En entier" },
                              dimmed: { $0 && info?.duration == nil },
-                             help: { $0 && info?.duration == nil ? "Disponible dès que la durée est connue" : nil },
-                             compact: compact) { model.setClip($0, for: link) }
+                             help: { $0 && info?.duration == nil ? "Dès que la durée est connue" : nil }) { model.setClip($0, for: link) }
             }
             if let clip, let duration = info?.duration {
-                VStack(alignment: .leading, spacing: compact ? 3 : 8) {
+                VStack(alignment: .leading, spacing: 5) {
                     YouTubeRangeSlider(duration: duration, clip: clip) { model.clips[link.id] = $0 }
-                    if compact {
-                        HStack {
-                            Text(YouTubeTime.format(clip.start))
-                            Spacer()
-                            Text(YouTubeTime.spoken(clip.length)).foregroundStyle(Theme.text2)
-                            Spacer()
-                            Text(YouTubeTime.format(clip.end))
-                        }
-                        .font(.ui(10.5)).monospacedDigit().foregroundStyle(Theme.text3)
-                    } else {
-                        YouTubeClipFields(id: link.id, clip: clip, duration: duration)
-                    }
+                    YouTubeClipFields(id: link.id, clip: clip, duration: duration)
                 }
-                .padding(.leading, compact ? 0 : 76)
+                .padding(.leading, Self.labelWidth + 8)
             }
             if model.options.format == .mp4, let note = codecNote(info) {
-                Text(note).font(.ui(compact ? 10.5 : 11.5)).foregroundStyle(Theme.text3)
+                Text(note).font(.ui(10.5)).foregroundStyle(Theme.text3)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, compact ? 0 : 76)
+                    .padding(.leading, Self.labelWidth + 8)
             }
+            row("Dossier") { YouTubeDestinationMenu() }
         }
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder _ content: () -> Content) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
-            Text(title).font(.ui(compact ? 11 : 12)).foregroundStyle(Theme.text3).frame(width: compact ? 48 : 66, alignment: .leading)
+        HStack(alignment: .center, spacing: 8) {
+            Text(title).font(.ui(11)).foregroundStyle(Theme.text3).frame(width: Self.labelWidth, alignment: .leading)
             content()
-            Spacer(minLength: 0)
         }
     }
 
     private func qualityLabel(_ q: YouTubeQuality, _ info: YouTubeInfo?) -> String {
-        guard q == .best else { return compact ? "\(q.rawValue)" : q.label }
+        guard q == .best else { return q.label }
         if let max = info?.maxHeight, max > 1080 { return YouTubeStyle.heightName(max) }
         return "Max"
     }
@@ -254,12 +240,31 @@ struct YouTubeSettings: View {
     private func codecNote(_ info: YouTubeInfo?) -> String? {
         guard let info, let video = YouTubeEngine.videoStream(info, quality: app.youtube.options.quality),
               let codec = video.codecName, !video.isH264 else { return nil }
-        return compact ? "En \(YouTubeStyle.heightName(video.height ?? 0)), l'image est en \(codec) : IINA, VLC ou un navigateur la lisent, QuickTime pas toujours."
-                       : "En \(YouTubeStyle.heightName(video.height ?? 0)), YouTube n'envoie l'image qu'en \(codec) : IINA, VLC ou un navigateur la lisent, QuickTime et iMovie pas toujours. Choisis 1080p pour du H.264 lisible partout."
+        return "\(YouTubeStyle.heightName(video.height ?? 0)) en \(codec) : QuickTime ne la lit pas toujours (IINA ou VLC, si)."
     }
 }
 
-/// The extract to the second, typed: "1:05" and "2:30".
+/// Where the files go: Téléchargements, or a folder picked once and kept.
+struct YouTubeDestinationMenu: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let model = app.youtube
+        BorderlessMenu {
+            Button("Téléchargements") { model.destination = .downloads }
+            Divider()
+            Button("Choisir un dossier…") { model.chooseFolder() }
+        } label: {
+            HStack(spacing: 5) {
+                if Theme.icons != .hidden { Image(systemName: "folder").font(.ui(10.5)).foregroundStyle(Theme.text3) }
+                Text(model.destination.label).font(.ui(11.5, .medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
+            }
+        }
+        .help(model.destination.url.path)
+    }
+}
+
+/// The extract to the second, typed: "1:05" → "2:30", and how long it lasts.
 struct YouTubeClipFields: View {
     @Environment(AppModel.self) private var app
     var id: String
@@ -267,32 +272,26 @@ struct YouTubeClipFields: View {
     var duration: Double
 
     var body: some View {
-        HStack(spacing: 10) {
-            field("Début", clip.start) { t in
+        HStack(spacing: 6) {
+            YouTubeTimeField(value: clip.start) { t in
                 var c = clip
                 c.start = min(max(0, t), clip.end - 1)
                 app.youtube.clips[id] = c
             }
-            Image(systemName: "arrow.right").font(.ui(10)).foregroundStyle(Theme.text3)
-            field("Fin", clip.end) { t in
+            Image(systemName: "arrow.right").font(.ui(9)).foregroundStyle(Theme.text3)
+            YouTubeTimeField(value: clip.end) { t in
                 var c = clip
                 c.end = max(min(duration, t), clip.start + 1)
                 app.youtube.clips[id] = c
             }
-            Text("· \(YouTubeTime.spoken(clip.length)) sur \(YouTubeTime.spoken(duration))")
-                .font(.ui(11.5)).foregroundStyle(Theme.text3)
-        }
-    }
-
-    private func field(_ title: String, _ value: Double, set: @escaping (Double) -> Void) -> some View {
-        HStack(spacing: 6) {
-            Text(title).font(.ui(11)).foregroundStyle(Theme.text3)
-            YouTubeTimeField(value: value, set: set)
+            Spacer(minLength: 4)
+            Text(YouTubeTime.spoken(clip.length)).font(.ui(10.5)).monospacedDigit().foregroundStyle(Theme.text2)
         }
     }
 }
 
-/// A time typed by hand ("1:05"); what does not read as a time goes back to the previous value.
+/// A time typed by hand ("1:05"). Each time that reads as one is kept at once (↩ in the launcher downloads right away,
+/// without leaving the field); what does not goes back to the previous value when the field is left.
 struct YouTubeTimeField: View {
     var value: Double
     var set: (Double) -> Void
@@ -307,28 +306,26 @@ struct YouTubeTimeField: View {
                 TextField("0:00", text: $text)
                     .textFieldStyle(.plain)
                     .focused($focused)
-                    .onSubmit(commit)
-                    .onChange(of: focused) { _, f in if !f { commit() } }
+                    .onChange(of: text) { _, typed in
+                        if focused, let t = YouTubeTime.parse(typed), t != value { set(t) }
+                    }
+                    .onChange(of: focused) { _, f in if !f { text = YouTubeTime.format(value) } }
             }
         }
-        .font(.mono(12, .medium)).monospacedDigit()
-        .frame(width: 62)
-        .padding(.horizontal, 7).padding(.vertical, 4)
+        .font(.mono(11.5, .medium)).monospacedDigit()
+        .frame(width: 54)
+        .padding(.horizontal, 6).padding(.vertical, 3)
         .background(RoundedRectangle(cornerRadius: Theme.r(6)).fill(Theme.bg))
         .overlay(RoundedRectangle(cornerRadius: Theme.r(6)).strokeBorder(focused ? YouTubeStyle.tint.opacity(0.7) : Theme.border, lineWidth: max(1, Theme.line)))
         .onAppear { text = YouTubeTime.format(value) }
         .onChange(of: value) { _, v in if !focused { text = YouTubeTime.format(v) } }
     }
-
-    private func commit() {
-        if let t = YouTubeTime.parse(text) { set(t) }
-        text = YouTubeTime.format(value)
-    }
 }
 
 // MARK: - Launcher pane
 
-/// At the right of the launcher, like the preview of a file: the video, then how to download it. ↩ downloads.
+/// At the right of the launcher, like the preview of a file: the video, then how to download it. ↩ downloads,
+/// ⌘↩ opens it on YouTube.
 struct YouTubeLauncherPane: View {
     @Environment(AppModel.self) private var app
     var link: YouTubeLink
@@ -337,46 +334,42 @@ struct YouTubeLauncherPane: View {
         let model = app.youtube
         let info = model.infos[link.id]
         let job = model.jobs.first { $0.videoID == link.id && $0.state.isActive }
-        VStack(alignment: .leading, spacing: 8) {
-            YouTubeThumbnail(id: link.id, duration: info?.duration)
-                .frame(maxWidth: .infinity)
-                .frame(height: 128)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(info?.title ?? (model.failures[link.id] == nil ? "Lecture de la vidéo…" : "Vidéo YouTube"))
-                    .font(.ui(13.5, .semibold)).foregroundStyle(Theme.text).lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(meta(info)).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(alignment: .top, spacing: 10) {
+                YouTubeThumbnail(id: link.id, duration: info?.duration, corner: 7)
+                    .frame(width: 112, height: 63)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(info?.title ?? (model.failures[link.id] == nil ? "Lecture de la vidéo…" : "Vidéo YouTube"))
+                        .font(.ui(12.5, .semibold)).foregroundStyle(Theme.text).lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(meta(info)).font(.ui(10.5)).foregroundStyle(Theme.text3).lineLimit(2)
+                }
+                Spacer(minLength: 0)
             }
             if let failure = model.failures[link.id] {
-                YouTubeFailureLine(id: link.id, failure: failure, compact: true)
-            } else if !model.tools.ready {
-                Label("Il manque \(model.tools.missing.joined(separator: " et ")) : ↩ ouvre la page pour l'installer", systemImage: "shippingbox")
-                    .font(.ui(11)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                YouTubeFailureLine(id: link.id, failure: failure)
             } else {
-                YouTubeSettings(link: link, compact: true)
+                if !model.tools.ready || model.install != nil {
+                    YouTubeToolsLine()
+                }
+                if info?.isLive == true {
+                    Label("Un direct se télécharge une fois terminé.", systemImage: "dot.radiowaves.left.and.right")
+                        .font(.ui(11)).foregroundStyle(Theme.warn)
+                } else {
+                    YouTubeSettings(link: link)
+                }
             }
             Spacer(minLength: 0)
             if let job {
-                YouTubeJobProgress(job: job, compact: true)
-            } else {
+                YouTubeJobProgress(job: job)
+            } else if model.loading.contains(link.id) {
                 HStack(spacing: 6) {
-                    if model.loading.contains(link.id) {
-                        BusyMascot(.downloading, pixel: 1)
-                        Text("yt-dlp lit la vidéo…").foregroundStyle(Theme.text3)
-                    } else if let size = model.estimate(link.id) {
-                        Text("≈ \(Fmt.bytes(size))").foregroundStyle(Theme.text2)
-                        Text("·").foregroundStyle(Theme.text3)
-                    }
-                    if !model.loading.contains(link.id) {
-                        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.text3)
-                        Text(model.destination.label).foregroundStyle(Theme.text3).lineLimit(1)
-                    }
+                    BusyMascot(.downloading, pixel: 1)
+                    Text("Lecture de la vidéo…").font(.ui(11)).foregroundStyle(Theme.text3)
                 }
-                .font(.ui(11))
+            } else if let size = model.estimate(link.id) {
+                Text("≈ \(Fmt.bytes(size))").font(.ui(11.5, .medium)).monospacedDigit().foregroundStyle(Theme.text2)
             }
-            Text("↩ Télécharger · ⌘↩ Voir sur YouTube · ⌘K Actions")
-                .lineLimit(1)
-                .font(.ui(10.5)).foregroundStyle(Theme.text3)
         }
         .padding(14)
         .task(id: link.id) {
@@ -391,10 +384,62 @@ struct YouTubeLauncherPane: View {
     private func meta(_ info: YouTubeInfo?) -> String {
         var parts: [String] = []
         if let c = info?.channel, !c.isEmpty { parts.append(c) }
-        if let d = info?.duration { parts.append(YouTubeTime.spoken(d)) }
         if let h = info?.maxHeight { parts.append("jusqu'à \(YouTubeStyle.heightName(h))") }
         if link.isShort { parts.append("Short") }
         return parts.isEmpty ? link.shortURL : parts.joined(separator: " · ")
+    }
+}
+
+/// yt-dlp (or ffmpeg) missing: one line and the button that installs it with Homebrew, then Homebrew's last lines.
+struct YouTubeToolsLine: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let model = app.youtube
+        VStack(alignment: .leading, spacing: 6) {
+            if let install = model.install {
+                HStack(spacing: 6) {
+                    if install.running {
+                        BusyMascot(.unpacking, pixel: 1)
+                    } else {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.ui(11)).foregroundStyle(Theme.warn)
+                    }
+                    Text(install.running ? install.title + "…" : "Homebrew n'a pas réussi")
+                        .font(.ui(11.5, .medium)).foregroundStyle(Theme.text).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Button(install.running ? "Annuler" : "Fermer") {
+                        if install.running { model.cancelInstall() } else { model.dismissInstall() }
+                    }
+                    .buttonStyle(SoftButtonStyle(small: true))
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(install.lines.suffix(2).enumerated()), id: \.offset) { _, line in
+                        Text(line).font(.mono(9.5)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
+                    }
+                }
+            } else {
+                let missing = model.tools.missing.joined(separator: " et ")
+                Text("Il manque \(missing) pour lire YouTube.")
+                    .font(.ui(11.5, .medium)).foregroundStyle(Theme.warn)
+                HStack(spacing: 6) {
+                    if model.tools.brew != nil {
+                        Button("Installer \(missing)") { model.installTools() }
+                            .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                            .help("brew install \(model.tools.missing.joined(separator: " "))")
+                    } else {
+                        Button("Installer Homebrew") { Finder.open("https://brew.sh/fr/") }
+                            .buttonStyle(SoftButtonStyle(prominent: true, small: true))
+                            .help("Homebrew installe yt-dlp et ffmpeg, puis les tient à jour")
+                    }
+                    Button("Vérifier") { model.refreshTools() }.buttonStyle(SoftButtonStyle(small: true))
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.r(9)).fill(Theme.card))
+        .overlay(RoundedRectangle(cornerRadius: Theme.r(9)).strokeBorder(Theme.border, lineWidth: Theme.line))
     }
 }
 
@@ -403,13 +448,12 @@ struct YouTubeFailureLine: View {
     @Environment(AppModel.self) private var app
     var id: String
     var failure: YouTubeFailure
-    var compact = false
 
     var body: some View {
         let model = app.youtube
         VStack(alignment: .leading, spacing: 6) {
             Label(failure.message, systemImage: "exclamationmark.triangle.fill")
-                .font(.ui(compact ? 11 : 12)).foregroundStyle(Theme.warn)
+                .font(.ui(11)).foregroundStyle(Theme.warn)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 6) {
                 Button("Réessayer") { model.load(id, retry: true) }.buttonStyle(SoftButtonStyle(small: true))
@@ -428,7 +472,6 @@ struct YouTubeFailureLine: View {
 /// Where a download is: its step, its bar, its speed and what is left.
 struct YouTubeJobProgress: View {
     var job: YouTubeJob
-    var compact = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -436,22 +479,23 @@ struct YouTubeJobProgress: View {
                 if job.state == .running {
                     BusyMascot(.downloading, pixel: 1)
                 }
-                Text(status).font(.ui(compact ? 11 : 11.5, .medium)).foregroundStyle(Theme.text2).lineLimit(1)
+                Text(Self.status(job)).font(.ui(11, .medium)).foregroundStyle(Theme.text2).lineLimit(1)
                 Spacer(minLength: 4)
                 if let p = job.progress, job.state == .running {
-                    Text(Fmt.pct(p)).font(.ui(compact ? 11 : 11.5)).monospacedDigit().foregroundStyle(Theme.text3)
+                    Text(Fmt.pct(p)).font(.ui(11)).monospacedDigit().foregroundStyle(Theme.text3)
                 }
             }
             if job.state == .running {
-                UsageBar(fraction: job.progress ?? 0, tint: YouTubeStyle.tint, height: compact ? 4 : 5)
+                UsageBar(fraction: job.progress ?? 0, tint: YouTubeStyle.tint, height: 4)
                     .opacity(job.progress == nil ? 0.35 : 1)
             }
         }
     }
 
-    private var status: String {
+    /// "Image · 8,4 Mo/s · encore 9 s", "En attente", "Annulé"…
+    static func status(_ job: YouTubeJob) -> String {
         switch job.state {
-        case .waiting: return "En attente de la fin du téléchargement en cours"
+        case .waiting: return "En attente"
         case .running:
             var s = job.phase.isEmpty ? "Téléchargement" : job.phase
             if let speed = job.speed, speed > 0 { s += " · " + Fmt.speed(speed) }

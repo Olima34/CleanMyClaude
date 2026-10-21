@@ -171,22 +171,19 @@ struct IconBadge: View {
 
 // MARK: - Headers
 
-/// The top of every section: icon, serif title, explanation and actions.
+/// The top of every section: icon, serif title, one short line and actions. What takes longer to explain goes in
+/// `tip`: its « ? » sits next to the title and opens by itself the first time.
 struct PageHero<Trailing: View>: View {
     var symbol: String
     var title: String
     var subtitle: String
     var tint: Color = Theme.accent
     var seed: UInt64 = 3
+    var tip: HelpTip? = nil
     @ViewBuilder var trailing: Trailing
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            DustBackdrop(seed: seed, opacity: 0.4)
-                .frame(height: 130)
-                .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
-                .offset(y: -12)
-            HStack(alignment: .center, spacing: 18) {
+        HStack(alignment: .center, spacing: 18) {
                 switch Theme.icons {
                 case .tinted:
                     Image(systemName: symbol)
@@ -205,9 +202,12 @@ struct PageHero<Trailing: View>: View {
                     EmptyView()
                 }
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.serif(30))
-                        .foregroundStyle(Theme.text)
+                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                        Text(title)
+                            .font(.serif(30))
+                            .foregroundStyle(Theme.text)
+                        if let tip { HelpTipButton(tip: tip, size: 15) }
+                    }
                     Text(subtitle)
                         .font(.ui(13))
                         .foregroundStyle(Theme.text2)
@@ -218,17 +218,25 @@ struct PageHero<Trailing: View>: View {
             }
             .padding(.top, 14)
             .padding(.bottom, 6)
-        }
+            // The dust spills under what follows instead of pushing it down.
+            .background(alignment: .topLeading) {
+                DustBackdrop(seed: seed, opacity: 0.4)
+                    .frame(height: 130)
+                    .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
+                    .offset(y: -12)
+                    .allowsHitTesting(false)
+            }
     }
 }
 
 extension PageHero where Trailing == EmptyView {
-    init(symbol: String, title: String, subtitle: String, tint: Color = Theme.accent, seed: UInt64 = 3) {
+    init(symbol: String, title: String, subtitle: String, tint: Color = Theme.accent, seed: UInt64 = 3, tip: HelpTip? = nil) {
         self.symbol = symbol
         self.title = title
         self.subtitle = subtitle
         self.tint = tint
         self.seed = seed
+        self.tip = tip
         self.trailing = EmptyView()
     }
 }

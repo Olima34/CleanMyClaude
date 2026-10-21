@@ -7,8 +7,8 @@ struct ProtectionPage: View {
         @Bindable var model = app.protection
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: "lock.shield", title: "Protection et confidentialité",
-                     subtitle: "Les défenses de macOS, les logiciels malveillants, ce qui se lance tout seul, qui t'observe, et les traces que tu laisses.",
-                     tint: Theme.good, seed: 33) {
+                     subtitle: "Les défenses de ton Mac, les menaces et qui t'observe.",
+                     tint: Theme.good, seed: 33, tip: model.tab.tip) {
                 HStack(spacing: 16) {
                     if model.hasAudit {
                         Gauge(value: model.securityRatio, text: "\(model.securityScore)", caption: "note \(model.grade)",
@@ -57,6 +57,32 @@ struct ProtectionPage: View {
     }
 }
 
+extension ProtectionTab {
+    /// The « ? » next to the page title follows the tab: each one is explained the first time it is opened.
+    var tip: HelpTip {
+        switch self {
+        case .security:
+            return HelpTip(id: "protection.security", title: "Le bilan de sécurité",
+                           text: "Une quarantaine de points inspirés des référentiels de sécurité pour macOS (CIS Benchmark, NIST mSCP), vérifiés en lecture seule. « Corriger » agit après ton accord ; sinon « Réglage » ouvre le bon panneau, car macOS garde la main sur sa sécurité. Le niveau Renforcé ajoute les recommandations pour un Mac qui voyage ou des données sensibles.")
+        case .threats:
+            return HelpTip(id: "protection.threats", title: "Les logiciels malveillants",
+                           text: "XProtect, l'antimalware de macOS, ne vérifie un fichier qu'à son ouverture : j'applique ses signatures à tout ce qui est déjà sur ton Mac, et je cherche les traces des familles connues et les comportements d'intrus. Glisse un téléchargement dans le cadre pour le vérifier avant de l'ouvrir. Rien ne quitte ton Mac, et ce que tu neutralises part à la Corbeille.")
+        case .persistence:
+            return HelpTip(id: "protection.persistence", title: "Ce qui démarre tout seul",
+                           text: "Presque tous les logiciels malveillants sur Mac s'installent pour redémarrer avec lui. Je vérifie qui a signé chaque programme et je signale ce qui trahit un intrus : se faire passer pour Apple, télécharger puis exécuter du code, se cacher dans un dossier partagé.")
+        case .permissions:
+            return HelpTip(id: "protection.permissions", title: "Qui t'observe",
+                           text: "Ce qui peut lire ce que tu tapes, voir les pages que tu visites ou accepter des connexions du réseau, et les apps à qui tu as ouvert la caméra, le micro ou tes dossiers. La plupart du temps ce sont des outils que tu as choisis ; ce qui ne l'est pas saute aux yeux.")
+        case .privacy:
+            return HelpTip(id: "protection.privacy", title: "Les traces",
+                           text: "Coche ce que tu veux effacer : l'effacement est définitif. L'historique de Safari est synchronisé avec iCloud : efface-le depuis Safari › Historique › Effacer l'historique… pour que la suppression se propage sur tous tes appareils.")
+        case .realtime:
+            return HelpTip(id: "protection.realtime", title: "La protection en temps réel",
+                           text: "Je te préviens dès qu'un programme s'ajoute au démarrage, qu'une menace arrive dans Téléchargements, que la caméra ou le micro s'allume, ou que tes réglages réseau changent. Tout réagit aux événements de macOS : aucune analyse permanente, ton Mac ne ralentit pas.")
+        }
+    }
+}
+
 @MainActor
 enum ProtectionActions {
     /// The whole review: macOS' defenses, what starts on its own, who can watch, the traces.
@@ -75,28 +101,22 @@ struct ProtectionIntro: View {
     @Environment(AppModel.self) private var app
 
     var body: some View {
-        Card(padding: 24) {
-            HStack(alignment: .top, spacing: 24) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Un bilan complet en quelques secondes").font(.serif(24)).foregroundStyle(Theme.text)
-                    Text("Je passe en revue une quarantaine de points inspirés des référentiels de sécurité pour macOS (CIS Benchmark, NIST mSCP) : chiffrement, coupe-feu, partages, réseau intercepté, mots de passe laissés en clair… Chaque point dit le risque, et je corrige pour toi ce qui peut l'être en un clic.")
-                        .font(.ui(13)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
-                    Text("Tout se passe sur ton Mac, en lecture seule : rien n'est modifié sans ton accord.")
-                        .font(.ui(12)).foregroundStyle(Theme.text3)
-                    HStack(spacing: 10) {
-                        Button("Lancer le bilan") { ProtectionActions.fullReview(app) }
-                            .buttonStyle(SoftButtonStyle(prominent: true))
-                        Button("Rechercher les menaces") {
-                            app.protection.tab = .threats
-                            Task { await app.protection.scan(deep: false) }
-                        }
-                        .buttonStyle(SoftButtonStyle())
-                    }
-                    .padding(.top, 4)
+        Card(padding: 20) {
+            HStack(alignment: .center, spacing: 18) {
+                IconBadge(symbol: "lock.shield.fill", tint: Theme.good, size: 48)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Un bilan complet en quelques secondes").font(.serif(22)).foregroundStyle(Theme.text)
+                    Text("Chiffrement, coupe-feu, partages, mots de passe laissés en clair… en lecture seule.")
+                        .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer()
-                IconBadge(symbol: "lock.shield.fill", tint: Theme.good, size: 96)
-                    .padding(.trailing, 16)
+                Spacer(minLength: 12)
+                Button("Rechercher les menaces") {
+                    app.protection.tab = .threats
+                    Task { await app.protection.scan(deep: false) }
+                }
+                .buttonStyle(SoftButtonStyle())
+                Button("Lancer le bilan") { ProtectionActions.fullReview(app) }
+                    .buttonStyle(SoftButtonStyle(prominent: true))
             }
         }
     }
@@ -110,29 +130,24 @@ struct SecurityTab: View {
     var body: some View {
         @Bindable var model = app.protection
         VStack(alignment: .leading, spacing: 14) {
-            if !model.issues.isEmpty {
-                Callout(symbol: "exclamationmark.shield",
-                        title: "\(Fmt.plural(model.issues.count, "point mérite", "points méritent")) ton attention",
-                        text: "Les plus graves d'abord. Quand je peux corriger moi-même, le bouton « Corriger » le fait après ton accord ; sinon, j'ouvre le bon réglage : macOS garde la main sur sa sécurité.",
-                        tint: model.issues.contains { $0.status == .bad } ? Theme.bad : Theme.warn)
-            } else {
-                Callout(symbol: "checkmark.shield", title: "Toutes les protections de ce niveau sont actives",
-                        text: model.hardened ? "Ton Mac respecte même les recommandations renforcées. Chapeau." : "Ton Mac applique les bonnes pratiques de sécurité. Passe au niveau renforcé pour aller plus loin.",
-                        tint: Theme.good)
+            HStack(alignment: .center, spacing: 12) {
+                let tint = model.issues.isEmpty ? Theme.good : (model.issues.contains { $0.status == .bad } ? Theme.bad : Theme.warn)
+                IconBadge(symbol: model.issues.isEmpty ? "checkmark.shield" : "exclamationmark.shield", tint: tint, size: 28)
+                Text(model.issues.isEmpty
+                     ? (model.hardened ? "Même les recommandations renforcées sont suivies. Chapeau." : "Toutes les protections de ce niveau sont actives.")
+                     : "\(Fmt.plural(model.issues.count, "point mérite", "points méritent")) ton attention, les plus graves d'abord.")
+                    .font(.ui(13, .semibold)).foregroundStyle(Theme.text)
+                Spacer(minLength: 12)
+                Text("Niveau").font(.ui(12)).foregroundStyle(Theme.text3)
+                PillPicker(options: ProtectionLevelChoice.allCases, selection: Binding(
+                    get: { model.hardened ? .hardened : .essential },
+                    set: { model.hardened = $0 == .hardened }), label: { $0.title })
+                    .help(model.hardened ? "Toutes les recommandations, pour un Mac qui voyage ou des données sensibles."
+                                         : "Ce que tout Mac devrait avoir. Les points renforcés restent affichés, sans compter dans la note.")
             }
             if let m = model.fixMessage {
                 Callout(symbol: m.ok ? "checkmark.circle" : "exclamationmark.triangle", title: m.ok ? "Corrigé" : "Pas tout à fait",
                         text: m.text, tint: m.ok ? Theme.good : Theme.warn)
-            }
-            HStack(alignment: .center, spacing: 12) {
-                Text("Niveau d'exigence").font(.ui(12.5, .medium)).foregroundStyle(Theme.text2)
-                PillPicker(options: ProtectionLevelChoice.allCases, selection: Binding(
-                    get: { model.hardened ? .hardened : .essential },
-                    set: { model.hardened = $0 == .hardened }), label: { $0.title })
-                Text(model.hardened ? "Toutes les recommandations, pour un Mac qui voyage ou des données sensibles."
-                                    : "Ce que tout Mac devrait avoir. Les points renforcés restent affichés, sans compter dans la note.")
-                    .font(.ui(11.5)).foregroundStyle(Theme.text3).fixedSize(horizontal: false, vertical: true)
-                Spacer()
             }
             ForEach(SecurityCategory.allCases) { category in
                 let list = model.allChecks.filter { $0.category == category }
@@ -140,8 +155,20 @@ struct SecurityTab: View {
                     let counted = list.filter { $0.scored && $0.status != .unknown && ($0.level == .essential || model.hardened) }
                     Panel(title: category.title, subtitle: "\(counted.filter(\.passed).count) sur \(counted.count) en ordre",
                           symbol: category.symbol, tint: counted.allSatisfy(\.passed) ? Theme.good : Theme.warn) {
-                        VStack(spacing: 2) {
-                            ForEach(list) { c in SecurityCheckRow(check: c) }
+                        VStack(alignment: .leading, spacing: 2) {
+                            // What needs a look gets a full row; what is in order fits in a line of chips.
+                            ForEach(list.filter { $0.status != .ok }) { c in SecurityCheckRow(check: c) }
+                            let fine = list.filter { $0.status == .ok }
+                            if !fine.isEmpty {
+                                FlowLayout(spacing: 6, lineSpacing: 6) {
+                                    ForEach(fine) { c in
+                                        Tag(text: c.title, symbol: "checkmark", tint: Theme.good, filled: true)
+                                            .help(c.detail)
+                                    }
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                            }
                             if category == .updates && model.isCheckingUpdates {
                                 HStack(spacing: 10) {
                                     BusyMascot(.downloading, pixel: 1.5)
@@ -226,9 +253,6 @@ struct PersistenceTab: View {
         let startup = app.startup
         let anchors = app.protection.anchors
         VStack(alignment: .leading, spacing: 14) {
-            Callout(symbol: "eye.trianglebadge.exclamationmark", title: "Là où se cachent les indésirables",
-                    text: "Presque tous les logiciels malveillants sur Mac s'installent pour redémarrer avec lui. Je vérifie qui a signé chaque programme et je signale ce qui trahit un intrus : se faire passer pour Apple, télécharger puis exécuter du code, se cacher dans un dossier partagé, ne pas être signé.",
-                    tint: Theme.accent)
             if startup.isScanning && startup.items.isEmpty {
                 ScanProgressCard(title: "Je vérifie les signatures…", label: "Agents, services, ouverture à la connexion, cron…", progress: nil,
                                  activity: .inspecting)
@@ -238,20 +262,19 @@ struct PersistenceTab: View {
                               symbol: "checkmark.seal")
                 }
             } else {
-                TileRow {
-                    StatTile(symbol: "list.bullet", value: "\(startup.items.count + anchors.count)", label: "Points de démarrage",
-                             detail: "Agents, services, ouverture à la connexion…")
-                    StatTile(symbol: "checkmark.seal", value: "\(startup.items.filter { $0.signature.isTrusted }.count)", label: "Signés et vérifiés",
-                             detail: "Apple, App Store ou développeur identifié", tint: Theme.good)
-                    StatTile(symbol: "exclamationmark.triangle", value: "\(startup.flagged.count + anchors.filter { $0.risk >= .warn }.count)", label: "À examiner",
-                             detail: "Usurpation, téléchargement, non signé…", tint: startup.flagged.isEmpty ? Theme.good : Theme.warn)
-                }
+                DashboardMetricStrip(metrics: [
+                    DashboardMetric(symbol: "list.bullet", value: "\(startup.items.count + anchors.count)", label: "Points de démarrage"),
+                    DashboardMetric(symbol: "checkmark.seal", value: "\(startup.items.filter { $0.signature.isTrusted }.count)", label: "Signés et vérifiés",
+                                    tint: Theme.good),
+                    DashboardMetric(symbol: "exclamationmark.triangle", value: "\(startup.flagged.count + anchors.filter { $0.risk >= .warn }.count)",
+                                    label: "À examiner", tint: startup.flagged.isEmpty ? Theme.good : Theme.warn)
+                ])
                 if let msg = startup.message {
                     Callout(symbol: startup.messageOK ? "checkmark.circle" : "exclamationmark.triangle", title: startup.messageOK ? "Fait" : "Pas tout à fait",
                             text: msg, tint: startup.messageOK ? Theme.good : Theme.warn)
                 }
                 if !startup.flagged.isEmpty {
-                    Panel(title: "Points d'attention", subtitle: "Souvent un reste d'app désinstallée ou un petit outil maison, parfois un intrus : regarde de près ce qui est en rouge.",
+                    Panel(title: "Points d'attention", subtitle: "Souvent un reste d'app ou un outil maison, parfois un intrus : regarde de près ce qui est en rouge.",
                           symbol: "exclamationmark.triangle", tint: Theme.warn) {
                         LaunchItemList(items: startup.flagged)
                     }
@@ -259,7 +282,8 @@ struct PersistenceTab: View {
                 ForEach(LaunchDomain.allCases, id: \.self) { d in
                     let items = startup.items.filter { $0.domain == d && !$0.isFlagged }
                     if !items.isEmpty {
-                        Panel(title: d.title, subtitle: d.folder.replacingOccurrences(of: FS.home, with: "~"), symbol: "folder") {
+                        ProtectionFoldPanel(title: d.title, subtitle: d.folder.replacingOccurrences(of: FS.home, with: "~"), symbol: "folder",
+                                            count: items.count) {
                             LaunchItemList(items: items)
                         }
                     }
@@ -267,12 +291,62 @@ struct PersistenceTab: View {
                 ForEach(ProtectionAnchor.Kind.allCases, id: \.self) { kind in
                     let list = anchors.filter { $0.kind == kind }
                     if !list.isEmpty {
-                        Panel(title: kind.title, symbol: kind.symbol, tint: list.contains { $0.risk >= .warn } ? Theme.warn : Theme.accent) {
+                        ProtectionFoldPanel(title: kind.title, symbol: kind.symbol, tint: list.contains { $0.risk >= .warn } ? Theme.warn : Theme.accent,
+                                            count: list.count, startsOpen: list.contains { $0.risk >= .warn }) {
                             VStack(spacing: 2) {
                                 ForEach(list) { a in AnchorRow(anchor: a) }
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// A panel that shows only its title line until it is clicked: for the long lists that are rarely read.
+struct ProtectionFoldPanel<Content: View>: View {
+    var title: String
+    var subtitle: String? = nil
+    var symbol: String
+    var tint: Color = Theme.accent
+    var count: Int
+    var startsOpen = false
+    @ViewBuilder var content: Content
+    @State private var open: Bool?
+
+    var body: some View {
+        let isOpen = open ?? startsOpen
+        Card(padding: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(.easeOut(duration: 0.18)) { open = !isOpen }
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if Theme.icons != .hidden {
+                            Image(systemName: symbol).font(.ui(12, .medium)).foregroundStyle(Theme.icons == .tinted ? tint : Theme.text3)
+                        }
+                        Text(title).font(.ui(13.5, .semibold)).foregroundStyle(Theme.text)
+                        if let subtitle {
+                            Text(subtitle).font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
+                        }
+                        Spacer(minLength: 8)
+                        Text("\(count)").font(.ui(12, .semibold)).foregroundStyle(Theme.text2).monospacedDigit()
+                        Image(systemName: "chevron.right")
+                            .font(.ui(11, .semibold))
+                            .foregroundStyle(Theme.text3)
+                            .rotationEffect(.degrees(isOpen ? 90 : 0))
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(isOpen ? "Replier" : "Afficher")
+                if isOpen {
+                    content
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 14)
                 }
             }
         }
@@ -341,12 +415,10 @@ struct LaunchItemRow: View {
                     }
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
+                    FlowLayout(spacing: 6, lineSpacing: 4) {
                         Text(item.label).font(.ui(12.5, .medium)).foregroundStyle(Theme.text).lineLimit(1).truncationMode(.middle)
                         if item.running { Tag(text: "En cours", symbol: "circle.fill", tint: Theme.good, filled: true) }
                         if item.disabled { Tag(text: "Désactivé", tint: Theme.text3) }
-                    }
-                    FlowLayout(spacing: 6, lineSpacing: 4) {
                         if !item.flags.contains(where: { $0.rawValue == item.signature.label }) {
                             Tag(text: item.signature.label, symbol: item.signature.isTrusted ? "checkmark.seal" : "seal",
                                 tint: item.signature.isTrusted ? Theme.good : Theme.warn, filled: true)
@@ -408,7 +480,7 @@ struct FullDiskAccessCard: View {
                 IconBadge(symbol: "externaldrive.badge.checkmark", tint: Theme.accent, size: 40)
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Accès complet au disque requis").font(.serif(20)).foregroundStyle(Theme.text)
-                    Text(reason + " Ouvre Réglages › Confidentialité et sécurité › Accès complet au disque, active \(AppEdition.name), puis relance l'analyse.")
+                    Text(reason)
                         .font(.ui(12.5)).foregroundStyle(Theme.text2).fixedSize(horizontal: false, vertical: true)
                     HStack {
                         Button("Ouvrir le réglage") { Finder.open(Permissions.fullDiskAccessURL) }
@@ -443,8 +515,6 @@ struct PrivacyTab: View {
                     }
                 }
             }
-            Callout(symbol: "safari", title: "Et Safari ?",
-                    text: "Son historique est synchronisé avec iCloud sur tous tes appareils : efface-le depuis Safari › Historique › Effacer l'historique… pour que la suppression se propage partout.")
         }
     }
 }

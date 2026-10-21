@@ -83,19 +83,27 @@ final class FillSignModel: AppModule {
     /// A PDF with a password, waiting for it.
     var passwordFor: URL?
     var passwordWrong = false
-    /// A Word, Pages or Markdown file: the converter makes a PDF of it first.
-    var conversionFor: URL?
     var message: String?
     var saving = false
     var saved: URL?
     /// Save a form that stays editable (only the fields' values, nothing added).
     var keepForm = false
 
+    /// The « ? » next to the signatures, in the window.
+    static let tip = HelpTip(
+        id: "fillsign.signature",
+        title: "Ce que vaut cette signature",
+        text: "C'est une signature simple, comme une signature manuscrite scannée : elle suffit pour un devis, un bail, "
+            + "un bon de commande ou une autorisation. Un acte qui exige une signature électronique qualifiée (notaire, "
+            + "certains marchés publics) passe par un service certifié.")
+
     @ObservationIgnored private let store = JSONStore<[FillSignSignature]>("signatures", default: [])
     @ObservationIgnored private var undoStack: [Snapshot] = []
     @ObservationIgnored private var redoStack: [Snapshot] = []
     @ObservationIgnored private var lastToken: String?
     @ObservationIgnored private var lastClick: (time: Date, point: CGPoint, page: Int)?
+    /// The file being read: a result for another file (or for a window closed meanwhile) is dropped.
+    @ObservationIgnored private var loadToken: UUID?
     /// Pages already drawn at the editor's size, the most recent last (a page at full size takes megabytes: four are kept).
     @ObservationIgnored private var pageCache: [(key: String, image: CGImage)] = []
     @ObservationIgnored private var thumbCache: [Int: CGImage] = [:]
@@ -145,33 +153,88 @@ final class FillSignModel: AppModule {
         return document.hasForm && !document.fromImage && !document.hasButtons && items.isEmpty
     }
 
+    /// What can be filled in or signed (a Word, Pages or Markdown file goes through the converter first).
+    static let types: [UTType] = [.pdf, .image, .rtf, .plainText] + ["docx", "doc", "odt", "md"].compactMap { UTType(filenameExtension: $0) }
+
+    /// A file to choose, then its window (the launcher's commands, « Choisir un autre document… »). Cancelled: nothing opens.
     func choose() {
+        guard !DemoData.isEnabled else { return }
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.allowedContentTypes = [.pdf, .image, .rtf, .plainText] + ["docx", "doc", "pages", "odt", "md"].compactMap { UTType(filenameExtension: $0) }
+        panel.allowedContentTypes = Self.types
         panel.prompt = "Ouvrir"
         panel.message = "Le document à remplir ou à signer (PDF, photo ou scan)"
+        NSApp.activate(ignoringOtherApps: true)
         if panel.runModal() == .OK, let url = panel.url { open(url) }
     }
 
-    func open(_ url: URL, password: String? = nil) {
+    /// Fills and signs this document in its window, without the main window (the Convertisseur's « Signer », the launcher).
+    func openWindow(_ url: URL) {
+        open(url)
+    }
+
+    /// `url` is the document open right now (not one being read): it is not read again.
+    func windowKeeps(_ url: URL) -> Bool {
+        guard let current = document?.url, opening == nil else { return false }
+        return current.standardizedFileURL.path == url.standardizedFileURL.path
+    }
+
+    /// Nothing to show: no document, nothing being opened, asked or said. The window does not stay open like that.
+    var isIdle: Bool {
+        document == nil && opening == nil && passwordFor == nil && message == nil
+    }
+
+    func showWindow() {
+        guard let app = AppContext.model else { return }
+        FillSignWindow.shared.show(app: app)
+    }
+
+    /// The window asks before closing on changes not saved: false keeps it open.
+    func windowMayClose() -> Bool {
+        guard document != nil, hasChanges, saved == nil else { return true }
+        return CommandRunner.confirm("Fermer « \(document?.name ?? "") » ?", "Ce que tu y as ajouté n'est pas enregistré.", button: "Fermer sans enregistrer")
+    }
+
+    /// The window is gone, and its document with it.
+    func windowDidClose() {
+        loadToken = nil
+        opening = nil
+        passwordFor = nil
+        passwordWrong = false
+        message = nil
+        pad = nil
+        discard()
+    }
+
+    /// Opens `url` in the window (the one already open comes to the front instead). Returns false when the user keeps
+    /// the document already open (changes not saved).
+    @discardableResult
+    func open(_ url: URL, password: String? = nil) -> Bool {
         guard !DemoData.isEnabled else {
             message = DemoData.refusal
-            return
+            return false
         }
-        if document != nil, hasChanges, url != document?.url,
+        if windowKeeps(url) {
+            showWindow()
+            return true
+        }
+        // A password typed for the file asked about: closing the current document was already agreed.
+        if document != nil, hasChanges, url != document?.url, url != passwordFor,
            !CommandRunner.confirm("Fermer « \(document?.name ?? "") » ?", "Ce que tu y as ajouté n'est pas enregistré.", button: "Fermer sans enregistrer") {
-            return
+            return false
         }
         opening = url.lastPathComponent
         message = nil
-        conversionFor = nil
+        let token = UUID()
+        loadToken = token
+        showWindow()
         Task { [weak self] in
             let result: Result<FillSignDocument, Error> = await Task.detached(priority: .userInitiated) {
                 do { return .success(try FillSignDocument.load(url, password: password)) } catch { return .failure(error) }
             }.value
-            guard let self else { return }
+            guard let self, self.loadToken == token else { return }
+            self.loadToken = nil
             self.opening = nil
             switch result {
             case .success(let doc):
@@ -184,17 +247,17 @@ final class FillSignModel: AppModule {
             case .failure(FillSignError.wrongPassword):
                 self.passwordFor = url
                 self.passwordWrong = true
-            case .failure(FillSignError.needsConversion(let u)):
-                self.conversionFor = u
             case .failure(let error):
                 self.message = error.localizedDescription
             }
         }
+        return true
     }
 
     /// Shows a loaded document, its fields holding their current values.
     func show(_ doc: FillSignDocument) {
         document = doc
+        FillSignWindow.shared.retitle(doc.name)
         values = doc.initialValues
         items = []
         selection = nil
@@ -214,15 +277,7 @@ final class FillSignModel: AppModule {
         syncUndo()
     }
 
-    func close() {
-        if hasChanges, saved == nil,
-           !CommandRunner.confirm("Fermer « \(document?.name ?? "") » ?", "Ce que tu y as ajouté n'est pas enregistré.", button: "Fermer sans enregistrer") {
-            return
-        }
-        discard()
-    }
-
-    /// Back to the home of the module, without asking.
+    /// Back to no document, without asking.
     func discard() {
         document = nil
         values = [:]
@@ -236,16 +291,6 @@ final class FillSignModel: AppModule {
         undoStack = []
         redoStack = []
         syncUndo()
-    }
-
-    /// The Word, Pages or Markdown file goes to the converter, set to make a PDF.
-    func convertFirst() {
-        guard let url = conversionFor, let app = AppContext.model else { return }
-        conversionFor = nil
-        app.converter.receive([url])
-        app.converter.options.docFormat = .pdf
-        app.converter.focus(.documentConvert)
-        app.page = .converter
     }
 
     // MARK: Pages
@@ -752,8 +797,6 @@ final class FillSignModel: AppModule {
 
     // MARK: AppModule
 
-    var sidebarBadge: String? { document != nil && hasChanges && saved == nil ? "•" : nil }
-
     func stop() {
         store.flush()
     }
@@ -762,16 +805,14 @@ final class FillSignModel: AppModule {
         [
             AppCommand(id: "fillsign_open", title: "Remplir et signer un PDF", subtitle: "Formulaires, texte, signature et paraphe",
                        keywords: ["signer", "signature", "remplir", "formulaire", "pdf", "parapher", "paraphe", "contrat", "cerfa"],
-                       icon: .symbol("signature", FillSignStyle.tint), group: .tools, assistantSafe: true, urlSafe: true, hint: "Ouvrir") { ctx in
-                ctx.app.page = .fillsign
-                NotificationCenter.default.post(name: .openMainWindow, object: nil)
+                       icon: .symbol("signature", FillSignStyle.tint), group: .tools, assistantSafe: true, urlSafe: true, hint: "Choisir") { ctx in
+                // The file first, then its window: nothing opens empty.
+                Task { @MainActor in ctx.app.fillSign.choose() }
                 return .done
             },
             AppCommand(id: "fillsign_choose", title: "Signer un document…", subtitle: "Choisis un PDF ou la photo d'un document",
                        keywords: ["signer", "signature", "remplir", "formulaire", "pdf", "document"],
                        icon: .symbol("doc.badge.plus", FillSignStyle.tint), group: .tools, assistantSafe: true, hint: "Choisir") { ctx in
-                ctx.app.page = .fillsign
-                NotificationCenter.default.post(name: .openMainWindow, object: nil)
                 Task { @MainActor in ctx.app.fillSign.choose() }
                 return .done
             }

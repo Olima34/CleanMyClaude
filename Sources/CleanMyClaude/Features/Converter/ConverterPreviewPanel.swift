@@ -4,80 +4,71 @@ import Quartz
 import AVKit
 import UniformTypeIdentifiers
 
-/// « Aperçu du résultat » : the original and what the chosen operation really makes of it, side by side,
-/// before anything is saved. Nothing is done blind.
+/// « Aperçu » : the original and what the chosen operation really makes of it, side by side, before anything is saved.
+/// Nothing is done blind.
 struct ConverterPreviewPanel: View {
-    @Environment(AppModel.self) private var app
+    let model: ConverterModel
+    var height: CGFloat = 240
 
     var body: some View {
-        let model = app.converter
         let preview = model.previewer
         let op = model.operation
         let targets = op.map { model.targets(for: $0) } ?? []
-        Card(padding: 18) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 10) {
-                    IconBadge(symbol: "eye", tint: Theme.palette[1], size: 28)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("Aperçu du résultat").font(.ui(14, .semibold)).foregroundStyle(Theme.text)
-                        Text(subtitle(preview, op: op)).font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(1)
-                    }
-                    Spacer()
-                    if let op, !op.isBatch, targets.count > 1 {
-                        ConverterPager(label: "Fichier \(preview.fileIndex + 1) sur \(targets.count)",
-                                       index: preview.fileIndex, count: targets.count) { i in
-                            preview.fileIndex = i
-                            preview.schedule(model)
-                        }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("APERÇU").font(.ui(10, .semibold)).tracking(0.6).foregroundStyle(Theme.text3)
+                Text(subtitle(preview)).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 6)
+                if let op, !op.isBatch, targets.count > 1 {
+                    ConverterPager(label: "\(preview.fileIndex + 1) sur \(targets.count)", index: preview.fileIndex, count: targets.count) { i in
+                        preview.fileIndex = i
+                        preview.schedule(model)
                     }
                 }
-                if let op, ConverterPreviewer.usesPiece(op) {
-                    pieceControls(preview)
-                }
-                content(preview)
-                    .frame(height: 420)
-                footer(preview)
             }
+            if let op, ConverterPreviewer.usesPiece(op) {
+                pieceControls(preview)
+            }
+            content(preview)
+                .frame(height: height)
+            footer(preview)
         }
     }
 
-    private func subtitle(_ preview: ConverterPreviewer, op: ConverterOperation?) -> String {
-        if preview.isWorking { return "Je prépare le rendu exact…" }
-        guard let r = preview.result else { return "Le rendu exact de ce que tu vas obtenir, avant d'enregistrer quoi que ce soit" }
+    private func subtitle(_ preview: ConverterPreviewer) -> String {
+        if preview.isWorking { return "je prépare le rendu…" }
+        guard let r = preview.result else { return "" }
         let names = r.sources.map(\.lastPathComponent)
         let what = names.count > 1 ? "\(names.count) fichiers" : "« \(names.first ?? "") »"
         if let s = r.excerptSeconds {
             let from = r.excerptStart > 0 ? "à partir de \(Self.clock(r.excerptStart))" : "depuis le début"
-            return "Calculé pour de vrai sur \(Int(s)) s \(from) de \(what) · rien n'est encore enregistré"
+            return "\(Int(s)) s \(from) de \(what), rien d'enregistré"
         }
-        return "Calculé pour de vrai sur \(what) · rien n'est encore enregistré"
+        return "\(what), rien d'enregistré"
     }
 
     @ViewBuilder
     private func content(_ preview: ConverterPreviewer) -> some View {
         switch preview.state {
         case .idle:
-            placeholder(symbol: "eye.slash", text: "Choisis une opération : son rendu apparaît ici avant que tu lances quoi que ce soit.")
+            placeholder(symbol: "eye", text: "")
         case .working:
-            VStack(spacing: 10) {
-                BusyMascot(.converting, pixel: 5)
-                Text("Je prépare le rendu exact…").font(.ui(12)).foregroundStyle(Theme.text3)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.bg.opacity(0.5)))
+            BusyMascot(.converting, pixel: 4)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg.opacity(0.5)))
         case .failed(let message):
-            placeholder(symbol: "exclamationmark.triangle", text: "Cette conversion échouerait : \(message)", tint: Theme.warn)
+            placeholder(symbol: "exclamationmark.triangle", text: "Ça ne marcherait pas : \(message)", tint: Theme.warn)
         case .skipped(let message):
             placeholder(symbol: "scalemass", text: message)
         case .ready(let r):
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 pane(title: "Avant", detail: detailLine(size: r.sourceSize, detail: r.sourceDetail)) {
                     ConverterPreviewSurface(url: r.sources.first, demo: r.demo, demoAfter: false) { seconds in
                         // The "Avant" player tells where it is: "Depuis 00:44" starts the preview there.
                         if abs(preview.playhead - seconds) >= 1 { preview.playhead = seconds }
                     }
                 }
-                Image(systemName: "arrow.right").font(.ui(13, .semibold)).foregroundStyle(Theme.text3)
+                Image(systemName: "arrow.right").font(.ui(12, .semibold)).foregroundStyle(Theme.text3)
                 pane(title: "Après", detail: afterDetail(r)) {
                     after(r, index: preview.outputIndex)
                 }
@@ -89,11 +80,16 @@ struct ConverterPreviewPanel: View {
     private func after(_ r: ConverterPreviewResult, index: Int) -> some View {
         if let text = r.text {
             ScrollArea {
-                Text(text.isEmpty ? "Aucun texte reconnu." : text)
-                    .font(.ui(12.5)).foregroundStyle(text.isEmpty ? Theme.text3 : Theme.text)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(12)
+                Group {
+                    if Snapshot.isActive {
+                        Text(text.isEmpty ? "Aucun texte reconnu." : text)
+                    } else {
+                        Text(text.isEmpty ? "Aucun texte reconnu." : text).textSelection(.enabled)
+                    }
+                }
+                .font(.ui(12)).foregroundStyle(text.isEmpty ? Theme.text3 : Theme.text)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
             }
             .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg.opacity(0.6)))
         } else if r.operation == .qrRead {
@@ -105,31 +101,29 @@ struct ConverterPreviewPanel: View {
             VStack(spacing: 6) {
                 ConverterPreviewSurface(url: shown.isEmpty ? nil : shown[min(index, shown.count - 1)], demo: r.demo, demoAfter: true)
                 if shown.count > 1 {
-                    ConverterPager(label: "\(shown[min(index, shown.count - 1)].lastPathComponent) · \(min(index, shown.count - 1) + 1) sur \(shown.count)",
-                                   index: min(index, shown.count - 1), count: shown.count) { app.converter.previewer.outputIndex = $0 }
+                    ConverterPager(label: "\(min(index, shown.count - 1) + 1) sur \(shown.count)",
+                                   index: min(index, shown.count - 1), count: shown.count) { model.previewer.outputIndex = $0 }
                 }
             }
         }
     }
 
-    /// "Aperçu sur 10 s · 30 s · 1 min · Tout", and from where in the video.
+    /// "Sur 10 s · 30 s · 1 min · Tout", and from where in the video.
     private func pieceControls(_ preview: ConverterPreviewer) -> some View {
         @Bindable var preview = preview
-        return HStack(spacing: 10) {
-            Text("Aperçu sur").font(.ui(11.5)).foregroundStyle(Theme.text3)
-            PillPicker(options: ConverterPreviewSpan.allCases, selection: $preview.span, label: \.title)
+        return HStack(spacing: 8) {
+            Text("Sur").font(.ui(11)).foregroundStyle(Theme.text3)
+            WheelChips(options: ConverterPreviewSpan.allCases, selection: $preview.span, label: \.title)
             if preview.span != .full {
                 Button("Depuis \(Self.clock(preview.playhead))") { preview.start = preview.playhead }
                     .buttonStyle(SoftButtonStyle(small: true))
                     .disabled(preview.playhead < 1 || abs(preview.playhead - preview.start) < 1)
-                    .help("Lis la vidéo à gauche jusqu'au passage voulu : l'aperçu partira de là")
+                    .help("Lis la vidéo de gauche jusqu'au passage voulu : l'aperçu partira de là")
                 if preview.start > 0 {
                     Button("Depuis le début") { preview.start = 0 }.buttonStyle(SoftButtonStyle(small: true))
                 }
             }
-            Spacer()
-            Text(preview.span == .full ? "Toute la vidéo est convertie : exact, mais plus long." : "La taille du fichier entier est estimée à partir de ce morceau.")
-                .font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(1)
+            Spacer(minLength: 0)
         }
     }
 
@@ -142,20 +136,20 @@ struct ConverterPreviewPanel: View {
         ScrollArea {
             VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    Text(line).font(.mono(11.5)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
+                    Text(line).font(.mono(11)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            .padding(10)
         }
         .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg.opacity(0.6)))
     }
 
     private func pane<Content: View>(title: String, detail: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Text(title.uppercased()).font(.ui(10, .semibold)).tracking(0.6).foregroundStyle(Theme.text3)
-                Text(detail).font(.ui(11)).foregroundStyle(Theme.text2).lineLimit(1).truncationMode(.middle)
+                Text(title).font(.ui(10.5, .semibold)).foregroundStyle(Theme.text2)
+                Text(detail).font(.ui(10.5)).foregroundStyle(Theme.text3).lineLimit(1).truncationMode(.middle)
             }
             content()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -172,10 +166,10 @@ struct ConverterPreviewPanel: View {
     private func afterDetail(_ r: ConverterPreviewResult) -> String {
         if r.text != nil { return "Texte reconnu" }
         if r.operation == .qrRead { return Fmt.plural(r.codes.count, "code", "codes") }
-        if r.listing != nil { return Fmt.plural(r.listingTotal, "élément", "éléments") + " dans l'archive" }
+        if r.listing != nil { return Fmt.plural(r.listingTotal, "élément", "éléments") }
         let shown = ConverterPreviewFiles.expand(r.outputs)
         var parts: [String] = []
-        if let estimated = r.estimatedSize { parts.append("≈ \(Fmt.bytes(estimated)) pour tout le fichier") } else if r.outputSize > 0 { parts.append(Fmt.bytes(r.outputSize)) }
+        if let estimated = r.estimatedSize { parts.append("≈ \(Fmt.bytes(estimated))") } else if r.outputSize > 0 { parts.append(Fmt.bytes(r.outputSize)) }
         if shown.count > 1 { parts.append(Fmt.plural(shown.count, "fichier", "fichiers")) }
         if let d = r.outputDetail { parts.append(d) }
         return parts.joined(separator: " · ")
@@ -186,33 +180,35 @@ struct ConverterPreviewPanel: View {
         if let r = preview.result {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 if r.sourceSize > 0, (r.estimatedSize ?? r.outputSize) > 0, r.text == nil, r.listing == nil, r.operation != .qrRead {
-                    Label(ConverterPreviewer.sizeLine(from: r.sourceSize, to: r.estimatedSize ?? r.outputSize), systemImage: "scalemass")
-                        .font(.ui(11.5)).foregroundStyle(Theme.text2)
+                    Text(ConverterPreviewer.sizeLine(from: r.sourceSize, to: r.estimatedSize ?? r.outputSize))
+                        .font(.ui(11.5, .medium)).foregroundStyle(Theme.text2)
                 }
                 if let note = r.note {
-                    Text(note).font(.ui(11.5)).foregroundStyle(Theme.text3).lineLimit(2)
+                    Text(note).font(.ui(11)).foregroundStyle(Theme.text3).lineLimit(2)
                 }
-                Spacer()
+                Spacer(minLength: 6)
                 let shown = ConverterPreviewFiles.expand(r.outputs)
                 if !r.demo, !shown.isEmpty {
-                    Button("Ouvrir l'aperçu") {
+                    Button("Voir en grand") {
                         NSWorkspace.shared.open(shown[min(preview.outputIndex, shown.count - 1)])
                     }
                     .buttonStyle(SoftButtonStyle(small: true))
-                    .help("Ouvre le fichier d'aperçu (temporaire) dans son app, pour le regarder en grand")
+                    .help("Ouvre le fichier d'aperçu (temporaire) dans son app")
                 }
             }
         }
     }
 
     private func placeholder(symbol: String, text: String, tint: Color = Theme.text3) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: symbol).font(.ui(24, .light)).foregroundStyle(tint)
-            Text(text).font(.ui(12)).foregroundStyle(tint == Theme.text3 ? Theme.text3 : tint)
-                .multilineTextAlignment(.center).frame(maxWidth: 520)
+        VStack(spacing: 8) {
+            Image(systemName: symbol).font(.ui(20, .light)).foregroundStyle(tint)
+            if !text.isEmpty {
+                Text(text).font(.ui(11.5)).foregroundStyle(tint)
+                    .multilineTextAlignment(.center).frame(maxWidth: 420)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(RoundedRectangle(cornerRadius: Theme.r(12)).fill(Theme.bg.opacity(0.5)))
+        .background(RoundedRectangle(cornerRadius: Theme.r(10)).fill(Theme.bg.opacity(0.5)))
     }
 }
 
@@ -262,8 +258,12 @@ struct ConverterPreviewSurface: View {
     var body: some View {
         if demo || Snapshot.isActive {
             let ext = url?.pathExtension.lowercased() ?? ""
-            ConverterDemoArtwork(after: demoAfter, page: ["pdf", "docx", "txt", "md", "rtf", "html", "odt", "pages"].contains(ext),
-                                 badge: ["mp4", "mov"].contains(ext) ? "HEVC · 1080p" : (ext == "jpg" ? "JPEG · 82 %" : nil))
+            if ["m4a", "mp3", "wav", "aiff", "aif", "flac", "aac"].contains(ext) {
+                ConverterDemoWave(after: demoAfter)
+            } else {
+                ConverterDemoArtwork(after: demoAfter, page: ["pdf", "docx", "txt", "md", "rtf", "html", "odt", "pages"].contains(ext),
+                                     badge: ["mp4", "mov"].contains(ext) ? "HEVC · 1080p" : (ext == "jpg" ? "JPEG · 82 %" : nil))
+            }
         } else if let url, Self.isMedia(url) {
             // macOS's own player: play, pause, volume, scrubbing, speed, full screen.
             ConverterPlayer(url: url, onTime: onTime)
@@ -372,24 +372,31 @@ struct ConverterDemoArtwork: View {
     }
 
     private var sheet: some View {
-        ZStack {
-            Theme.bg.opacity(0.6)
-            HStack(spacing: 14) {
-                ForEach(0..<(after ? 2 : 3), id: \.self) { i in
-                    RoundedRectangle(cornerRadius: 3).fill(Color.white)
-                        .frame(width: 130, height: 180)
-                        .shadow(color: .black.opacity(0.3), radius: 5, y: 2)
-                        .overlay(alignment: .topLeading) {
-                            VStack(alignment: .leading, spacing: 6) {
-                                RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0xD97757)).frame(width: 50 + CGFloat(i) * 10, height: 7)
-                                ForEach(0..<8, id: \.self) { l in
-                                    RoundedRectangle(cornerRadius: 1.5).fill(Color.black.opacity(0.16)).frame(width: l % 3 == 2 ? 70 : 104, height: 4)
+        GeometryReader { g in
+            let n = after ? 2 : 3
+            let w = min(130, (g.size.width - 24 - CGFloat(n - 1) * 10) / CGFloat(n))
+            let h = min(w * 1.38, g.size.height - 20)
+            ZStack {
+                Theme.bg.opacity(0.6)
+                HStack(spacing: 10) {
+                    ForEach(0..<n, id: \.self) { i in
+                        // Document content, not interface: a white sheet whatever the theme.
+                        RoundedRectangle(cornerRadius: 3).fill(Color.white)
+                            .frame(width: w, height: h)
+                            .shadow(color: .black.opacity(0.3), radius: 5, y: 2)
+                            .overlay(alignment: .topLeading) {
+                                VStack(alignment: .leading, spacing: h * 0.035) {
+                                    RoundedRectangle(cornerRadius: 2).fill(Color(hex: 0xD97757)).frame(width: w * (0.38 + CGFloat(i) * 0.08), height: h * 0.04)
+                                    ForEach(0..<8, id: \.self) { l in
+                                        RoundedRectangle(cornerRadius: 1.5).fill(Color.black.opacity(0.16)).frame(width: w * (l % 3 == 2 ? 0.54 : 0.8), height: h * 0.022)
+                                    }
                                 }
+                                .padding(w * 0.09)
                             }
-                            .padding(12)
-                        }
+                    }
                 }
             }
+            .frame(width: g.size.width, height: g.size.height)
         }
     }
 
@@ -425,6 +432,26 @@ struct ConverterDemoArtwork: View {
             }
         }
         .saturation(after ? 0.92 : 1)
+    }
+}
+
+/// The demo's sound, before and after: a drawn waveform.
+struct ConverterDemoWave: View {
+    var after: Bool
+
+    var body: some View {
+        Canvas { ctx, size in
+            let bars = 48
+            let w = size.width / CGFloat(bars)
+            for i in 0..<bars {
+                let x = Double(i) / Double(bars)
+                let h = (0.25 + 0.6 * abs(sin(x * 9.3) * cos(x * 3.1))) * size.height * 0.7
+                let r = CGRect(x: CGFloat(i) * w + w * 0.2, y: (size.height - h) / 2, width: w * 0.6, height: h)
+                ctx.fill(Path(roundedRect: r, cornerRadius: w * 0.3), with: .color(Theme.palette[3].opacity(after ? 0.85 : 0.6)))
+            }
+        }
+        .padding(16)
+        .background(Theme.bg.opacity(0.6))
     }
 }
 

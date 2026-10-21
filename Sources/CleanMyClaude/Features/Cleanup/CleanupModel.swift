@@ -93,6 +93,8 @@ final class CleanupModel {
     var lastReport: RemovalReport?
     var claude = ClaudeFootprint()
     var expanded: Set<String> = []
+    /// Categories unfolded on the page (a category also shows open while one of its lines is).
+    var openGroups: Set<CleanupGroup> = []
 
     /// Called with the number of bytes freed after each cleanup.
     @ObservationIgnored var onFreed: (Int64) -> Void = { _ in }
