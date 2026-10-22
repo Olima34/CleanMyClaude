@@ -407,12 +407,16 @@ enum LauncherActions {
     }
 
     static func rank<T>(_ items: [T], _ query: String, title: (T) -> String, keywords: (T) -> [String]) -> [T] {
-        let q = query.trimmingCharacters(in: .whitespaces)
+        let q: String = query.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return items }
-        return items.enumerated()
-            .compactMap { i, item in Fuzzy.best(q, title: title(item), keywords: keywords(item)).map { (item, $0, i) } }
-            .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.2 < $1.2 }
-            .map(\.0)
+        // Step by step, typed: one chain of anonymous tuples over the two `Fuzzy.best` took the type checker 5 s.
+        var scored: [(item: T, score: Double, index: Int)] = []
+        for (i, item) in items.enumerated() {
+            let score: Double? = Fuzzy.best(q, title: title(item), keywords: keywords(item))
+            if let score { scored.append((item: item, score: score, index: i)) }
+        }
+        scored.sort { a, b in a.score != b.score ? a.score > b.score : a.index < b.index }
+        return scored.map { $0.item }
     }
 
     /// The action a key runs, if any (a key without ⌘, ⌃ or ⌥ never runs one: it is typed in the search).

@@ -1420,8 +1420,16 @@ final class AdBlockPiPCloseGuard {
     /// The number of the window whose accessibility frame is `frame`, among `pid`'s ordinary windows (normal to modal
     /// levels; the frontmost when two have the same frame). Both frames are global, top left, in points.
     nonisolated static func number(pid: Int, frame: CGRect, in windows: [AdBlockQuartzWindow]) -> Int? {
-        windows.first { $0.pid == pid && (0...8).contains($0.layer) && abs($0.frame.minX - frame.minX) < 1 && abs($0.frame.minY - frame.minY) < 1
-            && abs($0.frame.width - frame.width) < 1 && abs($0.frame.height - frame.height) < 1 }?.number
+        windows.first { $0.pid == pid && (0...8).contains($0.layer) && sameFrame($0.frame, frame) }?.number
+    }
+
+    /// Equal within a point (split up: one long condition of CGFloat sums is slow for Xcode 16's type checker).
+    nonisolated static func sameFrame(_ a: CGRect, _ b: CGRect) -> Bool {
+        let dx: CGFloat = abs(a.minX - b.minX)
+        let dy: CGFloat = abs(a.minY - b.minY)
+        let dw: CGFloat = abs(a.width - b.width)
+        let dh: CGFloat = abs(a.height - b.height)
+        return dx < 1 && dy < 1 && dw < 1 && dh < 1
     }
 
     // MARK: The real thing

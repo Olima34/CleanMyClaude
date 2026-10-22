@@ -1,7 +1,8 @@
 #!/bin/zsh
 # Builds the app, shown by macOS as "Chamois", in its bundle "Clean My Claude.app" (release), and installs it in ~/Applications.
-# Usage: ./scripts/build_app.sh [--no-install] [--zip] [--universal]
+# Usage: ./scripts/build_app.sh [--no-install] [--zip] [--universal] [--binary=<chemin>]
 #   --universal : Apple Silicon et Intel dans la même app (pour les versions publiées).
+#   --binary=<chemin> : un exécutable déjà compilé (la CI compile chaque architecture sur sa machine, puis les réunit).
 #   CMC_VERSION=0.3.0 : numéro de version (sinon celui de scripts/version.sh : dernière étiquette vX.Y.Z + commits depuis).
 set -euo pipefail
 
@@ -26,19 +27,27 @@ COMMIT_KEY=""
 INSTALL=1
 ZIP=0
 UNIVERSAL=0
+BINARY=""
 for arg in "$@"; do
   case "$arg" in
     --no-install) INSTALL=0 ;;
     --zip) ZIP=1 ;;
     --universal) UNIVERSAL=1 ;;
+    --binary=*) BINARY="${arg#--binary=}" ;;
   esac
 done
 
-echo "→ Compilation (release) de la version $VERSION${COMMIT:+ (${COMMIT[1,7]})}…"
-ARCHS=()
-[[ $UNIVERSAL -eq 1 ]] && ARCHS=(--arch arm64 --arch x86_64)
-swift build -c release "${ARCHS[@]}"
-BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)/$EXEC"
+if [[ -n "$BINARY" ]]; then
+  [[ -x "$BINARY" ]] || { echo "✗ Pas d'exécutable en $BINARY" >&2; exit 1; }
+  BIN="${BINARY:A}"
+  echo "→ Version $VERSION${COMMIT:+ (${COMMIT[1,7]})}, compilée à part : $(lipo -archs "$BIN")"
+else
+  echo "→ Compilation (release) de la version $VERSION${COMMIT:+ (${COMMIT[1,7]})}…"
+  ARCHS=()
+  [[ $UNIVERSAL -eq 1 ]] && ARCHS=(--arch arm64 --arch x86_64)
+  swift build -c release "${ARCHS[@]}"
+  BIN="$(swift build -c release "${ARCHS[@]}" --show-bin-path)/$EXEC"
+fi
 
 echo "→ Vérification des garde-fous…"
 "$BIN" --selftest

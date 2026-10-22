@@ -14,7 +14,34 @@ permissions:
   contents: read
 
 jobs:
+  # The two halves of the app (Apple Silicon, Intel), each on a runner of its own, at the same time: compiled together
+  # on one runner (3 cores, 7 GB of memory, the whole module optimized at once, twice) they took about 25 minutes.
+  compile:
+    name: compile (${{ matrix.arch }})
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: Toolchain
+        run: swift --version
+      - name: Compile
+        run: |
+          swift build -c release --arch "${{ matrix.arch }}"
+          cp "$(swift build -c release --arch "${{ matrix.arch }}" --show-bin-path)/CleanMyClaude" "CleanMyClaude-${{ matrix.arch }}"
+      - name: Upload the binary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: binary-${{ matrix.arch }}
+          path: CleanMyClaude-${{ matrix.arch }}
+          retention-days: 1
+
+  # One app for Apple Silicon and Intel, as before: the two halves joined, the self-tests run on it, the bundle made.
   build:
+    needs: compile
     runs-on: macos-15
     outputs:
       version: ${{ steps.version.outputs.version }}
@@ -28,14 +55,22 @@ jobs:
       - name: Version
         id: version
         run: echo "version=$(./scripts/version.sh)" >> "$GITHUB_OUTPUT"
+      - name: Download the binaries
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: binary-*
+          path: build/arch
+          merge-multiple: true
       - name: Build the app bundle
         env:
           CMC_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          ARGS=(--no-install --zip)
-          # What gets published runs on Apple Silicon and Intel.
-          [[ "$GITHUB_EVENT_NAME" == push ]] && ARGS+=(--universal)
-          ./scripts/build_app.sh "${ARGS[@]}"
+          set -euo pipefail
+          # Artifacts lose the executable bit: the joined binary gets it back.
+          lipo -create build/arch/CleanMyClaude-arm64 build/arch/CleanMyClaude-x86_64 -output build/arch/CleanMyClaude
+          chmod +x build/arch/CleanMyClaude
+          [[ "$(lipo -archs build/arch/CleanMyClaude)" == *arm64* && "$(lipo -archs build/arch/CleanMyClaude)" == *x86_64* ]]
+          ./scripts/build_app.sh --no-install --zip --binary=build/arch/CleanMyClaude
       - name: Upload the app
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
