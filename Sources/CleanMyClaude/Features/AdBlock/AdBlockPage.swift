@@ -14,19 +14,19 @@ enum AdBlockTips {
 
     static let videoOnly = HelpTip(
         id: "media.videoOnly", title: "Vidéo seule",
-        text: "« Détacher la vidéo » reprend ici, sans pub, la vidéo YouTube ou le direct Twitch de ton navigateur : une petite fenêtre au-dessus des autres, sur tous tes bureaux. Tire ses bords pour la redimensionner, survole-la pour la déplacer ou revenir au lecteur complet. Pour que Safari se mette en pause tout seul :",
+        text: "« Détacher la vidéo » reprend ici, sans pub, la vidéo YouTube ou le direct Twitch de ton navigateur : une petite fenêtre au-dessus des autres, sur tous tes bureaux. Tire ses bords pour la redimensionner, survole-la pour la déplacer ou revenir au lecteur complet. Netflix, Prime Video, Disney+ et les autres vidéos protégées restent dans Safari, qui les passe dans son image dans l'image. Pour que Safari écoute Chamois :",
         steps: safariSteps)
 
-    /// Back as a warning, when Safari kept playing the last video detached.
+    /// Back as a warning, when Safari did not take the app's script (to pause, or for its picture in picture).
     static let safariPause = HelpTip(
-        id: "media.videoOnly.safari", title: "Pour que Safari se mette en pause tout seul",
-        text: "Et que la vidéo reprenne ici à la même seconde. Dans Chrome, Brave ou Edge : Présentation › Options pour les développeurs › Autoriser JavaScript à partir des évènements Apple.",
+        id: "media.videoOnly.safari", title: "Pour que Safari écoute Chamois",
+        text: "Il se met alors en pause tout seul et la vidéo reprend ici à la même seconde ; Netflix, Prime Video ou Disney+ passent dans son image dans l'image. Dans Chrome, Brave ou Edge : Présentation › Options pour les développeurs › Autoriser JavaScript à partir des évènements Apple.",
         steps: safariSteps)
 
     static let safariSteps = [
         "Dans Safari, Réglages… › Avancées : coche « Afficher les fonctionnalités pour les développeurs web ».",
         "Onglet Développeur : coche « Autoriser JavaScript à partir des évènements Apple » (Safari demande ton mot de passe).",
-        "Détache à nouveau la vidéo : Safari se met en pause, elle reprend ici."
+        "Détache à nouveau la vidéo."
     ]
 
     static let handoff = HelpTip(

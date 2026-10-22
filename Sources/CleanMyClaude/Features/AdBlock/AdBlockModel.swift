@@ -179,8 +179,13 @@ final class AdBlockModel: AppModule {
             // « Vidéo seule » : the small window, its buttons shown.
             player.previewVideoOnly()
         case "safari":
-            // Safari kept playing the last video detached: the warning under « Vidéo seule ».
-            snapshotSafariRefused = true
+            // Safari kept playing the last video detached: the warning under « Vidéo seule ». With `--pip refus`, `scripts`,
+            // `aucune` or `chrome`: what a page outside the player (Netflix…) answered instead.
+            if let state = Entry.value(after: "--pip") {
+                player.detachIssue = AdBlockVideoPiP.snapshotIssue(state)
+            } else {
+                snapshotSafariRefused = true
+            }
         case "comptes":
             // Both accounts signed in.
             accounts = ["google": .signedIn(nil), "twitch": .signedIn("chamois_des_cimes")]
@@ -198,7 +203,8 @@ final class AdBlockModel: AppModule {
     func results(for query: String, app: AppModel) -> [AppCommand] { AdBlockCommands.results(query, self) }
 
     func selfTest() -> [String] {
-        AdBlockChecks.run(self) + Self.countChecks() + AdBlockVideoOnly.checks() + AdBlockAccount.checks() + AdBlockHandoff.checks()
+        AdBlockChecks.run(self) + Self.countChecks() + AdBlockVideoOnly.checks() + AdBlockVideoPiP.checks() + AdBlockAccount.checks()
+            + AdBlockHandoff.checks()
     }
 
     /// The live counter: a lookup read line by line gives the same events as a whole stretch of log, its memory stays
@@ -241,8 +247,8 @@ final class AdBlockModel: AppModule {
             lines.append("État de ce Mac : \(AdBlockCLI.describe(AdBlockProbes.state())) · DNS du réseau : \(AdBlockProbes.networkResolvers().joined(separator: ", "))")
         }
         let safari = AdBlockVideoOnly.scriptsAllowed(AdBlockVideoBrowser.all[0])
-        lines.append("Vidéo seule : \(player.pinned ? "au-dessus des autres fenêtres" : "passe derrière") · pause de Safari : "
-                     + (safari == true ? "possible" : safari == false ? "JavaScript des évènements Apple refusé" : "pas encore essayée"))
+        lines.append("Vidéo seule : \(player.pinned ? "au-dessus des autres fenêtres" : "passe derrière") · pause et image dans l'image de Safari : "
+                     + (safari == true ? "possibles" : safari == false ? "JavaScript des évènements Apple refusé" : "pas encore essayées"))
         lines.append("Comptes du lecteur : " + AdBlockAccount.all.map { a in
             switch accounts[a.key] ?? .signedOut {
             case .signedOut: return "\(a.name) non connecté"

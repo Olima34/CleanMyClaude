@@ -47,9 +47,13 @@ struct AdBlockVideoBrowser: Equatable, Sendable {
     }
 
     /// Pauses the tab's main video and says where it was (`AdBlockVideoOnly.pause`).
-    var pauseScript: String {
-        chromium ? "tell application id \"\(bundleID)\" to execute active tab of front window javascript \"\(AdBlockVideoOnly.pause)\""
-                 : "tell application id \"\(bundleID)\" to do JavaScript \"\(AdBlockVideoOnly.pause)\" in front document"
+    var pauseScript: String { javaScript(AdBlockVideoOnly.pause) }
+
+    /// Runs `js` (fixed text of the app, escaped) in the tab whose address `urlScript` reads.
+    func javaScript(_ js: String) -> String {
+        let source = AdBlockVideoPiP.literal(js)
+        return chromium ? "tell application id \"\(bundleID)\" to execute active tab of front window javascript \(source)"
+                        : "tell application id \"\(bundleID)\" to do JavaScript \(source) in front document"
     }
 }
 
@@ -343,7 +347,8 @@ enum AdBlockVideoOnly {
 
 extension AdBlockPlayer {
     /// The video the user is watching, alone in a small window: the browser's front tab (paused there and resumed here at
-    /// the same second when the browser lets the app run a script), or else the page already in the player.
+    /// the same second when the browser lets the app run a script), or else the page already in the player. A page the
+    /// player does not show (Netflix, Prime Video, Disney+…) goes into the browser's own picture in picture.
     func detach() async {
         guard !DemoData.isEnabled, !Snapshot.isActive else {
             HUD.show(DemoData.refusal, symbol: "info.circle.fill")
@@ -370,7 +375,8 @@ extension AdBlockPlayer {
         }
         let read = await Task.detached(priority: .userInitiated) { Shell.appleScript(browser.urlScript) }.value
         if read.status == -1743 || read.status == -1744 {
-            detachIssue = "\(AppEdition.name) n'a pas le droit de piloter \(browser.name) : active-le dans Réglages Système › Confidentialité et sécurité › Automatisation."
+            detachIssue = AdBlockDetachIssue(text: "\(AppEdition.name) n'a pas le droit de piloter \(browser.name) : active-le dans Réglages Système › Confidentialité et sécurité › Automatisation.",
+                                             settings: true)
             HUD.show("Autorise \(AppEdition.name) à piloter \(browser.name), puis recommence.", symbol: "exclamationmark.circle.fill")
             Finder.open(PermissionKind.safari.settingsURL)
             return
@@ -379,13 +385,18 @@ extension AdBlockPlayer {
             HUD.show("Aucune page ouverte dans \(browser.name).", symbol: "exclamationmark.circle.fill")
             return
         }
-        guard let page = Self.playable(read.out) else {
-            let host = URL(string: read.out)?.host ?? "Cette page"
-            detachIssue = "« \(host) » n'est pas une plateforme du lecteur (YouTube, Twitch, France.tv, M6+, Arte, Pluto TV)."
-                + (browser.chromium ? "" : " Pour cette vidéo, l'image dans l'image de Safari : clic droit sur l'icône du son, dans la barre d'adresse.")
-            HUD.show("Vidéo seule : YouTube, Twitch et les plateformes du lecteur.", symbol: "exclamationmark.circle.fill")
-            return
+        switch AdBlockVideoPiP.route(read.out) {
+        case .player(let page):
+            await detachToPlayer(browser, page: page)
+        case .browser(let site):
+            await browserPictureInPicture(browser, site: site, host: URL(string: read.out)?.host ?? "")
+        case .nothing:
+            report(AdBlockVideoPiP.verdict(.noVideo, browser: browser, site: nil))
         }
+    }
+
+    /// YouTube, Twitch and the player's other platforms: paused in the browser, on here at the same second.
+    private func detachToPlayer(_ browser: AdBlockVideoBrowser, page: URL) async {
         let paused = await Task.detached(priority: .userInitiated) { Shell.appleScript(browser.pauseScript) }.value
         if paused.ok {
             AdBlockVideoOnly.remember(scripts: true, for: browser)
@@ -396,6 +407,53 @@ extension AdBlockPlayer {
         if !paused.ok {
             HUD.show("\(browser.name) joue encore la vidéo : mets-la en pause là-bas.", symbol: "exclamationmark.circle.fill")
         }
+    }
+
+    /// Any other page: the browser keeps its video (session, licence) and puts it in its own picture in picture.
+    private func browserPictureInPicture(_ browser: AdBlockVideoBrowser, site: String?, host: String) async {
+        let request = browser.javaScript(AdBlockVideoPiP.request)
+        let asked = await Task.detached(priority: .userInitiated) { Shell.appleScript(request) }.value
+        var answer: AdBlockPiPAnswer
+        if asked.ok {
+            AdBlockVideoOnly.remember(scripts: true, for: browser)
+            answer = AdBlockVideoPiP.answer(from: asked.out)
+        } else if AdBlockVideoPiP.scriptsRefused(asked.err) {
+            AdBlockVideoOnly.remember(scripts: false, for: browser)
+            report(AdBlockVideoPiP.scriptsVerdict(browser, site: site))
+            return
+        } else {
+            answer = .refused(error: asked.err)
+        }
+        if case .asked = answer { answer = await watchPictureInPicture(browser) }
+        let verdict = AdBlockVideoPiP.verdict(answer, browser: browser, site: site)
+        if verdict.success { ActionLog.write("IMAGE DANS L'IMAGE \(browser.name) \(host)") }
+        report(verdict)
+    }
+
+    /// The browser takes a moment to move the video: still in picture in picture a moment later, it kept it there.
+    private func watchPictureInPicture(_ browser: AdBlockVideoBrowser) async -> AdBlockPiPAnswer {
+        let check = browser.javaScript(AdBlockVideoPiP.check)
+        var last = AdBlockPiPAnswer.unreadable
+        var seen = 0
+        for _ in 0..<8 {
+            try? await Task.sleep(for: .milliseconds(350))
+            let read = await Task.detached(priority: .userInitiated) { Shell.appleScript(check) }.value
+            last = read.ok ? AdBlockVideoPiP.answer(from: read.out) : .unreadable
+            if last == .entered {
+                seen += 1
+                if seen == 2 { break }
+            } else if case .inline(let error) = last, !error.isEmpty {
+                break // the browser said no
+            } else {
+                seen = 0
+            }
+        }
+        return last
+    }
+
+    private func report(_ verdict: AdBlockPiPVerdict) {
+        detachIssue = verdict.issue
+        HUD.show(verdict.hud, symbol: verdict.success ? "pip.fill" : "exclamationmark.circle.fill")
     }
 }
 
@@ -579,9 +637,10 @@ struct AdBlockVideoPanel: View {
                 }
                 if let issue = m.player.detachIssue {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(issue).font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                        Text(issue.text).font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
+                        if let tip = issue.tip { HelpTipButton(tip: tip, size: 12) }
                         Spacer(minLength: 0)
-                        if issue.contains("piloter") {
+                        if issue.settings {
                             Button("Réglages…") { Finder.open(PermissionKind.safari.settingsURL) }
                                 .buttonStyle(SoftButtonStyle(small: true))
                         }
@@ -591,7 +650,7 @@ struct AdBlockVideoPanel: View {
                         if Theme.icons != .hidden {
                             Image(systemName: "exclamationmark.triangle.fill").font(.ui(10.5)).foregroundStyle(Theme.warn)
                         }
-                        Text("Safari ne s'est pas mis en pause tout seul").font(.ui(11.5, .medium)).foregroundStyle(Theme.warn)
+                        Text("Safari n'écoute pas encore \(AppEdition.name)").font(.ui(11.5, .medium)).foregroundStyle(Theme.warn)
                         HelpTipButton(tip: AdBlockTips.safariPause, size: 12)
                         Spacer(minLength: 0)
                     }
@@ -696,7 +755,7 @@ enum AdBlockVideoBench {
     /// The window server's events, handled as the app would (the command line runs no app loop): without them the
     /// window never learns it is on screen, and WebKit keeps the page hidden.
     /// Between two, the main queue runs (WebKit answers through it).
-    private static func pump(_ seconds: Double) async {
+    static func pump(_ seconds: Double) async {
         let end = Date().addingTimeInterval(seconds)
         while Date() < end {
             while let event = NSApp.nextEvent(matching: .any, until: nil, inMode: .default, dequeue: true) {

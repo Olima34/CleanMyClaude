@@ -74,9 +74,10 @@ enum AdBlockCommands {
             }
         } + [
             AppCommand(id: AdBlockVideoOnly.commandID, title: "Vidéo seule",
-                       subtitle: "La vidéo ou le direct de Safari, seul dans une petite fenêtre au-dessus des autres, sans pub",
+                       subtitle: "La vidéo de Safari dans une petite fenêtre au-dessus des autres, sans pub sur YouTube et Twitch",
                        keywords: ["vidéo", "video", "seule", "mini", "lecteur", "fenêtre", "flottante", "détacher", "pip", "image dans l'image",
-                                  "direct", "live", "stream", "twitch", "youtube", "regarder", "coin"],
+                                  "direct", "live", "stream", "twitch", "youtube", "regarder", "coin", "netflix", "prime video", "disney",
+                                  "film", "série"],
                        icon: .symbol("pip.enter", tint), group: .actions, assistantSafe: true, hint: "Détacher") { _ in
                 Task { await m.player.detach() }
                 return .done

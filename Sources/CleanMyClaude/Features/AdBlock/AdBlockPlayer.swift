@@ -43,7 +43,7 @@ final class AdBlockPlayer: NSObject {
     /// Width over height of the video shown, which the video-only window keeps.
     private(set) var videoRatio: CGFloat = 16 / 9
     /// Why the last « Détacher la vidéo » could not reach the browser, shown on the page.
-    var detachIssue: String?
+    var detachIssue: AdBlockDetachIssue?
     /// A « Détacher la vidéo » is reading the browser (a second press waits for it).
     @ObservationIgnored var detaching = false
 

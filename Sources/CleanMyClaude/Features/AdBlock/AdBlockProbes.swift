@@ -164,8 +164,11 @@ enum AdBlockCLI {
             await AdBlockVideoBench.run(url, png: png)
         case "bascule":
             await MainActor.run { AdBlockHandoff.bench(Array(args.dropFirst())) }
+        case "pip":
+            // The picture-in-picture scripts in a WebKit view of the app, on a page of its own or the one given.
+            await AdBlockPiPBench.run(args.dropFirst().first)
         default:
-            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier> | video <lien> [image.png] | bascule [lien…]")
+            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier> | video <lien> [image.png] | pip [page.html] | bascule [lien…]")
         }
     }
 
