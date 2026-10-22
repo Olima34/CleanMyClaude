@@ -21,6 +21,8 @@ TMDB_KEY=… .build/debug/CleanMyClaude --cinema-check "dune" [--kind film|serie
 .build/debug/CleanMyClaude --wheel-check 30          # la roue des fichiers seule : les gestes vus, le segment survolé, le dépôt et sa copie
 .build/debug/CleanMyClaude --wheel-engines <dossier> # chaque action de la roue sur des fichiers inventés dans ce dossier, et ce qu'elle a écrit
 .build/debug/CleanMyClaude --adblock video "<lien YouTube ou Twitch>" out.png   # Vidéo seule sur la vraie page (une fenêtre s'affiche ~1 min, sans son)
+.build/debug/CleanMyClaude --adblock detecteur "<lien>" [app|regles|nu]   # le détecteur de bloqueur d'un site dans le lecteur (France.tv…)
+.build/debug/CleanMyClaude --adblock pip [page.html|lien]   # le script d'image dans l'image de « Détacher la vidéo », dans une vue WebKit de Chamois
 ```
 
 Relis toujours la capture PNG de ta page. `./scripts/build_app.sh` installe l'app dans `~/Applications` : **ne le lance pas depuis une copie de travail parallèle** (toutes partagent la même app installée et les mêmes autorisations macOS).

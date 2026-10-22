@@ -38,7 +38,7 @@ enum PermissionKind: String, CaseIterable, Identifiable {
         case .folders: return "Index des fichiers du lanceur, rangement de Téléchargements, conversions et copies du Convertisseur"
         case .localNetwork: return "Mesurer la latence de ta box et des appareils de ton réseau"
         case .photos: return "Supprimer de ta photothèque iCloud les photos de l'iPhone que tu as triées"
-        case .accessibility: return "Ranger les fenêtres au clavier, coller depuis l'historique du presse-papiers"
+        case .accessibility: return "Ranger les fenêtres au clavier, coller depuis l'historique du presse-papiers, l'image dans l'image de Safari"
         case .fullDiskAccess: return "Voir la Corbeille, Mail, Safari et les autorisations des autres apps"
         }
     }

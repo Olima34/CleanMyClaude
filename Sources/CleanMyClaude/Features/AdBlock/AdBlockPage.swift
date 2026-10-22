@@ -14,7 +14,7 @@ enum AdBlockTips {
 
     static let videoOnly = HelpTip(
         id: "media.videoOnly", title: "Vidéo seule",
-        text: "« Détacher la vidéo » reprend ici, sans pub, la vidéo YouTube ou le direct Twitch de ton navigateur : une petite fenêtre au-dessus des autres, sur tous tes bureaux. Tire ses bords pour la redimensionner, survole-la pour la déplacer ou revenir au lecteur complet. Netflix, Prime Video, Disney+ et les autres vidéos protégées restent dans Safari, qui les passe dans son image dans l'image. Pour que Safari écoute Chamois :",
+        text: "« Détacher la vidéo » reprend ici, sans pub, la vidéo YouTube ou le direct Twitch de ton navigateur : une petite fenêtre au-dessus des autres, sur tous tes bureaux. Tire ses bords pour la redimensionner, survole-la pour la déplacer ou revenir au lecteur complet. Netflix, Prime Video, Disney+, TF1+ et les autres vidéos protégées restent dans Safari, qui les passe dans son image dans l'image (pour un lecteur fermé comme celui de TF1+, Chamois passe par le menu de la page, avec l'autorisation d'Accessibilité). Pour que Safari écoute Chamois :",
         steps: safariSteps)
 
     /// Back as a warning, when Safari did not take the app's script (to pause, or for its picture in picture).
@@ -119,7 +119,8 @@ private struct AdBlockPlayerPanel: View {
 
     var body: some View {
         let m = app.adblock
-        let cut = (m.tally.apps["Lecteur sans pub · YouTube"] ?? 0) + (m.tally.apps["Lecteur sans pub · Twitch"] ?? 0)
+        // Every site of the player counts (YouTube, Twitch, France.tv…).
+        let cut = m.tally.apps.filter { $0.key.hasPrefix("Lecteur sans pub · ") }.reduce(0) { $0 + $1.value }
         Card(padding: 18) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
