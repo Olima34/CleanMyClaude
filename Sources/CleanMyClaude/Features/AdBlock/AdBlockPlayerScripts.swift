@@ -1,4 +1,5 @@
 import Foundation
+import JavaScriptCore
 
 // What the ad-free player puts in the pages it shows (WKUserScript, page world, before the sites' own scripts), and the
 // blocking rules WebKit applies to its requests (WKContentRuleList). Tested on real videos and lives in a WebKit test bench:
@@ -257,6 +258,32 @@ enum AdBlockPlayerScripts {
     })();
     """#
 
+    /// France.tv: before a video with ads, its player (`magnetoscope.isAdserverReachable`) fetches a dummy ad request from
+    /// FreeWheel (network 000000, asset ABC123) and walls the video (« Un bloqueur de publicités empêche le visionnage »)
+    /// when that fetch fails; a timeout passes. The rules, and often the Mac's DNS, stop that server: the page is told
+    /// « nothing to serve » (204) at once, without the request leaving the Mac. FreeWheel's SDK and its ads stay blocked by
+    /// the rules, and the player then shows the programme alone. One count per video page.
+    static let francetv = #"""
+    (() => {
+      'use strict';
+      if (!/(^|\.)france\.tv$/.test(location.hostname) || window.__cmcFranceTV) return;
+      window.__cmcFranceTV = true;
+      const post = (type, extra) => {
+        try { window.webkit.messageHandlers.cmc.postMessage(Object.assign({ type, site: 'francetv' }, extra || {})); } catch (e) {}
+      };
+      // FreeWheel's ad requests (/ad/g/), on any of its servers; its SDK (/libs/) is left to the rules.
+      const adRequest = /^(?:https?:)?\/\/(?:[a-z0-9-]+\.)*fwmrm\.net(?::\d+)?\/ad\/g\//i;
+      const counted = new Set();
+      const realFetch = window.fetch;
+      window.fetch = function (input) {
+        const url = String((input && input.url) || input);
+        if (!adRequest.test(url)) return realFetch.apply(this, arguments);
+        if (!counted.has(location.pathname)) { counted.add(location.pathname); post('ad', { id: location.pathname }); }
+        return Promise.resolve(new Response(null, { status: 204, statusText: 'No Content' }));
+      };
+    })();
+    """#
+
     /// Requests WebKit refuses outright in the player: ad servers, YouTube's ad and ad-tracking calls.
     static let blockedPatterns = [
         "^https?://([^/]+\\.)?doubleclick\\.net[:/]", "^https?://([^/]+\\.)?googlesyndication\\.com[:/]",
@@ -279,5 +306,66 @@ enum AdBlockPlayerScripts {
         let list = patterns.map { ["trigger": ["url-filter": $0], "action": ["type": "block"]] }
         guard let data = try? JSONSerialization.data(withJSONObject: list), let text = String(data: data, encoding: .utf8) else { return "[]" }
         return text
+    }
+
+    /// The sites' scripts parse, France.tv's answers its player's dummy ad request alone (in a JavaScript engine of its
+    /// own, with a pretend page), and the rules still stop FreeWheel's ads and that request.
+    static func checks() -> [String] {
+        var f: [String] = []
+        func expect(_ ok: Bool, _ message: String) { if !ok { f.append("lecteur, France.tv : " + message) } }
+        let scripts = AdBlockPlayerSite.all.compactMap(\.script)
+        expect(scripts.count == 3 && scripts.allSatisfy { $0.contains("location.hostname") }, "chaque script de site vérifie son site")
+        guard let ctx = JSContext() else { return f + ["lecteur, France.tv : pas de moteur JavaScript"] }
+        @discardableResult func run(_ source: String) -> String {
+            ctx.exception = nil
+            let value = ctx.evaluateScript(source)?.toString() ?? ""
+            if let e = ctx.exception { f.append("lecteur, France.tv : erreur JavaScript « \(e) »"); ctx.exception = nil }
+            return value
+        }
+        for (i, script) in scripts.enumerated() {
+            ctx.setObject(script, forKeyedSubscript: "src\(i)" as NSString)
+            expect(run("typeof new Function(src\(i))") == "function", "script \(i + 1) illisible")
+        }
+        func page(_ host: String) {
+            run("""
+            var window = this, posted = [], out = {}, realFetch = function (input) { return 'réseau'; };
+            var location = { hostname: '\(host)', pathname: '/france-2/serie/saison-1/1-episode-1.html' };
+            window.webkit = { messageHandlers: { cmc: { postMessage: function (m) { posted.push(m); } } } };
+            function Response(body, init) { this.status = init.status; this.body = body; }
+            window.fetch = realFetch;
+            delete window.__cmcFranceTV;
+            """)
+            run(francetv)
+        }
+        let probe = "//7cd77.v.fwmrm.net/ad/g/1?prof=000000:ftv_html5&nw=000000&caid=ABC123&vdur=312[…]ml_lit_nowrapper,text/html_no_iframe&w=1920&h=650&flag=+cmpn"
+        let asked: [(String, Bool)] = [
+            (probe, true), ("https://7cd77.v.fwmrm.net/ad/g/1?nw=511351&caid=x", true), ("https://www.france.tv/api/user", false),
+            ("https://mssl.fwmrm.net/libs/adm/7.17.0/AdManager.js", false), ("https://fwmrm.net.exemple.fr/ad/g/1", false),
+            ("https://exemple.fr/?u=//x.fwmrm.net/ad/g/1", false), ("https://k7.ftven.fr/videos/b507d29a", false)
+        ]
+        page("www.france.tv")
+        for (i, (url, _)) in asked.enumerated() {
+            ctx.setObject(url, forKeyedSubscript: "u" as NSString)
+            run("var r = fetch(u); if (r === 'réseau') out[\(i)] = 'réseau'; else r.then(function (x) { out[\(i)] = x.status; });")
+        }
+        // A Request object, as fetch() also takes.
+        run("fetch({ url: 'https:' + '\(probe)' }).then(function (x) { out.request = x.status; });")
+        for (i, (url, answered)) in asked.enumerated() {
+            let got = run("String(out[\(i)])")
+            expect(got == (answered ? "204" : "réseau"), "« \(url) » : \(got) au lieu de \(answered ? "204" : "réseau")")
+        }
+        expect(run("String(out.request)") == "204", "requête passée en objet : \(run("String(out.request)"))")
+        expect(run("posted.length + ' ' + (posted[0] && posted[0].type + ' ' + posted[0].site)") == "1 ad francetv",
+               "une pub comptée par vidéo : \(run("JSON.stringify(posted)"))")
+        page("www.youtube.com")
+        expect(run("String(window.fetch === realFetch)") == "true", "le script agit hors de France.tv")
+
+        // The request answered in the page and FreeWheel's SDK stay blocked by the rules (nothing leaves the Mac).
+        let rules = (try? JSONSerialization.jsonObject(with: Data(Self.rules.utf8))) as? [[String: Any]] ?? []
+        let filters = rules.compactMap { ($0["trigger"] as? [String: Any])?["url-filter"] as? String }.compactMap { try? NSRegularExpression(pattern: $0) }
+        func blocked(_ s: String) -> Bool { filters.contains { $0.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) != nil } }
+        expect(blocked("https:" + probe) && blocked("https://mssl.fwmrm.net/libs/adm/7.17.0/AdManager.js")
+               && !blocked("https://static.francetv.fr/magnetoscope/main.magnetoscope.js?f"), "règles de FreeWheel")
+        return f
     }
 }

@@ -66,7 +66,7 @@ final class AdBlockModel: AppModule {
 
     /// An ad the player cut, added to the counter under the site it was on.
     func countVideoAd(site: String) {
-        tally.addOne(app: site == "twitch" ? "Lecteur sans pub · Twitch" : "Lecteur sans pub · YouTube")
+        tally.addOne(app: "Lecteur sans pub · " + (AdBlockPlayerSite.named(site)?.name ?? "YouTube"))
     }
 
     var measure: AdBlockMeasure? { settings.lastMeasure }
@@ -204,7 +204,7 @@ final class AdBlockModel: AppModule {
 
     func selfTest() -> [String] {
         AdBlockChecks.run(self) + Self.countChecks() + AdBlockVideoOnly.checks() + AdBlockVideoPiP.checks() + AdBlockAccount.checks()
-            + AdBlockHandoff.checks()
+            + AdBlockHandoff.checks() + AdBlockPlayerScripts.checks()
     }
 
     /// The live counter: a lookup read line by line gives the same events as a whole stretch of log, its memory stays

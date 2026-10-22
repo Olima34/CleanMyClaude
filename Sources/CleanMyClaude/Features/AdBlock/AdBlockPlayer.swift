@@ -114,7 +114,7 @@ final class AdBlockPlayer: NSObject {
     /// The scripts every page gets from its start; changed with the mode, they apply from the next page on.
     static func installScripts(_ content: WKUserContentController, journal: Bool, videoOnly: Bool) {
         content.removeAllUserScripts()
-        var sources = [AdBlockPlayerScripts.youtube, AdBlockPlayerScripts.twitch]
+        var sources = AdBlockPlayerSite.all.compactMap(\.script)
         if videoOnly { sources.append(AdBlockVideoOnly.wanted) }
         sources.append(AdBlockVideoOnly.script)
         for source in sources {

@@ -1,10 +1,12 @@
 import Foundation
 
-/// A site the ad-free player shows itself: the domains it browses (pages, sign-in, video), and the ad servers its player
-/// calls, blocked on top of the common list (`AdBlockPlayerScripts.blockedPatterns`).
+/// A site the ad-free player shows itself: the domains it browses (pages, sign-in, video), the ad servers its player
+/// calls, blocked on top of the common list (`AdBlockPlayerScripts.blockedPatterns`), and the script its pages get.
 /// Checked in a WebKit bench (20 Oct. 2026): Arte plays without account nor ads; Pluto TV plays, its ads sewn into the
 /// stream itself (same server as the programme: they cannot be blocked as requests); France.tv and M6+ ask for a free
 /// account before any video, their ad servers read from their public code; M6+'s player gets FairPlay from WebKit.
+/// France.tv walls a video with ads when a dummy request to its ad server fails (22 Oct. 2026, `--adblock detecteur`):
+/// its script answers that request in the page (`AdBlockPlayerScripts.francetv`).
 /// TF1+ is left out: it refuses to play as soon as one of its ad servers does not answer (« Un bloqueur de publicité
 /// empêche la lecture »), and getting past that wall would be circumventing its access protection, not blocking ads.
 struct AdBlockPlayerSite: Identifiable, Equatable {
@@ -13,6 +15,8 @@ struct AdBlockPlayerSite: Identifiable, Equatable {
     var home: URL
     var domains: [String]
     var adHosts: [String] = []
+    /// Put in its pages from their start (each script checks the page's host itself).
+    var script: String?
     /// What the player cannot do there (shown on the page).
     var limit: String?
 
@@ -22,12 +26,15 @@ struct AdBlockPlayerSite: Identifiable, Equatable {
                                            domains: ["youtube.com", "youtu.be", "youtube-nocookie.com", "ytimg.com", "googlevideo.com",
                                                      "accounts.google.com", "google.com", "gstatic.com", "googleusercontent.com",
                                                      // Google's sign-in may pass through the user's country.
-                                                     "google.fr", "google.be", "google.ch", "google.ca", "google.lu"])
+                                                     "google.fr", "google.be", "google.ch", "google.ca", "google.lu"],
+                                           script: AdBlockPlayerScripts.youtube)
     static let twitch = AdBlockPlayerSite(key: "twitch", name: "Twitch", home: URL(string: "https://www.twitch.tv/")!,
-                                          domains: ["twitch.tv", "twitchcdn.net", "ttvnw.net", "jtvnw.net"])
+                                          domains: ["twitch.tv", "twitchcdn.net", "ttvnw.net", "jtvnw.net"],
+                                          script: AdBlockPlayerScripts.twitch)
     static let francetv = AdBlockPlayerSite(key: "francetv", name: "France.tv", home: URL(string: "https://www.france.tv/")!,
                                             domains: ["france.tv", "francetv.fr", "ftven.fr", "francetelevisions.fr"],
                                             adHosts: ["fwmrm.net", "stickyadstv.com", "outbrain.com", "smartadserver.com"],
+                                            script: AdBlockPlayerScripts.francetv,
                                             limit: "Compte gratuit France.tv demandé avant toute vidéo")
     static let m6 = AdBlockPlayerSite(key: "m6", name: "M6+", home: URL(string: "https://www.m6.fr/")!,
                                       domains: ["m6.fr", "6play.fr", "6cloud.fr", "m6web.fr", "bedrock.tech", "gigya.com"],
