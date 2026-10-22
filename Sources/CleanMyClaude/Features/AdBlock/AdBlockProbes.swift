@@ -98,7 +98,7 @@ enum AdBlockProbes {
 ///   --adblock profil <fichier.mobileconfig>     writes the profile (Maximal) for inspection, never over a file
 ///   --adblock video <lien> [image.png]          « Vidéo seule » on a real page (`AdBlockVideoBench`), muted
 ///   --adblock detecteur <lien> [app|regles|nu] [image.png]   a site's anti-adblock check (`AdBlockDetectorBench`)
-///   --adblock pip [page.html|lien|menu:<pid>]  the picture-in-picture script of « Détacher la vidéo » in a WebKit view of the app
+///   --adblock pip [page.html|lien|menu:<pid>|croix:<pid>]  the picture-in-picture script of « Détacher la vidéo » in a WebKit view of the app
 enum AdBlockCLI {
     static func run(_ args: [String]) async {
         switch args.first ?? "" {
@@ -180,7 +180,7 @@ enum AdBlockCLI {
             // The picture-in-picture scripts in a WebKit view of the app, on a page of its own or the one given.
             await AdBlockPiPBench.run(args.dropFirst().first)
         default:
-            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier> | video <lien> [image.png] | detecteur <lien> [app|regles|nu] [image.png] | pip [page.html|lien|menu:<pid>] | bascule [lien…]")
+            print("Usage : --adblock mesure [mac|equilibre|maximal] | etat | extensions | compteur [minutes] | suivre [secondes] | verifier <domaine> | profil <fichier> | video <lien> [image.png] | detecteur <lien> [app|regles|nu] [image.png] | pip [page.html|lien|menu:<pid>|croix:<pid>] | bascule [lien…]")
         }
     }
 

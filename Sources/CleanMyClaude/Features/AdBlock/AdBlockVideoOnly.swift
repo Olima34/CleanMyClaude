@@ -411,8 +411,10 @@ extension AdBlockPlayer {
 
     /// Any other page: the browser keeps its video (session, licence) and puts it in its own picture in picture. The
     /// page's script first; when it cannot reach the video (a player in a frame of another origin, as TF1+'s) or the
-    /// browser kept it in the page, Safari's own command, through the Accessibility the user granted.
+    /// browser kept it in the page, Safari's own command (the video's menu, then the page menu), through the
+    /// Accessibility the user granted. Once in it, Safari's red button hides Safari instead of closing the video's window.
     private func browserPictureInPicture(_ browser: AdBlockVideoBrowser, site: String?, host: String) async {
+        let pipBefore = AdBlockSafariMenu.pipWindows()
         let request = browser.javaScript(AdBlockVideoPiP.request)
         var answer = AdBlockPiPAnswer.unreadable
         for attempt in 0... {
@@ -442,7 +444,10 @@ extension AdBlockPlayer {
             }
         }
         let verdict = AdBlockVideoPiP.verdict(answer, browser: browser, site: site, menu: menu)
-        if verdict.success { ActionLog.write("IMAGE DANS L'IMAGE \(browser.name) \(host)\(menu == nil ? "" : " (menu de la page)")") }
+        if verdict.success { ActionLog.write("IMAGE DANS L'IMAGE \(browser.name) \(host)\(menu == nil ? "" : " (menu de Safari)")") }
+        if verdict.success, AdBlockSafariMenu.serves(browser), answer == .entered || menu == .entered {
+            AdBlockPiPCloseGuard.shared.watch(bundleID: browser.bundleID, pip: AdBlockSafariMenu.pipWindows().subtracting(pipBefore))
+        }
         report(verdict)
     }
 

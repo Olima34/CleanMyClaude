@@ -14,7 +14,7 @@ enum AdBlockTips {
 
     static let videoOnly = HelpTip(
         id: "media.videoOnly", title: "Vidéo seule",
-        text: "« Détacher la vidéo » reprend ici, sans pub, la vidéo YouTube ou le direct Twitch de ton navigateur : une petite fenêtre au-dessus des autres, sur tous tes bureaux. Tire ses bords pour la redimensionner, survole-la pour la déplacer ou revenir au lecteur complet. Netflix, Prime Video, Disney+, TF1+ et les autres vidéos protégées restent dans Safari, qui les passe dans son image dans l'image (pour un lecteur fermé comme celui de TF1+, Chamois passe par le menu de la page, avec l'autorisation d'Accessibilité). Pour que Safari écoute Chamois :",
+        text: "« Détacher la vidéo » reprend ici, sans pub, la vidéo YouTube ou le direct Twitch de ton navigateur : une petite fenêtre au-dessus des autres, sur tous tes bureaux. Tire ses bords pour la redimensionner, survole-la pour la déplacer ou revenir au lecteur complet. Netflix, Prime Video, Disney+, TF1+ et les autres vidéos protégées restent dans Safari, qui les passe dans son image dans l'image (pour un lecteur fermé comme celui de TF1+, Chamois ouvre le menu de la vidéo, avec l'autorisation d'Accessibilité). Pendant l'image dans l'image, la croix rouge de Safari le cache au lieu de le fermer. Pour que Safari écoute Chamois :",
         steps: safariSteps)
 
     /// Back as a warning, when Safari did not take the app's script (to pause, or for its picture in picture).

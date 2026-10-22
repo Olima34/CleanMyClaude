@@ -307,7 +307,7 @@ enum AdBlockVideoPiP {
         case .noAccess?:
             let player = site.map { "Le lecteur de \($0)" } ?? "Le lecteur"
             return AdBlockPiPVerdict(success: false, hud: "\(site ?? "Vidéo dans un cadre") : \(way(b))",
-                                     issue: AdBlockDetachIssue(text: "\(player) est dans un cadre fermé : autorise l'Accessibilité à \(AppEdition.name), il passera par \(b.name).",
+                                     issue: AdBlockDetachIssue(text: "\(player) est dans un cadre fermé : autorise l'Accessibilité à \(AppEdition.name), il ouvrira le menu de la vidéo.",
                                                                settings: .accessibility))
         case .notOffered?, .failed?, nil:
             break // no video for Safari either, or its menu was not where expected: what the page said
@@ -323,7 +323,7 @@ enum AdBlockVideoPiP {
         case .inFrame:
             let player = site.map { "Le lecteur de \($0)" } ?? "Le lecteur"
             return AdBlockPiPVerdict(success: false, hud: "\(site ?? "Vidéo dans un cadre") : \(way(b))",
-                                     issue: AdBlockDetachIssue(text: "\(player) est dans un cadre fermé à \(AppEdition.name) : \(way(b))."))
+                                     issue: AdBlockDetachIssue(text: "\(player) est dans un cadre fermé : \(way(b))."))
         case .noVideo:
             let line = site.map { "Aucune vidéo dans la page de \($0) : lance-la, puis recommence." }
                 ?? "Aucune vidéo dans l'onglet affiché de \(b.name) : lance-la, puis recommence."
@@ -343,12 +343,13 @@ enum AdBlockVideoPiP {
                                                     tip: AdBlockTips.safariPause))
     }
 
-    /// The browser's own way to its picture in picture, in a few words.
+    /// The browser's own way to its picture in picture, in a few words. Safari: the video's own menu, which offers it
+    /// even in a frame the app cannot reach (TF1+'s player).
     static func way(_ b: AdBlockVideoBrowser) -> String {
         switch b.bundleID {
         case "company.thebrowser.Browser": return "change d'onglet, la vidéo passe dans un coin"
         case "com.vivaldi.Vivaldi": return "bouton Image dans l'image au survol de la vidéo"
-        default: return b.chromium ? "note de musique de la barre d'outils › Image dans l'image" : "clic droit sur l'icône du son › Image dans l'image"
+        default: return b.chromium ? "note de musique de la barre d'outils › Image dans l'image" : "clic droit sur la vidéo › Activer le mode Image dans l'image"
         }
     }
 
@@ -364,7 +365,8 @@ enum AdBlockVideoPiP {
             if b.chromium {
                 return ("\(b.name) a refusé : clique sur la note de musique de la barre d'outils › Image dans l'image.", short)
             }
-            return ("\(b.name) a refusé : clic droit sur l'icône du son de la barre d'adresse › Image dans l'image.", short)
+            let way = way(b)
+            return ("\(b.name) a refusé : \(way).", way.prefix(1).uppercased() + way.dropFirst())
         }
     }
 
@@ -473,16 +475,18 @@ enum AdBlockVideoPiP {
         let safari = AdBlockVideoBrowser.all[0], chrome = AdBlockVideoBrowser.all[2]
         let done = verdict(.entered, browser: safari, site: "Netflix")
         expect(done.success && done.issue == nil && done.hud == "Netflix est dans l'image dans l'image de Safari", "message de réussite : \(done.hud)")
-        expect(verdict(.inline(error: ""), browser: safari, site: "Netflix").issue?.text.contains("icône du son") == true, "repli de Safari")
+        let safariLine = verdict(.inline(error: ""), browser: safari, site: "Netflix")
+        expect(safariLine.issue?.text == "Safari a refusé : clic droit sur la vidéo › Activer le mode Image dans l'image."
+               && safariLine.hud == "Clic droit sur la vidéo › Activer le mode Image dans l'image", "repli de Safari : \(safariLine)")
         let chromeLine = verdict(.inline(error: "NotAllowedError"), browser: chrome, site: nil).issue?.text ?? ""
         expect(chromeLine.hasPrefix("Chrome a refusé") && chromeLine.contains("note de musique"), "repli de Chrome : \(chromeLine)")
         expect(scriptsVerdict(safari, site: "Netflix").issue?.tip == AdBlockTips.safariPause, "le refus du JavaScript doit montrer les étapes")
         expect(verdict(.noVideo, browser: safari, site: "Disney+").issue?.text.hasPrefix("Aucune vidéo dans la page de Disney+") == true, "pas de vidéo")
         let frame = verdict(.inFrame(site: "TF1+"), browser: safari, site: nil)
-        expect(frame.issue?.text.hasPrefix("Le lecteur de TF1+ est dans un cadre") == true && frame.issue?.text.contains("icône du son") == true
+        expect(frame.issue?.text == "Le lecteur de TF1+ est dans un cadre fermé : clic droit sur la vidéo › Activer le mode Image dans l'image."
                && frame.issue?.settings == nil, "cadre d'une autre origine : \(frame.issue?.text ?? "")")
         let access = verdict(.inFrame(site: nil), browser: safari, site: "TF1+", menu: .noAccess)
-        expect(access.issue?.settings == .accessibility && access.issue?.text.contains("Accessibilité") == true && access.hud.contains("icône du son"),
+        expect(access.issue?.settings == .accessibility && access.issue?.text.contains("Accessibilité") == true && access.hud.contains("clic droit sur la vidéo"),
                "sans l'Accessibilité : la ligne la demande, le message donne le geste à faire")
         expect(verdict(.inline(error: ""), browser: safari, site: "Netflix", menu: .entered).success
                && verdict(.inFrame(site: nil), browser: safari, site: "TF1+", menu: .failed("x")) == verdict(.inFrame(site: nil), browser: safari, site: "TF1+"),
@@ -507,6 +511,7 @@ enum AdBlockVideoPiP {
         }
 
         f += AdBlockSafariMenu.checks()
+        f += AdBlockPiPCloseGuard.checks()
         // The scripts in a JavaScript engine, on pages made up for the test.
         f += sceneChecks()
         return f
@@ -698,15 +703,24 @@ enum AdBlockSafariMenuOutcome: Equatable, Sendable {
     case already
     /// A picture-in-picture window came and went at once: the page brought its video back.
     case kicked
-    /// Safari's page menu opened without a picture-in-picture item.
+    /// The video's menu, then the page menu, opened without a picture-in-picture item.
     case notOffered
     /// The app does not have the Accessibility permission (asked only after a click on « Réglages… »).
     case noAccess
     /// Something on the way was not where it should be (`why`: for the bench and the log).
     case failed(String)
+
+    /// The video is in picture in picture, or was brought back by its page: nothing more to try.
+    var settled: Bool {
+        switch self {
+        case .entered, .already, .kicked, .noAccess: return true
+        case .notOffered, .failed: return false
+        }
+    }
 }
 
 /// An element of an accessibility tree, reduced to what the searches read; a tree is a flat list, breadth first.
+/// `kind`: its role description (WebKit names a `<video>` « lecture vidéo »); `frame`: global, top left, in points.
 struct AdBlockAXNode: Equatable, Sendable {
     var role = ""
     var title = ""
@@ -714,42 +728,52 @@ struct AdBlockAXNode: Equatable, Sendable {
     var identifier = ""
     var pressable = false
     var parent: Int?
+    var kind = ""
+    var frame = CGRect.zero
 }
 
-/// Safari's words for what the searches look for, in the language it shows them.
+/// Safari's words for what the searches look for, in the language it shows them. `video`: WebKit's role description
+/// of a `<video>`.
 struct AdBlockSafariLabels: Equatable, Sendable {
     var enter: [String]
     var exit: [String]
     var pageMenu: [String]
+    var video: [String] = []
 }
 
 /// Safari's own picture in picture, for a video the page's script cannot reach (a player in a frame of another origin,
-/// as TF1+'s): the page menu of the address field (« Menu de la page ») offers « Activer le mode Image dans l'image »
-/// while a video plays. Through the Accessibility only, and only once the user granted it: its button, then its item,
-/// get an AXPress, as VoiceOver would give them; never a key nor a click. The page menu shows for a moment, then the
-/// video leaves for its window, drawn by macOS' picture-in-picture agent: that window tells whether it stayed.
+/// as TF1+'s). First the video's own menu, the one a right click on it opens (WebKit's « Activer le mode Image dans
+/// l'image »): the video is found in the accessibility tree of the front window's tab, frames included, and asked for
+/// its menu (AXShowMenu, as VoiceOver's « menu contextuel »); then the page menu of the address field (« Menu de la
+/// page »). Through the Accessibility only, and only once the user granted it: AXShowMenu and AXPress, never a key nor a
+/// click. The menu shows for a moment, then the video leaves for its window, drawn by macOS' picture-in-picture agent:
+/// that window tells whether it stayed.
 enum AdBlockSafariMenu {
     static let pipAgent = "com.apple.PIPAgent"
     /// Safari's strings (its binary is in the system's shared cache, its resources on disk).
     static let safariFramework = "/System/Library/PrivateFrameworks/Safari.framework"
+    /// WebKit's identifier of the picture-in-picture command of a video's menu (« Activer » or « Quitter » in its title).
+    static let videoMenuIdentifier = "WKMenuItemIdentifierTogglePictureInPicture"
 
     /// Safari and its Technology Preview: the other browsers have no such menu.
     static func serves(_ b: AdBlockVideoBrowser) -> Bool { !b.chromium }
 
     // MARK: Pure parts
 
-    /// Safari's words from its strings (`table`, in the user's language), with the French and English ones anyway.
-    static func labels(table: [String: String]?) -> AdBlockSafariLabels {
-        let t = table ?? [:]
-        func words(_ keys: [String], _ fixed: [String]) -> [String] {
+    /// Safari's words from its strings and WebKit's (`table`, `webCore`, in the user's language), with the French and
+    /// English ones anyway.
+    static func labels(table: [String: String]?, webCore: [String: String]? = nil) -> AdBlockSafariLabels {
+        let safari = table ?? [:], webKit = webCore ?? [:]
+        func words(_ keys: [String], _ fixed: [String], from tables: [[String: String]]) -> [String] {
             var out: [String] = []
-            for w in keys.compactMap({ t[$0] }) + fixed where !w.isEmpty && !out.contains(w) { out.append(w) }
+            for w in tables.flatMap({ t in keys.compactMap { t[$0] } }) + fixed where !w.isEmpty && !out.contains(w) { out.append(w) }
             return out
         }
         return AdBlockSafariLabels(
-            enter: words(["Enter Picture in Picture"], ["Activer le mode Image dans l’image", "Enter Picture in Picture"]),
-            exit: words(["Exit Picture in Picture"], ["Quitter le mode Image dans l’image", "Exit Picture in Picture"]),
-            pageMenu: words(["Page Menu (Accessibility Label)", "Page Menu with translate (Accessibility Label)"], ["Menu de la page", "Page Menu"]))
+            enter: words(["Enter Picture in Picture"], ["Activer le mode Image dans l’image", "Enter Picture in Picture"], from: [safari, webKit]),
+            exit: words(["Exit Picture in Picture"], ["Quitter le mode Image dans l’image", "Exit Picture in Picture"], from: [safari, webKit]),
+            pageMenu: words(["Page Menu (Accessibility Label)", "Page Menu with translate (Accessibility Label)"], ["Menu de la page", "Page Menu"], from: [safari]),
+            video: words(["video playback"], ["lecture vidéo", "video playback"], from: [webKit]))
     }
 
     /// Compared without case, curly apostrophes, odd spaces nor a closing ellipsis.
@@ -773,11 +797,29 @@ enum AdBlockSafariMenu {
         }
     }
 
+    /// The smallest video worth detaching, seen on screen: no thumbnail nor hover preview.
+    static let smallestVideo = CGSize(width: 200, height: 112)
+
+    /// The video being watched among a tab's elements (frames included): the largest one seen in `viewport` (the tab's
+    /// web area), when it is no thumbnail. WebKit gives no « playing » in its tree: the size decides.
+    static func video(_ nodes: [AdBlockAXNode], viewport: CGRect, labels: AdBlockSafariLabels) -> Int? {
+        let kinds = Set(labels.video.map(normalized).filter { !$0.isEmpty })
+        var best: Int?, most: CGFloat = 0
+        for (i, n) in nodes.enumerated() where kinds.contains(normalized(n.kind)) {
+            let seen = n.frame.intersection(viewport)
+            guard !seen.isNull, seen.width >= smallestVideo.width, seen.height >= smallestVideo.height else { continue }
+            let area = seen.width * seen.height
+            if area > most { best = i; most = area }
+        }
+        return best
+    }
+
     /// The command to press in the open menu, and whether it leaves the picture in picture (the video is already in
-    /// it). Safari's exact words first, else a command speaking of picture in picture; text that cannot be pressed,
-    /// nor be part of something that can, is not a command (the page's title, say).
+    /// it). WebKit's identifier first, then Safari's exact words, else a command speaking of picture in picture; text
+    /// that cannot be pressed (or is disabled), nor be part of something that can, is not a command (the page's title).
     static func item(_ nodes: [AdBlockAXNode], labels: AdBlockSafariLabels) -> (index: Int, exit: Bool)? {
         let enter = Set(labels.enter.map(normalized)), exit = Set(labels.exit.map(normalized))
+        let leaving = ["quitter", "exit", "sortir"]
         func pressable(_ i: Int) -> Int? {
             var j: Int? = i
             for _ in 0..<3 {
@@ -788,19 +830,36 @@ enum AdBlockSafariMenu {
             return nil
         }
         func texts(_ n: AdBlockAXNode) -> [String] { [n.title, n.label].map(normalized).filter { !$0.isEmpty } }
+        if let i = nodes.firstIndex(where: { $0.identifier == videoMenuIdentifier && $0.pressable }) {
+            let t = texts(nodes[i])
+            return (i, t.contains(where: exit.contains) || t.contains { text in leaving.contains { text.hasPrefix($0) } })
+        }
         for (i, n) in nodes.enumerated() {
             let t = texts(n)
             if t.contains(where: exit.contains), let k = pressable(i) { return (k, true) }
             if t.contains(where: enter.contains), let k = pressable(i) { return (k, false) }
         }
         let loose = ["image dans l'image", "picture in picture", "pictureinpicture"]
-        let leaving = ["quitter", "exit", "sortir"]
         for (i, n) in nodes.enumerated() where n.pressable || ["AXMenuItem", "AXButton"].contains(n.role) {
             let t = (texts(n) + [n.identifier.lowercased()]).joined(separator: " ")
             guard loose.contains(where: t.contains), let k = pressable(i) else { continue }
             return (k, leaving.contains(where: t.contains))
         }
         return nil
+    }
+
+    /// The video's menu, then the page menu: what the user is told. « Not offered » only when both menus opened
+    /// without the command; a video menu that could not open (no video in the tree, a page that keeps its right click)
+    /// leaves the right click to the user.
+    static func combined(video: AdBlockSafariMenuOutcome, page: AdBlockSafariMenuOutcome) -> AdBlockSafariMenuOutcome {
+        if video.settled { return video }
+        if page.settled { return page }
+        if video == .notOffered && page == .notOffered { return .notOffered }
+        func why(_ o: AdBlockSafariMenuOutcome) -> String {
+            if case .failed(let w) = o { return w }
+            return "sans image dans l'image"
+        }
+        return .failed("menu de la vidéo : \(why(video)) · menu de la page : \(why(page))")
     }
 
     /// Enough watching: a window of the agent that was not there before the press has been there for `steady` samples.
@@ -819,9 +878,19 @@ enum AdBlockSafariMenu {
     // MARK: The real thing
 
     /// Safari's strings in the language it shows (the user's first one it has).
-    static func safariTable() -> [String: String]? {
-        guard let bundle = Bundle(path: safariFramework) else { return nil }
-        let language = Bundle.preferredLocalizations(from: bundle.localizations, forPreferences: Locale.preferredLanguages).first
+    static func safariTable() -> [String: String]? { table(Bundle(path: safariFramework), language: nil) }
+
+    /// WebKit's strings (its video's role description, its menu's words) in the language Safari shows.
+    static func webCoreTable() -> [String: String]? {
+        let safari = Bundle(path: safariFramework)
+        let language = safari.flatMap { Bundle.preferredLocalizations(from: $0.localizations, forPreferences: Locale.preferredLanguages).first }
+        return table(Bundle(identifier: "com.apple.WebCore"), language: language)
+    }
+
+    private static func table(_ bundle: Bundle?, language wanted: String?) -> [String: String]? {
+        guard let bundle else { return nil }
+        let language = wanted.flatMap { bundle.localizations.contains($0) ? $0 : nil }
+            ?? Bundle.preferredLocalizations(from: bundle.localizations, forPreferences: Locale.preferredLanguages).first
         guard let path = bundle.path(forResource: "Localizable", ofType: "strings", inDirectory: nil, forLocalization: language) else { return nil }
         return NSDictionary(contentsOfFile: path) as? [String: String]
     }
@@ -839,8 +908,21 @@ enum AdBlockSafariMenu {
         return out
     }
 
-    /// Opens the page menu of the browser's front window, presses its picture-in-picture command and watches its
-    /// window. Blocking (about three seconds at most): off the main thread.
+    /// The pop-up menus `pid` shows now: their number and frame (global, top left).
+    private static func popUpMenus(_ pid: pid_t) -> [Int: CGRect] {
+        let level = Int(CGWindowLevelForKey(.popUpMenuWindow))
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        var out: [Int: CGRect] = [:]
+        for w in list where w[kCGWindowOwnerPID as String] as? Int == Int(pid) && w[kCGWindowLayer as String] as? Int == level {
+            guard let n = w[kCGWindowNumber as String] as? Int, let b = w[kCGWindowBounds as String] as? NSDictionary,
+                  let r = CGRect(dictionaryRepresentation: b) else { continue }
+            out[n] = r
+        }
+        return out
+    }
+
+    /// Opens the video's menu of the browser's front window, else its page menu, presses the picture-in-picture
+    /// command and watches its window. Blocking (about five seconds at most): off the main thread.
     static func enterPictureInPicture(bundleID: String) -> AdBlockSafariMenuOutcome {
         guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else {
             return .failed("navigateur fermé")
@@ -848,15 +930,144 @@ enum AdBlockSafariMenu {
         return enterPictureInPicture(pid: pid)
     }
 
-    /// The same in the process `pid` (the bench gives its own, with a page menu of its own).
-    static func enterPictureInPicture(pid: pid_t) -> AdBlockSafariMenuOutcome {
+    /// The same in the process `pid` (the bench gives its own, with a video and a page menu of its own). `log`: each step.
+    static func enterPictureInPicture(pid: pid_t, log: ((String) -> Void)? = nil) -> AdBlockSafariMenuOutcome {
         guard AXIsProcessTrusted() else { return .noAccess }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 1)
         guard let window = element(app, kAXMainWindowAttribute) ?? children(app, kAXWindowsAttribute).first else {
             return .failed("aucune fenêtre")
         }
-        let labels = labels(table: safariTable())
+        let labels = labels(table: safariTable(), webCore: webCoreTable())
+        log?("mots de Safari et de WebKit : vidéo « \(labels.video.joined(separator: " », « ")) », commande « \(labels.enter.first ?? "") »")
+        let byVideo = videoMenu(app: app, pid: pid, window: window, labels: labels, log: log)
+        log?("menu de la vidéo : \(byVideo)")
+        if byVideo.settled { return byVideo }
+        let byPage = pageMenu(app: app, window: window, labels: labels)
+        log?("menu de la page : \(byPage)")
+        return combined(video: byVideo, page: byPage)
+    }
+
+    /// The video's own menu: the largest video of the tab (frames included) gets AXShowMenu, which WebKit answers as a
+    /// right click in its middle; its picture-in-picture command gets AXPress. A menu without it is closed (AXCancel).
+    private static func videoMenu(app: AXUIElement, pid: pid_t, window: AXUIElement, labels: AdBlockSafariLabels,
+                                  log: ((String) -> Void)?) -> AdBlockSafariMenuOutcome {
+        // WebKit builds its tree on the first question: an empty tab is asked again, briefly.
+        var found: (video: AXUIElement, frame: CGRect, read: Int)?
+        var page: AXUIElement?
+        for attempt in 0..<3 where found == nil {
+            if attempt > 0 { usleep(400_000) }
+            page = page ?? webArea(window)
+            if let page { found = largestVideo(in: page, labels: labels) }
+        }
+        guard let tab = page else { return .failed("aucune page dans la fenêtre") }
+        guard let found else { return .failed("aucune vidéo dans l'arbre d'accessibilité") }
+        log?("vidéo trouvée : \(Int(found.frame.width))×\(Int(found.frame.height)) en (\(Int(found.frame.minX)), \(Int(found.frame.minY))), \(found.read) éléments lus")
+        // Where WebKit hangs its menu: an element around the tab's page (WKWebView's own), or a new pop-up menu.
+        var around: [AXUIElement] = []
+        var e = element(tab, kAXParentAttribute)
+        for _ in 0..<8 {
+            guard let current = e, string(current, kAXRoleAttribute) != "AXWindow" else { break }
+            around.append(current)
+            e = element(current, kAXParentAttribute)
+        }
+        let menusBefore = Set(popUpMenus(pid).keys)
+        let before = pipWindows()
+        // The answer comes once the menu is up: the call does not wait for it.
+        AXUIElementSetMessagingTimeout(found.video, 0.5)
+        let shown = AXUIElementPerformAction(found.video, kAXShowMenuAction as CFString)
+        log?("AXShowMenu sur la vidéo : \(shown == .success ? "fait" : "code \(shown.rawValue)")")
+        guard shown == .success || shown == .cannotComplete else { return .failed("menu de la vidéo refusé (\(shown.rawValue))") }
+        var menu: AXUIElement?, place = ""
+        for _ in 0..<15 where menu == nil {
+            usleep(100_000)
+            (menu, place) = videoMenuElement(app: app, pid: pid, around: around, menusBefore: menusBefore) ?? (nil, "")
+        }
+        guard let menu else { return .failed("le menu de la vidéo ne s'est pas ouvert") }
+        let content = flatten(menu, depth: 2, limit: 80)
+        log?("menu ouvert (\(place)) : " + content.nodes.filter { !$0.title.isEmpty }.map { "« \($0.title) »" + ($0.identifier.hasPrefix("WK") ? " (\($0.identifier))" : "") }.joined(separator: ", "))
+        guard let hit = item(content.nodes, labels: labels) else {
+            cancel(menu)
+            return .notOffered
+        }
+        if hit.exit {
+            cancel(menu)
+            return .already
+        }
+        return press(content.elements[hit.index], before: before) { cancel(menu) }
+    }
+
+    /// The tab's page: the largest web area of the window, outside its toolbar.
+    private static func webArea(_ window: AXUIElement) -> AXUIElement? {
+        var queue = children(window).filter { string($0, kAXRoleAttribute) != "AXToolbar" }.map { ($0, 1) }
+        var head = 0, best: AXUIElement?, most: CGFloat = 0
+        while head < queue.count && head < 400 {
+            let (e, level) = queue[head]
+            head += 1
+            if string(e, kAXRoleAttribute) == "AXWebArea" {
+                let r = frame(e)
+                if best == nil || r.width * r.height > most { best = e; most = r.width * r.height }
+                continue
+            }
+            if level < 12 { queue += children(e).map { ($0, level + 1) } }
+        }
+        return best
+    }
+
+    /// The largest video seen in the tab, its frames included. Breadth first, one question per element; what lies
+    /// entirely outside the tab's visible part is not entered (the watched video is on screen). Five thousand elements
+    /// at most.
+    private static func largestVideo(in tab: AXUIElement, labels: AdBlockSafariLabels) -> (video: AXUIElement, frame: CGRect, read: Int)? {
+        let viewport = frame(tab)
+        let kinds = Set(labels.video.map(normalized))
+        let names = [kAXRoleDescriptionAttribute, kAXChildrenAttribute, kAXPositionAttribute, kAXSizeAttribute] as CFArray
+        var queue: [AXUIElement] = children(tab)
+        var head = 0
+        var nodes: [AdBlockAXNode] = [], elements: [AXUIElement] = []
+        while head < queue.count && head < 5000 {
+            let e = queue[head]
+            head += 1
+            var values: CFArray?
+            guard AXUIElementCopyMultipleAttributeValues(e, names, [], &values) == .success,
+                  let v = values as? [AnyObject], v.count == 4 else { continue }
+            let kind = v[0] as? String ?? ""
+            var origin = CGPoint.zero, size = CGSize.zero
+            if CFGetTypeID(v[2]) == AXValueGetTypeID() { AXValueGetValue(v[2] as! AXValue, .cgPoint, &origin) }
+            if CFGetTypeID(v[3]) == AXValueGetTypeID() { AXValueGetValue(v[3] as! AXValue, .cgSize, &size) }
+            let box = CGRect(origin: origin, size: size)
+            if kinds.contains(normalized(kind)) {
+                nodes.append(AdBlockAXNode(kind: kind, frame: box))
+                elements.append(e)
+                continue
+            }
+            if size.width > 0, size.height > 0, !box.intersects(viewport) { continue }
+            queue += v[1] as? [AXUIElement] ?? []
+        }
+        guard let i = video(nodes, viewport: viewport, labels: labels) else { return nil }
+        return (elements[i], nodes[i].frame, head)
+    }
+
+    /// The video's menu once up: under an element around the tab's page, else under the new pop-up menu window of the
+    /// browser (asked at its middle), else beside its windows.
+    private static func videoMenuElement(app: AXUIElement, pid: pid_t, around: [AXUIElement], menusBefore: Set<Int>) -> (AXUIElement, String)? {
+        for e in around {
+            if let m = children(e).first(where: { string($0, kAXRoleAttribute) == "AXMenu" }) { return (m, "autour de la page") }
+        }
+        for (number, box) in popUpMenus(pid) where !menusBefore.contains(number) {
+            var hit: AXUIElement?
+            guard AXUIElementCopyElementAtPosition(app, Float(box.midX), Float(box.midY), &hit) == .success else { continue }
+            var e = hit
+            for _ in 0..<4 {
+                guard let current = e else { break }
+                if string(current, kAXRoleAttribute) == "AXMenu" { return (current, "fenêtre de menu") }
+                e = element(current, kAXParentAttribute)
+            }
+        }
+        return children(app).first { string($0, kAXRoleAttribute) == "AXMenu" }.map { ($0, "à côté des fenêtres") }
+    }
+
+    /// The page menu of the address field (« Menu de la page »): its button gets AXPress, then its command.
+    private static func pageMenu(app: AXUIElement, window: AXUIElement, labels: AdBlockSafariLabels) -> AdBlockSafariMenuOutcome {
         let toolbar = children(window).first { string($0, kAXRoleAttribute) == "AXToolbar" }
         let bar = flatten(toolbar ?? window, depth: 6, limit: 300)
         guard let b = pageMenuButton(bar.nodes, labels: labels) else { return .failed("bouton du menu de la page introuvable") }
@@ -882,11 +1093,15 @@ enum AdBlockSafariMenu {
             close(menu, button)
             return .already
         }
-        let command = content.elements[hit.index]
+        return press(content.elements[hit.index], before: before) { close(menu, button) }
+    }
+
+    /// Presses the command, then watches the agent's windows. `undo`: closes the menu if the press was refused.
+    private static func press(_ command: AXUIElement, before: Set<Int>, undo: () -> Void) -> AdBlockSafariMenuOutcome {
         AXUIElementSetMessagingTimeout(command, 1)
         let done = AXUIElementPerformAction(command, kAXPressAction as CFString)
         guard done == .success || done == .cannotComplete else {
-            close(menu, button)
+            undo()
             return .failed("commande refusée (\(done.rawValue))")
         }
         var samples: [Set<Int>] = []
@@ -923,7 +1138,14 @@ enum AdBlockSafariMenu {
         }
     }
 
-    /// Breadth first under `root`, without the page itself (Safari's web area holds the whole page).
+    /// Closes the video's menu (AXCancel, as Escape would).
+    private static func cancel(_ menu: AXUIElement) {
+        AXUIElementSetMessagingTimeout(menu, 0.5)
+        _ = AXUIElementPerformAction(menu, kAXCancelAction as CFString)
+    }
+
+    /// Breadth first under `root`, without the page itself (Safari's web area holds the whole page). A disabled item
+    /// cannot be pressed.
     private static func flatten(_ root: AXUIElement, depth: Int, limit: Int) -> (elements: [AXUIElement], nodes: [AdBlockAXNode]) {
         var elements: [AXUIElement] = [], nodes: [AdBlockAXNode] = []
         var queue: [(element: AXUIElement, parent: Int?, level: Int)] = children(root).map { ($0, nil, 1) }
@@ -933,9 +1155,10 @@ enum AdBlockSafariMenu {
             head += 1
             let role = string(next.element, kAXRoleAttribute)
             if role == "AXWebArea" { continue }
+            let enabled = flag(next.element, kAXEnabledAttribute) ?? true
             nodes.append(AdBlockAXNode(role: role, title: string(next.element, kAXTitleAttribute), label: string(next.element, kAXDescriptionAttribute),
-                                       identifier: string(next.element, "AXIdentifier"), pressable: actions(next.element).contains(kAXPressAction),
-                                       parent: next.parent))
+                                       identifier: string(next.element, "AXIdentifier"),
+                                       pressable: enabled && actions(next.element).contains(kAXPressAction), parent: next.parent))
             elements.append(next.element)
             if next.level < depth {
                 let index = elements.count - 1
@@ -945,23 +1168,43 @@ enum AdBlockSafariMenu {
         return (elements, nodes)
     }
 
-    private static func element(_ e: AXUIElement, _ attribute: String) -> AXUIElement? {
+    static func element(_ e: AXUIElement, _ attribute: String) -> AXUIElement? {
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(e, attribute as CFString, &ref) == .success, let ref,
               CFGetTypeID(ref) == AXUIElementGetTypeID() else { return nil }
         return (ref as! AXUIElement)
     }
 
-    private static func children(_ e: AXUIElement, _ attribute: String = kAXChildrenAttribute) -> [AXUIElement] {
+    static func children(_ e: AXUIElement, _ attribute: String = kAXChildrenAttribute) -> [AXUIElement] {
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(e, attribute as CFString, &ref) == .success else { return [] }
         return ref as? [AXUIElement] ?? []
     }
 
-    private static func string(_ e: AXUIElement, _ attribute: String) -> String {
+    static func string(_ e: AXUIElement, _ attribute: String) -> String {
         var ref: CFTypeRef?
         guard AXUIElementCopyAttributeValue(e, attribute as CFString, &ref) == .success else { return "" }
         return ref as? String ?? ""
+    }
+
+    private static func flag(_ e: AXUIElement, _ attribute: String) -> Bool? {
+        var ref: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(e, attribute as CFString, &ref) == .success else { return nil }
+        return ref as? Bool
+    }
+
+    /// Its frame on screen: global, top left, in points (as Quartz's events).
+    static func frame(_ e: AXUIElement) -> CGRect {
+        var origin = CGPoint.zero, size = CGSize.zero
+        var ref: CFTypeRef?
+        if AXUIElementCopyAttributeValue(e, kAXPositionAttribute as CFString, &ref) == .success, let ref, CFGetTypeID(ref) == AXValueGetTypeID() {
+            AXValueGetValue(ref as! AXValue, .cgPoint, &origin)
+        }
+        ref = nil
+        if AXUIElementCopyAttributeValue(e, kAXSizeAttribute as CFString, &ref) == .success, let ref, CFGetTypeID(ref) == AXValueGetTypeID() {
+            AXValueGetValue(ref as! AXValue, .cgSize, &size)
+        }
+        return CGRect(origin: origin, size: size)
     }
 
     private static func actions(_ e: AXUIElement) -> [String] {
@@ -972,16 +1215,19 @@ enum AdBlockSafariMenu {
 
     // MARK: Checks
 
-    /// The searches on trees written after Safari's own (its toolbar as read on macOS 27.2), nothing pressed.
+    /// The searches on trees written after Safari's own (its toolbar as read on macOS 27.2) and WebKit's (a video's menu
+    /// as WebKit opens it), nothing pressed.
     static func checks() -> [String] {
         var f: [String] = []
         func expect(_ ok: Bool, _ message: String) { if !ok { f.append("menu de Safari : " + message) } }
         let fixed = labels(table: nil)
         expect(fixed.enter.contains("Activer le mode Image dans l’image") && fixed.exit.contains("Exit Picture in Picture")
-               && fixed.pageMenu.contains("Menu de la page"), "mots de Safari par défaut")
-        let german = labels(table: ["Enter Picture in Picture": "Bild-in-Bild starten", "Page Menu (Accessibility Label)": "Seitenmenü"])
-        expect(german.enter.first == "Bild-in-Bild starten" && german.enter.contains("Enter Picture in Picture") && german.pageMenu.first == "Seitenmenü",
-               "les mots de Safari dans la langue de l'utilisateur passent d'abord")
+               && fixed.pageMenu.contains("Menu de la page") && fixed.video == ["lecture vidéo", "video playback"], "mots de Safari par défaut")
+        let german = labels(table: ["Enter Picture in Picture": "Bild-in-Bild starten", "Page Menu (Accessibility Label)": "Seitenmenü"],
+                            webCore: ["video playback": "Videowiedergabe", "Exit Picture in Picture": "Bild-in-Bild beenden"])
+        expect(german.enter.first == "Bild-in-Bild starten" && german.enter.contains("Enter Picture in Picture") && german.pageMenu.first == "Seitenmenü"
+               && german.exit.first == "Bild-in-Bild beenden" && german.video.first == "Videowiedergabe",
+               "les mots de Safari et de WebKit dans la langue de l'utilisateur passent d'abord")
         expect(normalized("  Activer le mode Image dans l’image… ") == "activer le mode image dans l'image"
                && normalized("Quitter\u{00A0}le mode Image dans l’image") == "quitter le mode image dans l'image", "comparaison des mots")
 
@@ -1030,6 +1276,60 @@ enum AdBlockSafariMenu {
         expect(item([node("AXMenuItem", "Enter Picture in Picture")], labels: german)?.exit == false
                && item([node("AXButton", id: "ExitPictureInPictureButton")], labels: german)?.exit == true, "mots anglais et identifiants")
 
+        // A video's menu as WebKit opens it (read on a WebKit view of macOS 27.2): its command by WebKit's identifier,
+        // whatever the language; the one that leaves; a disabled one; a page that covers its video (the frame's menu).
+        var opened = [
+            node("AXMenuItem", "Afficher les contrôles", id: "WKMenuItemIdentifierShowHideMediaControls"),
+            node("AXMenuItem", "Activer le mode plein écran", id: "WKMenuItemIdentifierToggleFullScreen"),
+            node("AXMenuItem", "Bild-in-Bild starten", id: videoMenuIdentifier),
+            node("AXMenuItem", "Accéder au visualiseur", id: "WKMenuItemIdentifierToggleVideoViewer"),
+            node("AXMenuItem", "Inspecter l’élément", id: "WKMenuItemIdentifierInspectElement"),
+            node("AXMenuItem", press: false)
+        ]
+        expect(item(opened, labels: fixed).map { [$0.index, $0.exit ? 1 : 0] } == [2, 0], "menu de la vidéo : identifiant de WebKit")
+        opened[2].title = "Quitter le mode Image dans l’image"
+        expect(item(opened, labels: fixed).map { [$0.index, $0.exit ? 1 : 0] } == [2, 1], "menu de la vidéo : elle y est déjà")
+        opened[2].title = "Bild-in-Bild beenden"
+        expect(item(opened, labels: german)?.exit == true, "menu de la vidéo : quitter, dans la langue de l'utilisateur")
+        opened[2].pressable = false
+        expect(item(opened, labels: fixed) == nil, "une commande désactivée ne se presse pas")
+        expect(item([node("AXMenuItem", "Ouvrir le cadre dans une nouvelle fenêtre", id: "WKMenuItemIdentifierOpenFrameInNewWindow")], labels: fixed) == nil,
+               "le menu d'un cadre qui couvre la vidéo n'a pas la commande")
+
+        // The video in the tab's tree: the largest one seen, frames included; no thumbnail, nothing off screen, nothing
+        // that is no video.
+        let tab = CGRect(x: 0, y: 123, width: 1470, height: 779)
+        func box(_ kind: String, _ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> AdBlockAXNode {
+            AdBlockAXNode(role: "AXGroup", kind: kind, frame: CGRect(x: x, y: y, width: w, height: h))
+        }
+        let page = [
+            box("groupe", 0, 123, 1470, 779),
+            box("lecture vidéo", 1200, 130, 240, 135),
+            box("lecture vidéo", 40, 180, 160, 90),
+            box("Lecture vidéo", 0, 160, 1280, 720),
+            box("lecture vidéo", 0, 2000, 1470, 827),
+            box("lecture audio", 0, 150, 1470, 400)
+        ]
+        expect(video(page, viewport: tab, labels: fixed) == 3, "la plus grande vidéo vue dans l'onglet")
+        expect(video([page[1], page[4]], viewport: tab, labels: fixed) == 0, "une vidéo hors de l'écran ne compte pas")
+        expect(video([page[2], page[5], page[0]], viewport: tab, labels: fixed) == nil, "ni une vignette, ni un son, ni un groupe")
+        expect(video([box("Videowiedergabe", 0, 160, 640, 360)], viewport: tab, labels: german) == 0
+               && video([box("Videowiedergabe", 0, 160, 640, 360)], viewport: tab, labels: fixed) == nil, "rôle de la vidéo dans la langue de Safari")
+        expect(video([box("lecture vidéo", -600, 500, 800, 360)], viewport: tab, labels: fixed) == 0
+               && video([box("lecture vidéo", -700, 500, 800, 360)], viewport: tab, labels: fixed) == nil, "seule la partie vue compte")
+
+        // The video's menu, then the page menu.
+        expect(combined(video: .entered, page: .failed("x")) == .entered && combined(video: .already, page: .notOffered) == .already
+               && combined(video: .kicked, page: .entered) == .kicked, "le menu de la vidéo l'emporte")
+        expect(combined(video: .failed("pas de vidéo"), page: .entered) == .entered && combined(video: .notOffered, page: .already) == .already,
+               "le menu de la page ensuite")
+        expect(combined(video: .notOffered, page: .notOffered) == .notOffered, "aucun des deux menus ne la propose")
+        if case .failed(let why) = combined(video: .failed("aucune vidéo dans l'arbre d'accessibilité"), page: .notOffered) {
+            expect(why.contains("aucune vidéo") && why.contains("sans image dans l'image"), "raisons des deux menus : \(why)")
+        } else {
+            expect(false, "sans vidéo trouvée, le clic droit reste à faire")
+        }
+
         // The agent's windows after the press.
         let before: Set<Int> = [7]
         expect(outcome(before: before, samples: [[7], [7, 42], [7, 42], [7, 42], [7, 42], [7, 42]]) == .entered, "fenêtre venue et restée")
@@ -1039,6 +1339,336 @@ enum AdBlockSafariMenu {
         expect(settled(before: before, samples: [[7, 42], [7, 42], [7, 42], [7, 42], [7, 42]])
                && !settled(before: before, samples: [[7, 42], [7, 42], [7], [7, 42], [7, 42]]), "assez regardé")
         return f
+    }
+}
+
+// MARK: - Safari's red button during the picture in picture
+
+/// A window as Quartz lists it: its owner, its number, its layer and its frame (global, top left, in points, as the
+/// accessibility frames and the events' locations).
+struct AdBlockQuartzWindow: Equatable, Sendable {
+    var pid: Int
+    var number: Int
+    var layer: Int
+    var frame: CGRect
+    var alpha: Double = 1
+
+    /// The windows on screen, front to back.
+    static func onScreen() -> [AdBlockQuartzWindow] {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return list.compactMap { w in
+            guard let number = w[kCGWindowNumber as String] as? Int, let b = w[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: b) else { return nil }
+            return AdBlockQuartzWindow(pid: w[kCGWindowOwnerPID as String] as? Int ?? 0, number: number, layer: w[kCGWindowLayer as String] as? Int ?? 0,
+                                       frame: frame, alpha: w[kCGWindowAlpha as String] as? Double ?? 1)
+        }
+    }
+}
+
+/// While a picture in picture the app started from Safari is on screen, the red button of the Safari window holding
+/// its tab hides Safari instead of closing that window (and stopping the video with it): the user wants Safari out of
+/// the way, the video goes on. Nothing else changes: another tab, ⌘W, Safari's other windows, other apps. A session
+/// event tap (the left button only), on a thread of its own, swallows the press on that very button of that very window
+/// (and its release), then Safari is hidden; every other click goes through at once. The button's frame comes from
+/// the Accessibility, read again as the window moves; the tap is gone as soon as the picture in picture closes (its
+/// tab closed, Safari quit). Without the Accessibility, nothing is intercepted.
+@MainActor
+final class AdBlockPiPCloseGuard {
+    static let shared = AdBlockPiPCloseGuard()
+
+    private var tap: AdBlockCloseTap?
+    private var window: AXUIElement?
+    private var observer: AXObserver?
+    private var timer: Timer?
+    private var quitting: NSObjectProtocol?
+    private var pid: pid_t = 0
+    private var pip: Set<Int> = []
+    /// The bench's: each step.
+    var log: ((String) -> Void)?
+
+    var isActive: Bool { tap != nil }
+    /// What the tap holds now, and the last press it saw (the bench prints them).
+    var target: (button: CGRect, window: Int) { tap?.target ?? (.zero, 0) }
+    var lastPress: (point: CGPoint, under: Int, swallowed: Bool)? { tap?.lastPress }
+
+    // MARK: Pure parts
+
+    /// A press at `point` falls in the red button (two points around it). Global, top left, in points: the
+    /// Accessibility's frames and Quartz's event locations share that space.
+    nonisolated static func inButton(_ point: CGPoint, _ button: CGRect) -> Bool {
+        button.width > 0 && button.height > 0 && button.insetBy(dx: -2, dy: -2).contains(point)
+    }
+
+    /// A press at `point` is the guarded one: in the red button, and the window it reaches (`under`) is the guarded
+    /// one. A window not known (0) is never guarded: a click that might be meant for another window goes through.
+    nonisolated static func swallows(_ point: CGPoint, button: CGRect, window: Int, under: Int) -> Bool {
+        inButton(point, button) && window != 0 && under == window
+    }
+
+    /// The window a press at `point` reaches: the first one under it, front to back, that takes clicks (the Dock's
+    /// screen-wide window, above every other, lets them through), or a pop-up menu.
+    nonisolated static func front(at point: CGPoint, in windows: [AdBlockQuartzWindow]) -> Int? {
+        let menus = Int(CGWindowLevelForKey(.popUpMenuWindow))
+        return windows.first { $0.alpha > 0 && ($0.layer < 20 || $0.layer == menus) && $0.frame.contains(point) }?.number
+    }
+
+    /// The picture in picture is still on screen: one of the agent's windows it came with (any, when they were not known).
+    nonisolated static func stillOn(pip: Set<Int>, now: Set<Int>) -> Bool {
+        pip.isEmpty ? !now.isEmpty : !pip.isDisjoint(with: now)
+    }
+
+    /// The number of the window whose accessibility frame is `frame`, among `pid`'s ordinary windows (normal to modal
+    /// levels; the frontmost when two have the same frame). Both frames are global, top left, in points.
+    nonisolated static func number(pid: Int, frame: CGRect, in windows: [AdBlockQuartzWindow]) -> Int? {
+        windows.first { $0.pid == pid && (0...8).contains($0.layer) && abs($0.frame.minX - frame.minX) < 1 && abs($0.frame.minY - frame.minY) < 1
+            && abs($0.frame.width - frame.width) < 1 && abs($0.frame.height - frame.height) < 1 }?.number
+    }
+
+    // MARK: The real thing
+
+    /// Starts guarding the front window of `bundleID` while one of `pip` (the agent's windows the picture in picture
+    /// came with; any, when empty) stays on screen.
+    func watch(bundleID: String, pip: Set<Int>) {
+        guard let pid = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.processIdentifier else { return }
+        watch(pid: pid, pip: pip)
+    }
+
+    func watch(pid: pid_t, pip: Set<Int>) {
+        stop()
+        guard AXIsProcessTrusted() else { return }
+        let app = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        guard let window = AdBlockSafariMenu.element(app, kAXMainWindowAttribute) ?? AdBlockSafariMenu.children(app, kAXWindowsAttribute).first else { return }
+        let tap = AdBlockCloseTap {
+            DispatchQueue.main.async { MainActor.assumeIsolated { AdBlockPiPCloseGuard.shared.closeClicked() } }
+        }
+        self.pid = pid
+        self.pip = pip
+        self.window = window
+        self.tap = tap
+        refresh()
+        guard tap.start() else {
+            log?("tap refusé par macOS")
+            stop()
+            return
+        }
+        var made: AXObserver?
+        if AXObserverCreate(pid, Self.windowChanged, &made) == .success, let made {
+            for name in [kAXMovedNotification, kAXResizedNotification, kAXUIElementDestroyedNotification] {
+                AXObserverAddNotification(made, window, name as CFString, nil)
+            }
+            CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(made), .commonModes)
+            observer = made
+        }
+        let tick = Timer(timeInterval: 1, repeats: true) { _ in MainActor.assumeIsolated { AdBlockPiPCloseGuard.shared.check() } }
+        tick.tolerance = 0.5
+        RunLoop.main.add(tick, forMode: .common)
+        timer = tick
+        quitting = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { note in
+            let gone = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.processIdentifier
+            MainActor.assumeIsolated { if gone == AdBlockPiPCloseGuard.shared.pid { AdBlockPiPCloseGuard.shared.stop("navigateur quitté") } }
+        }
+        log?("garde posée : bouton fermer \(target.button), fenêtre n° \(target.window)")
+    }
+
+    func stop(_ why: String = "") {
+        guard tap != nil || timer != nil else { return }
+        tap?.stop()
+        tap = nil
+        if let observer { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .commonModes) }
+        observer = nil
+        timer?.invalidate()
+        timer = nil
+        if let quitting { NSWorkspace.shared.notificationCenter.removeObserver(quitting) }
+        quitting = nil
+        window = nil
+        if !why.isEmpty { log?("garde retirée : \(why)") }
+    }
+
+    /// The red button's frame and the window's number, read again.
+    private func refresh() {
+        guard let window, let tap else { return }
+        AXUIElementSetMessagingTimeout(window, 0.25)
+        let button = AdBlockSafariMenu.element(window, kAXCloseButtonAttribute).map(AdBlockSafariMenu.frame) ?? .zero
+        // A hidden window is not listed: its number stays the one read last.
+        let number = Self.number(pid: Int(pid), frame: AdBlockSafariMenu.frame(window), in: AdBlockQuartzWindow.onScreen()) ?? tap.target.window
+        tap.update(button: button, window: number)
+    }
+
+    /// Every second: the picture in picture still there, the window where it was.
+    private func check() {
+        guard Self.stillOn(pip: pip, now: AdBlockSafariMenu.pipWindows()) else {
+            stop("image dans l'image fermée")
+            return
+        }
+        refresh()
+    }
+
+    private func moved(_ name: String) {
+        if name == kAXUIElementDestroyedNotification {
+            stop("fenêtre fermée")
+        } else {
+            refresh()
+        }
+    }
+
+    /// The red button was pressed: Safari steps aside, the video goes on.
+    private func closeClicked() {
+        guard let app = NSRunningApplication(processIdentifier: pid) else { return }
+        app.hide()
+        log?("croix rouge avalée : \(app.localizedName ?? "l'app") cachée")
+        ActionLog.write("CROIX ROUGE \(app.localizedName ?? "") : caché pendant l'image dans l'image")
+        if log == nil { HUD.show("\(app.localizedName ?? "Safari") caché : la vidéo continue", symbol: "pip.fill") }
+    }
+
+    private static let windowChanged: AXObserverCallback = { _, _, name, _ in
+        let text = name as String
+        MainActor.assumeIsolated { AdBlockPiPCloseGuard.shared.moved(text) }
+    }
+
+    // MARK: Checks
+
+    nonisolated static func checks() -> [String] {
+        var f: [String] = []
+        func expect(_ ok: Bool, _ message: String) { if !ok { f.append("croix rouge : " + message) } }
+        // Safari's red button as the Accessibility gives it (global, top left), and Quartz's press locations (the same
+        // space): in it, at its edge, beside it; on that window, on another one in front, Quartz not saying.
+        let button = CGRect(x: 92, y: 349, width: 14, height: 16)
+        expect(swallows(CGPoint(x: 99, y: 357), button: button, window: 4363, under: 4363), "au milieu du bouton")
+        expect(swallows(CGPoint(x: 91, y: 348), button: button, window: 4363, under: 4363), "au bord du bouton")
+        expect(!swallows(CGPoint(x: 120, y: 357), button: button, window: 4363, under: 4363)
+               && !swallows(CGPoint(x: 99, y: 380), button: button, window: 4363, under: 4363), "à côté du bouton")
+        expect(!swallows(CGPoint(x: 99, y: 357), button: button, window: 4363, under: 5120), "une autre fenêtre devant le bouton")
+        expect(!swallows(CGPoint(x: 99, y: 357), button: button, window: 4363, under: 0)
+               && !swallows(CGPoint(x: 99, y: 357), button: button, window: 0, under: 0), "fenêtre inconnue : le clic passe")
+        expect(!swallows(CGPoint(x: 0, y: 0), button: .zero, window: 4363, under: 4363), "pas de bouton connu")
+        // The window a press reaches, as read on macOS 27.2: the Dock's screen-wide window (layer 20) lets it through;
+        // a picture in picture (19) or a pop-up menu (101) over the button takes it; an ordinary window behind does not.
+        let screen = [
+            AdBlockQuartzWindow(pid: 636, number: 15, layer: 20, frame: CGRect(x: 0, y: 0, width: 1470, height: 956)),
+            AdBlockQuartzWindow(pid: 50, number: 4561, layer: 3, frame: CGRect(x: 80, y: 335, width: 700, height: 538)),
+            AdBlockQuartzWindow(pid: 51, number: 2955, layer: 0, frame: CGRect(x: 6, y: 34, width: 1464, height: 839))
+        ]
+        let cross = CGPoint(x: 106, y: 361)
+        expect(front(at: cross, in: screen) == 4561 && front(at: CGPoint(x: 30, y: 361), in: screen) == 2955
+               && front(at: CGPoint(x: 3, y: 10), in: screen) == nil, "fenêtre atteinte par un clic")
+        let pipOver = [AdBlockQuartzWindow(pid: 80, number: 77, layer: 19, frame: CGRect(x: 60, y: 300, width: 320, height: 180))] + screen
+        let menuOver = [AdBlockQuartzWindow(pid: 51, number: 78, layer: 101, frame: CGRect(x: 90, y: 340, width: 200, height: 120))] + screen
+        let ghost = [AdBlockQuartzWindow(pid: 52, number: 79, layer: 0, frame: CGRect(x: 0, y: 0, width: 1470, height: 956), alpha: 0)] + screen
+        expect(front(at: cross, in: pipOver) == 77 && front(at: cross, in: menuOver) == 78 && front(at: cross, in: ghost) == 4561,
+               "image dans l'image, menu ou fenêtre transparente devant le bouton")
+        // An AppKit point (bottom left of the main screen) is not a Quartz one: the same button, read the wrong way up,
+        // misses the press (main screen 956 points high).
+        let appKit = CGPoint(x: 99, y: 956 - 357)
+        expect(!swallows(appKit, button: button, window: 4363, under: 4363) && swallows(CGPoint(x: appKit.x, y: 956 - appKit.y), button: button, window: 4363, under: 4363),
+               "repère de Quartz, pas celui d'AppKit")
+        // A screen above the main one: negative coordinates.
+        expect(swallows(CGPoint(x: -1500, y: -1062), button: CGRect(x: -1508, y: -1070, width: 14, height: 16), window: 7, under: 7), "écran au-dessus")
+        // The picture in picture still there.
+        expect(stillOn(pip: [42], now: [7, 42]) && !stillOn(pip: [42], now: [7]) && stillOn(pip: [], now: [7]) && !stillOn(pip: [], now: []),
+               "image dans l'image encore là")
+        // The window's number from its accessibility frame.
+        let windows = [
+            AdBlockQuartzWindow(pid: 99, number: 51, layer: 101, frame: CGRect(x: 326, y: 556, width: 336, height: 328)),
+            AdBlockQuartzWindow(pid: 99, number: 50, layer: 0, frame: CGRect(x: 0, y: 33, width: 1470, height: 839)),
+            AdBlockQuartzWindow(pid: 12, number: 9, layer: 0, frame: CGRect(x: 80, y: 335, width: 700, height: 538)),
+            AdBlockQuartzWindow(pid: 99, number: 48, layer: 0, frame: CGRect(x: 80, y: 335, width: 700, height: 538))
+        ]
+        expect(number(pid: 99, frame: CGRect(x: 80, y: 335, width: 700, height: 538), in: windows) == 48
+               && number(pid: 99, frame: CGRect(x: 0, y: 33.4, width: 1470, height: 839), in: windows) == 50
+               && number(pid: 99, frame: CGRect(x: 326, y: 556, width: 336, height: 328), in: windows) == nil, "numéro de la fenêtre")
+        return f
+    }
+}
+
+/// The event tap of `AdBlockPiPCloseGuard`, on a thread of its own: left clicks go through untouched, except the press
+/// on the guarded red button, swallowed with its release. Its callback only compares numbers: nothing waits.
+final class AdBlockCloseTap: @unchecked Sendable {
+    private let lock = NSLock()
+    private var button = CGRect.zero
+    private var window = 0
+    private var swallowing = false
+    private var port: CFMachPort?
+    private let hit: @Sendable () -> Void
+    private var press: (point: CGPoint, under: Int, swallowed: Bool)?
+    /// The last press seen: where, on which window by Quartz, swallowed or not (the bench prints it).
+    var lastPress: (point: CGPoint, under: Int, swallowed: Bool)? { locked { press } }
+
+    init(hit: @escaping @Sendable () -> Void) { self.hit = hit }
+
+    private func locked<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
+
+    var target: (button: CGRect, window: Int) { locked { (button, window) } }
+
+    func update(button: CGRect, window: Int) { locked { self.button = button; self.window = window } }
+
+    /// False when macOS refuses the tap (no Accessibility).
+    func start() -> Bool {
+        let mask = CGEventMask(1 << CGEventType.leftMouseDown.rawValue) | CGEventMask(1 << CGEventType.leftMouseUp.rawValue)
+        guard let made = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap, eventsOfInterest: mask,
+                                           callback: Self.callback, userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return false }
+        locked { port = made }
+        let thread = Thread { [self] in
+            guard let port = self.locked({ self.port }), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0) else { return }
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
+            CGEvent.tapEnable(tap: port, enable: true)
+            // Until the port is invalidated: its source leaves the loop, which then has nothing left to run.
+            CFRunLoopRun()
+        }
+        thread.name = "Chamois croix rouge"
+        thread.qualityOfService = .userInteractive
+        thread.start()
+        return true
+    }
+
+    func stop() {
+        guard let port = locked({ self.port }) else { return }
+        CGEvent.tapEnable(tap: port, enable: false)
+        CFMachPortInvalidate(port)
+        locked { self.port = nil }
+    }
+
+    private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
+        switch type {
+        case .tapDisabledByTimeout:
+            if let port = locked({ self.port }) { CGEvent.tapEnable(tap: port, enable: true) }
+        case .leftMouseDown:
+            let (button, window) = target
+            let point = event.location
+            var under = 0, swallowed = false
+            // Only a press in the button costs a look at the windows (Quartz does not always say which one it reaches).
+            if AdBlockPiPCloseGuard.inButton(point, button) {
+                under = Int(event.getIntegerValueField(.mouseEventWindowUnderMousePointer))
+                if under == 0 { under = AdBlockPiPCloseGuard.front(at: point, in: AdBlockQuartzWindow.onScreen()) ?? 0 }
+                swallowed = AdBlockPiPCloseGuard.swallows(point, button: button, window: window, under: under)
+            }
+            locked {
+                press = (point, under, swallowed)
+                if swallowed { swallowing = true }
+            }
+            if swallowed {
+                hit()
+                return nil
+            }
+        case .leftMouseUp:
+            let swallowed = locked { () -> Bool in
+                defer { swallowing = false }
+                return swallowing
+            }
+            if swallowed { return nil }
+        default:
+            break
+        }
+        return Unmanaged.passUnretained(event)
+    }
+
+    private static let callback: CGEventTapCallBack = { _, type, event, info in
+        guard let info else { return Unmanaged.passUnretained(event) }
+        return Unmanaged<AdBlockCloseTap>.fromOpaque(info).takeUnretainedValue().handle(type, event)
     }
 }
 
@@ -1052,7 +1682,8 @@ enum AdBlockSafariMenu {
 /// Says which video was picked, if the ban was lifted, whether WebKit really went into picture in picture (it may refuse
 /// in a view of an app) and what macOS' picture-in-picture agent showed meanwhile. With a link: the page as Safari gets
 /// it, cookies refused, then each of its frames' videos, frames and shadow roots (`survey`). With `menu:<pid>`: Safari's
-/// own command through the Accessibility, in a process that imitates its page menu (never Safari itself).
+/// own commands through the Accessibility (the video's menu, then the page menu), in a process that imitates Safari
+/// (never Safari itself); with `croix:<pid>`, then its red button during the picture in picture (`closeBench`).
 @MainActor
 enum AdBlockPiPBench {
     private static let page = #"""
@@ -1102,13 +1733,20 @@ enum AdBlockPiPBench {
 
     static func run(_ path: String?) async {
         setvbuf(stdout, nil, _IOLBF, 0)
+        // `croix:<pid>`: the video's menu, then Safari's red button during the picture in picture, in a stand-in.
+        if let path, path.hasPrefix("croix:"), let pid = pid_t(path.dropFirst(6)) {
+            await closeBench(pid)
+            return
+        }
         // `menu:<pid>`: the accessibility path against another process that imitates Safari's page menu (never Safari).
         if let path, path.hasPrefix("menu:"), let pid = pid_t(path.dropFirst(5)) {
             let name = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? ""
             guard !name.hasPrefix("com.apple.Safari") else { print("Pas sur Safari lui-même : seulement une imitation."); return }
             let start = Date()
-            let outcome = await Task.detached { AdBlockSafariMenu.enterPictureInPicture(pid: pid) }.value
-            print(String(format: "Menu de la page du processus %d : %@ en %.1f s", pid, "\(outcome)", Date().timeIntervalSince(start)))
+            let outcome = await Task.detached {
+                AdBlockSafariMenu.enterPictureInPicture(pid: pid) { print(String(format: "  [%.1f s] ", Date().timeIntervalSince(start)) + $0) }
+            }.value
+            print(String(format: "Menus du processus %d : %@ en %.1f s", pid, "\(outcome)", Date().timeIntervalSince(start)))
             return
         }
         _ = NSApplication.shared
@@ -1180,6 +1818,82 @@ enum AdBlockPiPBench {
         print("  la page a entendu : \((try? await web.evaluateJavaScript(heard)) as? String ?? "")")
         print(ok ? "Bilan : vidéo choisie, interdiction levée, cadre fermé, vidéo ramenée et page sans vidéo conformes" : "Bilan : ÉCHEC")
         window.close()
+    }
+
+    /// `--adblock pip croix:<pid>` : in a process that imitates Safari (never Safari itself, whose window must be the
+    /// first under each click), the video goes into picture in picture through its menu, then: a click on the red
+    /// button (swallowed, the app hidden, its window and the video still there), the app shown again, a click in its
+    /// page (goes through; the stand-in then reloads its page, which ends the picture in picture), the guard gone, and
+    /// the red button again (the window closes). The clicks are real ones, posted only once the stand-in's window is
+    /// the first under their point.
+    private static func closeBench(_ pid: pid_t) async {
+        guard !(NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? "").hasPrefix("com.apple.Safari") else {
+            print("Pas sur Safari lui-même : seulement une imitation.")
+            return
+        }
+        _ = NSApplication.shared
+        let start = Date()
+        func say(_ s: String) { print(String(format: "[%5.2f s] ", Date().timeIntervalSince(start)) + s) }
+        let before = AdBlockSafariMenu.pipWindows()
+        let outcome = await Task.detached { AdBlockSafariMenu.enterPictureInPicture(pid: pid) }.value
+        say("image dans l'image par le menu de la vidéo : \(outcome)")
+        guard outcome == .entered else { return }
+        let guardian = AdBlockPiPCloseGuard.shared
+        guardian.log = { say($0) }
+        let ours = AdBlockSafariMenu.pipWindows().subtracting(before)
+        guardian.watch(pid: pid, pip: ours)
+        guard guardian.isActive else { return }
+        let (button, number) = guardian.target
+        let cross = CGPoint(x: button.midX, y: button.midY)
+        let app = NSRunningApplication(processIdentifier: pid)
+        func state(_ moment: String) {
+            let shown = AdBlockQuartzWindow.onScreen().contains { $0.number == number }
+            let open = AdBlockSafariMenu.children(AXUIElementCreateApplication(pid), kAXWindowsAttribute).count
+            let press = guardian.lastPress.map { "dernier appui vu par le tap : (\(Int($0.point.x)), \(Int($0.point.y))), fenêtre atteinte n° \($0.under), \($0.swallowed ? "avalé" : "passé")" } ?? "aucun appui vu par le tap"
+            say("\(moment) : app \(app?.isHidden == true ? "cachée" : "visible"), fenêtre n° \(number) \(shown ? "à l'écran" : "hors de l'écran"), \(open) fenêtre(s) ouverte(s), "
+                + "image dans l'image \(AdBlockPiPCloseGuard.stillOn(pip: ours, now: AdBlockSafariMenu.pipWindows()) ? "toujours là" : "fermée"), garde \(guardian.isActive ? "posée" : "retirée")")
+            say("  " + press)
+        }
+        guard click(cross, owner: pid, say: say) else { guardian.stop(); return }
+        await AdBlockVideoBench.pump(1.2)
+        state("Après le clic sur la croix rouge")
+        app?.unhide()
+        await AdBlockVideoBench.pump(1)
+        guard let frame = AdBlockQuartzWindow.onScreen().first(where: { $0.number == number })?.frame else { say("fenêtre introuvable"); guardian.stop(); return }
+        guard click(CGPoint(x: frame.minX + 300, y: frame.minY + 120), owner: pid, say: say) else { guardian.stop(); return }
+        await AdBlockVideoBench.pump(1)
+        state("Après un clic dans la page")
+        for _ in 0..<12 where guardian.isActive { await AdBlockVideoBench.pump(0.5) }
+        state("Image dans l'image refermée par la page")
+        guard click(cross, owner: pid, say: say) else { return }
+        await AdBlockVideoBench.pump(1)
+        state("Après le second clic sur la croix rouge")
+        guardian.stop()
+        guardian.log = nil
+    }
+
+    /// A real click at `p` (global, top left), only when it can reach nothing but `pid`'s window: the first window under
+    /// it, front to back, below the Dock's layer (whose screen-wide window lets clicks through), is `pid`'s, and so is
+    /// the element the Accessibility finds there.
+    private static func click(_ p: CGPoint, owner pid: pid_t, say: (String) -> Void) -> Bool {
+        let windows = AdBlockQuartzWindow.onScreen()
+        let number = AdBlockPiPCloseGuard.front(at: p, in: windows)
+        let front = windows.first { $0.number == number }
+        var hit: AXUIElement?, owner: pid_t = 0
+        if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(p.x), Float(p.y), &hit) == .success, let hit {
+            AXUIElementGetPid(hit, &owner)
+        }
+        guard let front, front.pid == Int(pid), owner == pid else {
+            say("clic annulé en (\(Int(p.x)), \(Int(p.y))) : ce point n'est pas sur la fenêtre de l'imitation")
+            return false
+        }
+        let source = CGEventSource(stateID: .hidSystemState)
+        for type in [CGEventType.leftMouseDown, .leftMouseUp] {
+            CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: p, mouseButton: .left)?.post(tap: .cghidEventTap)
+            usleep(80_000)
+        }
+        say("clic posté en (\(Int(p.x)), \(Int(p.y))), sur la fenêtre n° \(front.number) de l'imitation")
+        return true
     }
 
     /// A canvas filmed into `video` (no file, no network), playing.
