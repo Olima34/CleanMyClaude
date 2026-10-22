@@ -1,7 +1,7 @@
 import AppKit
 
-/// The Windscribe app on this Mac and its `windscribe-cli`, which talks to the running app (and starts it when it is
-/// not running: Chamois calls it only on a click, or when Windscribe is already open).
+/// The Windscribe app on this Mac and its `windscribe-cli`, which talks to the running app. Chamois starts a closed
+/// Windscribe itself, out of sight (`launchHidden`), before any call of the CLI: on a click, or when Windscribe is open.
 enum VPNWindscribe {
     /// `com.windscribe.client` in the current sources (cmake/integrations/gui.cmake), `com.windscribe.gui.macos` in the
     /// Homebrew cask's uninstall list (older builds).
@@ -45,12 +45,86 @@ enum VPNWindscribe {
         return app.bundleURL?.lastPathComponent == appName
     }
 
-    /// Opens Windscribe in front: to sign in, or for its own settings.
-    static func open() {
-        guard !DemoData.isEnabled, let url = appURL() else { return }
+    static func running() -> NSRunningApplication? {
+        guard !DemoData.isEnabled else { return nil }
+        return NSWorkspace.shared.runningApplications.first { isWindscribe($0) }
+    }
+
+    /// Opens Windscribe in front, on a click only: to sign in, or for its own settings. On a running Windscribe,
+    /// LaunchServices sends it « reopen » (a click on its Dock icon): it shows its window, even when it starts minimized.
+    @discardableResult
+    static func open() async -> NSRunningApplication? {
+        guard !DemoData.isEnabled, let url = appURL() else { return nil }
         let config = NSWorkspace.OpenConfiguration()
         config.activates = true
-        NSWorkspace.shared.openApplication(at: url, configuration: config)
+        return try? await NSWorkspace.shared.openApplication(at: url, configuration: config)
+    }
+
+    // MARK: Out of sight
+
+    /// How Chamois starts Windscribe: in the background and hidden, never activated, out of the recent items.
+    static func hiddenLaunchConfiguration() -> NSWorkspace.OpenConfiguration {
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = false
+        config.hides = true
+        config.addsToRecentItems = false
+        config.createsNewApplicationInstance = false
+        return config
+    }
+
+    /// Starts a closed Windscribe out of sight: `windscribe-cli` would start its executable itself, in front of everything.
+    /// Never on a running one (« reopen » would show its window).
+    static func launchHidden() async -> NSRunningApplication? {
+        guard !DemoData.isEnabled, let url = appURL() else { return nil }
+        if let app = running() { return app }
+        ActionLog.write("VPN Windscribe démarré en arrière-plan")
+        return try? await NSWorkspace.shared.openApplication(at: url, configuration: hiddenLaunchConfiguration())
+    }
+
+    // MARK: Its « Hide from Dock » and « Start minimized »
+
+    /// Where Chamois keeps a copy of Windscribe's settings before changing them.
+    static let backupFolder = "WindscribeSettings"
+
+    enum VisibilityWrite: Equatable { case written, unchanged, running, unreadable, failed }
+
+    /// The two settings as Windscribe saved them; nil when they cannot be read with certainty (or were never saved).
+    static func visibility() -> VPNWindscribeFlags? {
+        guard !DemoData.isEnabled, let stored = VPNWindscribeSettings.readStored() else { return nil }
+        return VPNWindscribeSettings.flags(in: stored)
+    }
+
+    /// Writes them, only while Windscribe is closed (it reads them once, at launch, and would write its own over them),
+    /// after a copy of what was there.
+    static func setVisibility(_ flags: VPNWindscribeFlags) -> VisibilityWrite {
+        guard !DemoData.isEnabled else { return .failed }
+        guard !isRunning else { return .running }
+        guard let stored = VPNWindscribeSettings.readStored(), let current = VPNWindscribeSettings.flags(in: stored) else {
+            return .unreadable
+        }
+        if current == flags { return .unchanged }
+        guard let changed = VPNWindscribeSettings.setting(flags, in: stored) else { return .unreadable }
+        guard backup(stored), VPNWindscribeSettings.writeStored(changed) else { return .failed }
+        ActionLog.write("VPN réglages de Windscribe · masqué du Dock : \(flags.hideFromDock) · démarrage réduit : \(flags.startMinimized)")
+        return .written
+    }
+
+    /// The two settings before Chamois first changed them (its oldest copy), nil when it never did.
+    static func originalVisibility() -> VPNWindscribeFlags? {
+        guard !DemoData.isEnabled else { return nil }
+        let folder = DataStore.url(backupFolder)
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix(VPNWindscribeSettings.key + "-") }
+        guard let oldest = names.sorted(by: { $0.compare($1, options: .numeric) == .orderedAscending }).first,
+              let text = try? String(contentsOf: folder.appendingPathComponent(oldest), encoding: .utf8) else { return nil }
+        return VPNWindscribeSettings.flags(in: text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private static func backup(_ stored: String) -> Bool {
+        guard let folder = DataStore.ensureFolder(backupFolder) else { return false }
+        let name = VPNWindscribeSettings.key + "-" + String(Int(Date().timeIntervalSince1970)) + ".txt"
+        guard let url = try? FileOps.write(Data(stored.utf8), to: folder.appendingPathComponent(name)) else { return false }
+        DataStore.protect(url)
+        return true
     }
 
     // MARK: The CLI

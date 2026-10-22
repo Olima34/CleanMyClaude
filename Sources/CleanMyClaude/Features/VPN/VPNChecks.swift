@@ -95,6 +95,114 @@ enum VPNChecks {
         f += sizeAndFailureChecks()
         f += countryChecks()
         f += phaseChecks()
+        f += windscribeSettingsChecks()
+        f += outOfSightChecks()
+        return f
+    }
+
+    // MARK: Windscribe's « Hide from Dock » and « Start minimized »
+
+    /// `types::GuiSettings` as Windscribe's `Preferences::saveGuiSettings` streams it (behind its magic and version), with
+    /// an app and a route out of the tunnel, a background image and a hotspot name with accents.
+    static func guiSettingsBlob(gui: UInt32 = 8, hide: Bool = false, minimized: Bool = false) -> Data {
+        var w = VPNQtWriter()
+        w.u32(VPNWindscribeSettings.magic)
+        w.u32(1)
+        w.u32(gui)
+        // isLaunchOnStartup, isAutoConnect, isHideFromDock, isShowNotifications, orderLocation (+ latencyDisplay before 6)
+        w.bool(true); w.bool(false); w.bool(hide); w.bool(false); w.u32(0)
+        if gui < 6 { w.u32(1) }
+        // ShareSecureHotspot 2: isEnabled, password, ssid
+        w.u32(2); w.bool(false); w.string(nil); w.string("Café")
+        // ShareProxyGateway 4: isEnabled, mode, port, whileConnected, requireAuth, username, password
+        w.u32(4); w.bool(false); w.u32(0); w.u32(0); w.bool(false); w.bool(true); w.string(""); w.string(nil)
+        // SplitTunneling 1: settings 1 (active, mode), one app 2 (type, name, fullName, active, icon), one route 2
+        w.u32(1); w.u32(1); w.bool(true); w.u32(0)
+        w.u32(1); w.u32(2); w.u32(0); w.string("Safari"); w.string("/Applications/Safari.app"); w.bool(true); w.string("")
+        w.u32(1); w.u32(2); w.u32(1); w.string("exemple.fr"); w.bool(true)
+        // isDockedToTray, isMinimizeAndCloseToTray, BackgroundSettings 2 (two types, two images, aspect ratio)
+        w.bool(false); w.bool(false)
+        w.u32(2); w.u32(1); w.u32(1); w.string(nil); w.string("/Users/démo/fond.png"); w.u32(1)
+        // isStartMinimized, isShowLocationHealth, isAutoSecureNetworks, appSkin, trayIconColor, multiDesktopBehavior
+        w.bool(minimized); w.bool(false); w.bool(true)
+        if gui >= 2 { w.u32(0) }
+        if gui >= 3 { w.u32(2) }
+        if gui >= 4 { w.u32(0) }
+        // SoundSettings 1
+        if gui >= 5 { w.u32(1); w.u32(0); w.string(nil); w.u32(0); w.string(nil) }
+        return Data(w.bytes)
+    }
+
+    /// `guiSettingsBlob()` as Windscribe stores it when compressing pays (flags 3: zlib by `qCompress`, then the
+    /// checksum), made outside Chamois with Python's zlib.
+    static let compressedFixture = "AwN5XtUmii9xTCx47V/5n63kG9XbP73Fv4A9W5dPa4hqMSvCcYpwn/hJjwOUwLyPzOGKoopGcyulxMmBpMJ6bq3VERI1/6WoV1g3fIb66LWDs4NLcI8xDIXTBGYRS6kKmkqCHtFQcxNa4fQlZrJDL1GtXH255eGkmo5D3o1M8T/gi8koDHPQwvAA+vBI0mPtKQRW8Lko2VausHq0APjLsj8N+zIqHl/Uuw=="
+
+    private static func windscribeSettingsChecks() -> [String] {
+        var f: [String] = []
+        let key = VPNWindscribeSettings.cryptKey
+        if VPNSimpleCrypt.checksum(Array("123456789".utf8)) != 0x906E { f.append("somme de contrôle de Qt (CRC-16 X.25) fausse") }
+        if VPNSimpleCrypt.adler32(Array("Wikipedia".utf8)) != 0x11E6_0398 { f.append("Adler-32 faux") }
+        let plain = guiSettingsBlob()
+        let stored = VPNSimpleCrypt.encrypt(plain, key: key, random: 0x5A)
+        if VPNSimpleCrypt.decrypt(stored, key: key) != plain { f.append("SimpleCrypt : l'aller-retour ne rend pas les mêmes octets") }
+        if VPNSimpleCrypt.decrypt(compressedFixture, key: key) != plain { f.append("SimpleCrypt : réglages compressés par Qt mal lus") }
+        if VPNWindscribeSettings.flags(in: compressedFixture) != .visible { f.append("réglages compressés : drapeaux mal lus") }
+        if VPNWindscribeSettings.flags(in: stored) != .visible { f.append("réglages par défaut de Windscribe mal lus") }
+        let onlyDock = VPNSimpleCrypt.encrypt(guiSettingsBlob(hide: true), key: key, random: 1)
+        let onlyMinimized = VPNSimpleCrypt.encrypt(guiSettingsBlob(minimized: true), key: key, random: 2)
+        if VPNWindscribeSettings.flags(in: onlyDock) != VPNWindscribeFlags(hideFromDock: true, startMinimized: false)
+            || VPNWindscribeSettings.flags(in: onlyMinimized) != VPNWindscribeFlags(hideFromDock: false, startMinimized: true) {
+            f.append("« Masquer du Dock » et « Démarrer réduit » confondus")
+        }
+        if let hidden = VPNWindscribeSettings.setting(.invisible, in: compressedFixture, random: 7),
+           let clear = VPNSimpleCrypt.decrypt(hidden, key: key), clear.count == plain.count {
+            if VPNWindscribeSettings.flags(in: hidden) != .invisible { f.append("réglage invisible non relu") }
+            let changed = (0..<plain.count).filter { plain[$0] != clear[$0] }
+            if changed.count != 2 { f.append("écrire les deux réglages change \(changed.count) octets") }
+            if let back = VPNWindscribeSettings.setting(.visible, in: hidden), VPNSimpleCrypt.decrypt(back, key: key) != plain {
+                f.append("revenir aux réglages d'avant ne rend pas les mêmes octets")
+            }
+        } else {
+            f.append("réglage invisible impossible à écrire")
+        }
+        // Older settings (version 5: latencyDisplay still there) are read as Windscribe reads them.
+        let old = VPNSimpleCrypt.encrypt(guiSettingsBlob(gui: 5, hide: true, minimized: true), key: key, random: 3)
+        if VPNWindscribeSettings.flags(in: old) != .invisible { f.append("réglages de la version 5 mal lus") }
+        // Anything else is left alone.
+        var refused: [(String, Data)] = [("version 9", guiSettingsBlob(gui: 9)), ("un octet de trop", plain + Data([0])),
+                                         ("un octet de moins", plain.dropLast())]
+        var notBool = plain
+        notBool[14] = 2
+        refused.append(("un booléen à 2", notBool))
+        var wrongMagic = plain
+        wrongMagic[0] ^= 1
+        refused.append(("une autre signature", wrongMagic))
+        for (name, data) in refused where VPNWindscribeSettings.setting(.invisible, in: VPNSimpleCrypt.encrypt(data, key: key, random: 9)) != nil {
+            f.append("réglages avec \(name) modifiés quand même")
+        }
+        if var bytes = Data(base64Encoded: stored) {
+            bytes[bytes.count - 3] ^= 0x10
+            if VPNSimpleCrypt.decrypt(bytes.base64EncodedString(), key: key) != nil { f.append("réglages abîmés acceptés") }
+            bytes = Data(base64Encoded: stored)!
+            bytes[1] = VPNSimpleCrypt.flagHash
+            if VPNSimpleCrypt.decrypt(bytes.base64EncodedString(), key: key) != nil { f.append("réglages protégés par SHA-1 acceptés sans contrôle") }
+        }
+        if VPNSimpleCrypt.decrypt(stored, key: key ^ 0xFF) != nil { f.append("SimpleCrypt : une autre clé passe la somme de contrôle") }
+        return f
+    }
+
+    private static func outOfSightChecks() -> [String] {
+        var f: [String] = []
+        let config = VPNWindscribe.hiddenLaunchConfiguration()
+        if config.activates || !config.hides || config.addsToRecentItems || config.createsNewApplicationInstance {
+            f.append("Windscribe démarré au premier plan, visible ou dans les éléments récents")
+        }
+        let titles: [(VPNPhase, String)] = [(.connecting(.fr), "VPN · connexion…"), (.connecting(nil), "VPN · connexion…"),
+                                            (.disconnecting, "VPN · coupure…"), (.ready, "VPN · France"),
+                                            (.connected(VPNConnection(country: .de)), "VPN · Allemagne")]
+        for (phase, title) in titles where VPNText.menuTitle(phase) != title {
+            f.append("menu d'état : « \(VPNText.menuTitle(phase)) » au lieu de « \(title) »")
+        }
         return f
     }
 

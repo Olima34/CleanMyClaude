@@ -14,6 +14,11 @@ final class VPNModel: AppModule {
     var target: VPNCountry?
     /// The address outside the tunnel, as Windscribe last saw it.
     var publicIP: String?
+    /// « Garder Windscribe invisible »: the user's yes, given on the page. Windscribe's two settings are then written
+    /// whenever it is closed (before Chamois starts it, when it quits).
+    var keepHidden = UserDefaults.standard.bool(forKey: VPNModel.keepHiddenKey)
+    /// Windscribe's « Hide from Dock » and « Start minimized » as last read; nil when unreadable.
+    var windscribeVisibility: VPNWindscribeFlags?
 
     @ObservationIgnored private(set) var lastRead: Date?
     @ObservationIgnored private var operation: Task<Void, Never>?
@@ -25,9 +30,15 @@ final class VPNModel: AppModule {
     @ObservationIgnored private var menuRefreshQueued = false
     /// Asked from the launcher or the menu bar: the end is told by a message (the page shows it by itself).
     @ObservationIgnored private var announce = false
+    /// Chamois just started Windscribe: until then, whatever it brings forward goes back out of sight.
+    @ObservationIgnored private var hideGuardUntil: Date?
 
     /// Remembered: Windscribe was not signed in to an account the last time it was read.
     private static let signedOutKey = "vpn.signedOut"
+    nonisolated static let keepHiddenKey = "vpn.keepHidden"
+    /// How long after its start Windscribe is kept out of sight (its window, its activation): short, so that a click of
+    /// the user on its menu bar icon soon after is not undone.
+    nonisolated static let hideGuardSeconds: TimeInterval = 15
     nonisolated static let installerBundleID = "com.windscribe.installer.macos"
     static let plansPage = "https://windscribe.com/upgrade"
 
@@ -46,6 +57,7 @@ final class VPNModel: AppModule {
             return
         }
         cleanUpInstaller()
+        windscribeVisibility = VPNWindscribe.visibility()
         guard VPNWindscribe.isRunning else {
             phase = UserDefaults.standard.bool(forKey: Self.signedOutKey) ? .loggedOut : .closed
             return
@@ -116,7 +128,17 @@ final class VPNModel: AppModule {
     }
 
     private func runConnect(_ country: VPNCountry, cli: String) async {
-        // Windscribe must run and be signed in: the CLI starts it, and refuses to connect while it is still signing in.
+        // A closed Windscribe is started here, out of sight (the CLI would start it in front of everything).
+        if !VPNWindscribe.isRunning {
+            applyVisibility()
+            hideGuardUntil = Date().addingTimeInterval(Self.hideGuardSeconds)
+            guard let running = await VPNWindscribe.launchHidden() else {
+                return finish(.failed("Windscribe ne démarre pas : ouvre-le une fois toi-même, puis réessaie."))
+            }
+            if Task.isCancelled { return }
+            keepOutOfSight(running)
+        }
+        // Windscribe must be signed in: the CLI refuses to connect while it is still signing in.
         var status: VPNStatus?
         var out = Shell.Output(status: -1, out: "", err: "")
         for _ in 0..<20 {
@@ -124,7 +146,6 @@ final class VPNModel: AppModule {
             if Task.isCancelled { return }
             guard let s = status else { break }
             if s.login != .loggingIn { break }
-            phase = .starting
             try? await Task.sleep(for: .seconds(1))
             if Task.isCancelled { return }
         }
@@ -294,12 +315,78 @@ final class VPNModel: AppModule {
         }
     }
 
+    /// Windscribe's window in front, on a click (to sign in, or for its own settings).
     func openWindscribe() {
         guard !DemoData.isEnabled else {
             HUD.show(DemoData.refusal, symbol: "info.circle.fill")
             return
         }
-        VPNWindscribe.open()
+        hideGuardUntil = nil
+        let wasRunning = VPNWindscribe.isRunning
+        let cli = VPNWindscribe.cliPath()
+        Task {
+            await VPNWindscribe.open()
+            // Started minimized, it shows no window: once it answers, a « reopen » brings it up.
+            guard !wasRunning, let cli else { return }
+            _ = await VPNWindscribe.status(cli)
+            await VPNWindscribe.open()
+        }
+    }
+
+    // MARK: Out of sight
+
+    /// Windscribe's settings wait for its next start (or it could not be read).
+    var visibilityPending: Bool {
+        guard keepHidden, let v = windscribeVisibility else { return false }
+        return v != .invisible
+    }
+
+    func setKeepHidden(_ on: Bool) {
+        guard !DemoData.isEnabled else {
+            HUD.show(DemoData.refusal, symbol: "info.circle.fill")
+            return
+        }
+        keepHidden = on
+        UserDefaults.standard.set(on, forKey: Self.keepHiddenKey)
+        applyVisibility()
+    }
+
+    /// Writes Windscribe's two settings when it is closed: invisible when the user said yes, as they were before
+    /// Chamois changed them otherwise (nothing when it never did).
+    private func applyVisibility() {
+        guard !DemoData.isEnabled, VPNWindscribe.cliPath() != nil else { return }
+        let original = VPNWindscribe.originalVisibility()
+        if keepHidden || original != nil {
+            let wanted = keepHidden ? VPNWindscribeFlags.invisible : (original ?? .visible)
+            if VPNWindscribe.setVisibility(wanted) == .failed {
+                HUD.show("Chamois n'a pas pu changer ce réglage de Windscribe", symbol: "exclamationmark.triangle.fill")
+            }
+        }
+        windscribeVisibility = VPNWindscribe.visibility()
+    }
+
+    /// Chamois has just started Windscribe: hidden now, and again if it comes forward in the next seconds (its window
+    /// at launch, or its own activation), until `hideGuardUntil`.
+    private func keepOutOfSight(_ running: NSRunningApplication) {
+        if !running.isHidden { running.hide() }
+        Task { [weak self] in
+            for delay in [0.5, 1.0, 1.5, 3.0, 4.0] {
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self, self.guarding, !running.isTerminated else { return }
+                if !running.isHidden { running.hide() }
+            }
+        }
+    }
+
+    private var guarding: Bool {
+        guard let until = hideGuardUntil else { return false }
+        return Date() < until
+    }
+
+    /// Windscribe came forward (activated, or shown again).
+    private func windscribeSurfaced(_ running: NSRunningApplication) {
+        guard guarding else { return }
+        running.hide()
     }
 
     func openPlans() {
@@ -443,7 +530,15 @@ final class VPNModel: AppModule {
         } else {
             operation?.cancel()
             operation = nil
+            hideGuardUntil = nil
             phase = UserDefaults.standard.bool(forKey: Self.signedOutKey) ? .loggedOut : .closed
+            // Closed: the moment to write its settings, once it has finished with them.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, !VPNWindscribe.isRunning else { return }
+                    self.applyVisibility()
+                }
+            }
         }
     }
 
@@ -458,6 +553,13 @@ final class VPNModel: AppModule {
                 let isInstaller = running.bundleIdentifier == VPNModel.installerBundleID
                 guard isInstaller || VPNWindscribe.isWindscribe(running) else { return }
                 MainActor.assumeIsolated { self?.windscribeChanged(launched: launched, installer: isInstaller) }
+            })
+        }
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.didUnhideApplicationNotification] {
+            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                guard let running = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      VPNWindscribe.isWindscribe(running) else { return }
+                MainActor.assumeIsolated { self?.windscribeSurfaced(running) }
             })
         }
         // A disk image downloaded during an earlier session.
@@ -477,6 +579,8 @@ final class VPNModel: AppModule {
         usage = VPNUsage(used: 3_435_973_837, limit: 10_737_418_240)
         publicIP = "198.51.100.7"
         install = nil
+        keepHidden = true
+        windscribeVisibility = .invisible
     }
 
     /// `--snapshot --page media --tab vpn` (connected), and its other states: `vpn-absent`, `vpn-installation`,
@@ -518,14 +622,8 @@ final class VPNModel: AppModule {
     }
 
     var quickToggles: [QuickToggle] {
-        let title: String
-        switch phase {
-        case .connected(let c): title = "VPN · " + (c.country?.name ?? c.city ?? "actif")
-        case .connecting(let c): title = "VPN · " + (c?.name ?? "connexion") + "…"
-        case .disconnecting: title = "VPN · coupure…"
-        default: title = "VPN · France"
-        }
-        return [QuickToggle(id: "vpn", title: title, symbol: "lock.shield", isOn: phase.isOn) { [weak self] in
+        [QuickToggle(id: "vpn", title: VPNText.menuTitle(phase), symbol: phase.isBusy ? "hourglass" : "lock.shield",
+                     isOn: phase.isOn) { [weak self] in
             self?.toggleFromMenu()
         }]
     }
@@ -549,6 +647,14 @@ final class VPNModel: AppModule {
         lines.append("Windscribe : " + (app?.path ?? "pas installé") + (app != nil ? (running ? " · ouvert" : " · fermé") : ""))
         lines.append("windscribe-cli : " + (cli ?? "introuvable"))
         lines.append("Homebrew : " + (VPNInstaller.brewPath() ?? "absent"))
+        if app != nil {
+            let v = VPNWindscribe.visibility()
+            lines.append("Réglages de Windscribe : " + (v.map { "masqué du Dock \($0.hideFromDock ? "oui" : "non") · démarrage réduit \($0.startMinimized ? "oui" : "non")" }
+                ?? "illisibles (Chamois n'y touche pas)") + " · invisible demandé : " + (keepHidden ? "oui" : "non"))
+            if let o = VPNWindscribe.originalVisibility() {
+                lines.append("Avant Chamois : masqué du Dock \(o.hideFromDock ? "oui" : "non") · démarrage réduit \(o.startMinimized ? "oui" : "non")")
+            }
+        }
         if let cli, running {
             let out = Shell.run(cli, ["status"], timeout: 25)
             lines.append("status (code \(out.status)) :")

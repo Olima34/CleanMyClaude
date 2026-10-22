@@ -47,6 +47,9 @@ private struct VPNStatusCard: View {
                     }
                     HStack(spacing: 10) { buttons(m) }
                         .padding(.top, 4)
+                    if installing == nil, m.phase != .notInstalled, m.phase != .unknown {
+                        VPNVisibilityRow()
+                    }
                 }
                 Spacer(minLength: 0)
                 side(m)
@@ -87,9 +90,9 @@ private struct VPNStatusCard: View {
             Button { m.openWindscribe() } label: { label("Ouvrir Windscribe", "macwindow") }
                 .buttonStyle(SoftButtonStyle())
         case .loggedOut:
-            Button { m.openWindscribe() } label: { label("Ouvrir Windscribe", "person.crop.circle") }
+            Button { m.openWindscribe() } label: { label("Ouvrir Windscribe pour te connecter à ton compte", "person.crop.circle") }
                 .buttonStyle(SoftButtonStyle(prominent: true))
-                .help("Connecte-toi à ton compte, ou crée-le gratuitement avec ton e-mail")
+                .help("Connecte-toi, ou crée ton compte gratuitement avec ton e-mail")
             Button { m.refresh() } label: { label("C'est fait", "arrow.clockwise") }
                 .buttonStyle(SoftButtonStyle())
         case .connecting:
@@ -144,6 +147,33 @@ private struct VPNStatusCard: View {
             if Theme.icons != .hidden { Image(systemName: symbol).font(.ui(11.5, .semibold)) }
             Text(text)
         }
+    }
+}
+
+/// The user's yes to Windscribe's own « Hide from Dock » and « Start minimized ».
+private struct VPNVisibilityRow: View {
+    @Environment(AppModel.self) private var app
+
+    var body: some View {
+        let m = app.vpn
+        // Unreadable (a format Chamois does not know): left alone, unless it was asked before.
+        let unreadable = m.windscribeVisibility == nil && !DemoData.isEnabled && !Snapshot.isActive
+        HStack(spacing: 8) {
+            Toggle(isOn: Binding(get: { m.keepHidden }, set: { m.setKeepHidden($0) })) {
+                Text("Garder Windscribe invisible (sans fenêtre ni icône dans le Dock)")
+                    .font(.ui(11.5)).foregroundStyle(Theme.text2)
+            }
+            .switchToggles()
+            .controlSize(.mini)
+            .fixedSize()
+            .disabled(unreadable && !m.keepHidden)
+            if m.visibilityPending {
+                Text("· au prochain démarrage de Windscribe").font(.ui(11)).foregroundStyle(Theme.text3)
+            }
+        }
+        .help(unreadable
+              ? "Chamois ne reconnaît pas ce réglage de cette version de Windscribe : il n'y touche pas."
+              : "Les réglages « Masquer du Dock » et « Démarrer réduit » de Windscribe, écrits quand il est fermé (une copie est gardée).")
     }
 }
 

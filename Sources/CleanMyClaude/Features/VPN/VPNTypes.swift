@@ -334,7 +334,7 @@ enum VPNText {
         switch phase {
         case .unknown, .starting, .disconnecting: return nil
         case .notInstalled: return "Le VPN gratuit et sans pub de Windscribe : 10 pays, dont la France."
-        case .closed: return "Windscribe est fermé : choisis un pays, il s'ouvre et te connecte."
+        case .closed: return "Choisis un pays : Windscribe démarre en coulisses et te connecte."
         case .loggedOut: return "C'est gratuit : avec ton adresse e-mail confirmée, tu as 10 Go par mois."
         case .ready: return publicIP.map { "Ton adresse visible : " + $0 } ?? "Choisis un pays."
         case .connecting: return "Windscribe cherche un serveur gratuit."
@@ -345,6 +345,17 @@ enum VPNText {
             return parts.isEmpty ? nil : parts.joined(separator: " · ")
         case .outOfData: return buildAPlan
         case .failed(let message): return message
+        }
+    }
+
+    /// The switch of the menu bar panel.
+    static func menuTitle(_ phase: VPNPhase) -> String {
+        switch phase {
+        case .connected(let c): return "VPN · " + (c.country?.name ?? c.city ?? "actif")
+        case .connecting: return "VPN · connexion…"
+        case .starting: return "VPN · démarrage…"
+        case .disconnecting: return "VPN · coupure…"
+        default: return "VPN · France"
         }
     }
 
