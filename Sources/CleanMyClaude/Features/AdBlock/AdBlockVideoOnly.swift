@@ -376,7 +376,7 @@ extension AdBlockPlayer {
         let read = await Task.detached(priority: .userInitiated) { Shell.appleScript(browser.urlScript) }.value
         if read.status == -1743 || read.status == -1744 {
             detachIssue = AdBlockDetachIssue(text: "\(AppEdition.name) n'a pas le droit de piloter \(browser.name) : active-le dans Réglages Système › Confidentialité et sécurité › Automatisation.",
-                                             settings: true)
+                                             settings: .automation)
             HUD.show("Autorise \(AppEdition.name) à piloter \(browser.name), puis recommence.", symbol: "exclamationmark.circle.fill")
             Finder.open(PermissionKind.safari.settingsURL)
             return
@@ -409,24 +409,40 @@ extension AdBlockPlayer {
         }
     }
 
-    /// Any other page: the browser keeps its video (session, licence) and puts it in its own picture in picture.
+    /// Any other page: the browser keeps its video (session, licence) and puts it in its own picture in picture. The
+    /// page's script first; when it cannot reach the video (a player in a frame of another origin, as TF1+'s) or the
+    /// browser kept it in the page, Safari's own command, through the Accessibility the user granted.
     private func browserPictureInPicture(_ browser: AdBlockVideoBrowser, site: String?, host: String) async {
         let request = browser.javaScript(AdBlockVideoPiP.request)
-        let asked = await Task.detached(priority: .userInitiated) { Shell.appleScript(request) }.value
-        var answer: AdBlockPiPAnswer
-        if asked.ok {
-            AdBlockVideoOnly.remember(scripts: true, for: browser)
-            answer = AdBlockVideoPiP.answer(from: asked.out)
-        } else if AdBlockVideoPiP.scriptsRefused(asked.err) {
-            AdBlockVideoOnly.remember(scripts: false, for: browser)
-            report(AdBlockVideoPiP.scriptsVerdict(browser, site: site))
-            return
-        } else {
-            answer = .refused(error: asked.err)
+        var answer = AdBlockPiPAnswer.unreadable
+        for attempt in 0... {
+            let asked = await Task.detached(priority: .userInitiated) { Shell.appleScript(request) }.value
+            if asked.ok {
+                AdBlockVideoOnly.remember(scripts: true, for: browser)
+                answer = AdBlockVideoPiP.answer(from: asked.out)
+            } else if AdBlockVideoPiP.scriptsRefused(asked.err) {
+                AdBlockVideoOnly.remember(scripts: false, for: browser)
+                report(AdBlockVideoPiP.scriptsVerdict(browser, site: site))
+                return
+            } else {
+                answer = .refused(error: asked.err)
+            }
+            // A player built a moment after the page: asked again, briefly.
+            guard AdBlockVideoPiP.retry(after: answer, attempt: attempt) else { break }
+            try? await Task.sleep(for: AdBlockVideoPiP.retryDelay)
         }
         if case .asked = answer { answer = await watchPictureInPicture(browser) }
-        let verdict = AdBlockVideoPiP.verdict(answer, browser: browser, site: site)
-        if verdict.success { ActionLog.write("IMAGE DANS L'IMAGE \(browser.name) \(host)") }
+        var menu: AdBlockSafariMenuOutcome?
+        if AdBlockSafariMenu.serves(browser), AdBlockVideoPiP.wantsBrowserCommand(answer) {
+            if AXIsProcessTrusted() {
+                let id = browser.bundleID
+                menu = await Task.detached(priority: .userInitiated) { AdBlockSafariMenu.enterPictureInPicture(bundleID: id) }.value
+            } else if case .inFrame = answer {
+                menu = .noAccess
+            }
+        }
+        let verdict = AdBlockVideoPiP.verdict(answer, browser: browser, site: site, menu: menu)
+        if verdict.success { ActionLog.write("IMAGE DANS L'IMAGE \(browser.name) \(host)\(menu == nil ? "" : " (menu de la page)")") }
         report(verdict)
     }
 
@@ -442,6 +458,8 @@ extension AdBlockPlayer {
             if last == .entered {
                 seen += 1
                 if seen == 2 { break }
+            } else if last == .kicked {
+                break // the page brought it back
             } else if case .inline(let error) = last, !error.isEmpty {
                 break // the browser said no
             } else {
@@ -640,8 +658,8 @@ struct AdBlockVideoPanel: View {
                         Text(issue.text).font(.ui(11.5, .medium)).foregroundStyle(Theme.warn).fixedSize(horizontal: false, vertical: true)
                         if let tip = issue.tip { HelpTipButton(tip: tip, size: 12) }
                         Spacer(minLength: 0)
-                        if issue.settings {
-                            Button("Réglages…") { Finder.open(PermissionKind.safari.settingsURL) }
+                        if let settings = issue.settings {
+                            Button("Réglages…") { settings.open() }
                                 .buttonStyle(SoftButtonStyle(small: true))
                         }
                     }
