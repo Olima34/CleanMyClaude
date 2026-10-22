@@ -308,8 +308,8 @@ struct ToolsOverview: View {
                  value: app.converter.isBusy ? "\(app.converter.activeJobs.count) en cours" : (app.wheel.isActive ? "Active" : "En pause"),
                  detail: app.wheel.isActive ? "Glisse un fichier pour le transformer ou le signer" : "La roue ne s'ouvre plus")
         case .media:
-            tile(page, tint: CinemaStyle.tint, value: app.adblock.state.isOn ? "Sans pub" : "Où regarder",
-                 detail: app.cinema.recents.first.map { "Dernier : \($0.title)" } ?? "Films, séries et vidéos sans pub")
+            tile(page, tint: CinemaStyle.tint, value: app.vpn.phase.isOn ? "VPN actif" : (app.adblock.state.isOn ? "Sans pub" : "Où regarder"),
+                 detail: app.cinema.recents.first.map { "Dernier : \($0.title)" } ?? "Films, séries, vidéos sans pub et VPN")
         case .updates:
             tile(page, tint: Theme.good,
                  value: app.updates.hasChecked ? "\(app.updates.totalAvailable)" : "—",

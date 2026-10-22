@@ -446,7 +446,8 @@ enum Snapshot {
             shots.append(("launcher-panel", AnyView(LauncherView())))
         }
         if everything || only == .media {
-            // The page's tabs: `--tab films`, `lecteur`, `bloqueur` (and their states: `cle`, `comptes`, `safari`, `intro`…).
+            // The page's tabs: `--tab films`, `lecteur`, `bloqueur`, `vpn` (and their states: `cle`, `comptes`, `safari`, `intro`…,
+            // `vpn-absent`, `vpn-installation`, `vpn-compte`, `vpn-pret`, `vpn-connexion`, `vpn-limite`, `vpn-erreur`…).
             // The ad-free player's window: its bar and what it says over a video (the page itself cannot be drawn here).
             // `--tab video` : the « Vidéo seule » window instead, 16:9.
             shots.append(("adblock-player-panel", AnyView(AdBlockPlayerSnapshot(player: model.adblock.player))))

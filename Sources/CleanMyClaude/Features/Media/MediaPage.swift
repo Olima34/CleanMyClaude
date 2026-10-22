@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// One header, three tabs: Films et séries, the ad-free player, the ad blocker of the whole Mac.
+/// One header, four tabs: Films et séries, the ad-free player, the ad blocker of the whole Mac, the VPN.
 struct MediaPage: View {
     @Environment(AppModel.self) private var app
 
@@ -8,14 +8,21 @@ struct MediaPage: View {
         @Bindable var media = app.media
         VStack(alignment: .leading, spacing: 18) {
             PageHero(symbol: Page.media.symbol, title: Page.media.title,
-                     subtitle: "Où regarder un film, YouTube et Twitch sans pub, et les pubs bloquées sur tout le Mac.",
+                     subtitle: "Où regarder un film, YouTube et Twitch sans pub, les pubs bloquées sur tout le Mac et un VPN gratuit.",
                      tint: CinemaStyle.tint, seed: 61)
             PillPicker(options: MediaTab.allCases, selection: $media.tab, label: { $0.title },
-                       badge: { $0 == .blocker ? app.adblock.sidebarBadge : nil })
+                       badge: { tab in
+                           switch tab {
+                           case .blocker: return app.adblock.sidebarBadge
+                           case .vpn: return app.vpn.isOn ? "actif" : nil
+                           default: return nil
+                           }
+                       })
             switch media.tab {
             case .watch: CinemaTab()
             case .player: AdBlockPlayerTab()
             case .blocker: AdBlockBlockerTab()
+            case .vpn: VPNTab()
             }
         }
     }
@@ -29,6 +36,7 @@ struct MediaBottomBar: View {
         case .watch: CinemaBottomBar()
         case .player: EmptyView()
         case .blocker: AdBlockBottomBar()
+        case .vpn: EmptyView()
         }
     }
 }
@@ -41,7 +49,7 @@ struct MediaTipsGallery: View {
     var body: some View {
         let tips = [CinemaTips.search, CinemaTips.key, AdBlockTips.player, AdBlockTips.videoOnly, AdBlockTips.safariPause,
                     AdBlockTips.handoff, AdBlockTips.accounts, AdBlockTips.safariExtension(AdBlockBrowser.recommendedName),
-                    AdBlockTips.blocker(app.adblock)]
+                    AdBlockTips.blocker(app.adblock), VPNTips.about]
         FlowLayout(spacing: 16, lineSpacing: 16) {
             ForEach(tips, id: \.id) { tip in
                 HelpTipCard(tip: tip)

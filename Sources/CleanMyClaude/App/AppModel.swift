@@ -69,7 +69,7 @@ enum Page: String, CaseIterable, Identifiable {
         case .storage: return "La carte de ton disque, les gros fichiers et les doublons."
         case .phone: return "Branche ton iPhone : sa santé, et ses photos et vidéos triées."
         case .wheel: return "Glisse un fichier : une roue pour convertir, recadrer, annoter, remplir ou signer, sans rien ouvrir."
-        case .media: return "Films et séries, vidéos sans pub et pubs bloquées pour tout le Mac."
+        case .media: return "Films et séries, vidéos sans pub, pubs bloquées et un VPN gratuit pour changer de pays."
         case .toolbox: return "Couleurs, mots de passe, Caféine et autres petits outils."
         case .hotkeys: return "Tes raccourcis, le lanceur et tes fenêtres rangées au clavier."
         case .automation: return "Ton Mac s'entretient tout seul, selon tes règles."
@@ -148,6 +148,8 @@ final class AppModel {
     let hotkeys = HotkeysModel()
     let battery = BatteryModel()
     let adblock = AdBlockModel()
+    /// Windscribe's free VPN, on the Multimédia page.
+    let vpn = VPNModel()
     /// The Multimédia page: Films et séries and the ad blocker together.
     let media = MediaModel()
     let phone = PhoneModel()

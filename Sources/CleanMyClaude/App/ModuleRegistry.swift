@@ -85,6 +85,7 @@ enum ModuleRegistry {
         add("media", Page.media.title, .media, app.media)
         add("cinema", "Films et séries", .media, app.cinema)
         add("adblock", "Bloqueur de pub", .media, app.adblock)
+        add("vpn", "VPN", .media, app.vpn)
         add("translator", "Traducteur", nil, app.translator)
         add("toolbox", Page.toolbox.title, .toolbox, app.toolbox)
         add("clipboard", "Presse-papiers", nil, app.clipboard)

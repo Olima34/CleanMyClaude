@@ -9,6 +9,8 @@ enum MediaTab: String, CaseIterable, Identifiable {
     case player = "lecteur"
     /// The DNS ad blocker of the whole Mac: state, level, counter, exceptions.
     case blocker = "bloqueur"
+    /// Windscribe's free VPN: the country chosen here, the data of the month (`VPNModel`).
+    case vpn = "vpn"
 
     var id: String { rawValue }
 
@@ -17,12 +19,15 @@ enum MediaTab: String, CaseIterable, Identifiable {
         case .watch: return "Films et séries"
         case .player: return "Lecteur sans pub"
         case .blocker: return "Bloqueur de pub"
+        case .vpn: return "VPN"
         }
     }
 
     /// The tab a snapshot name belongs to (`--tab comptes` shows the player's tab…), nil when it is no name of this page.
     static func forSnapshot(_ name: String) -> MediaTab? {
         if let tab = MediaTab(rawValue: name) { return tab }
+        // `vpn-absent`, `vpn-compte`, `vpn-connexion`…: the VPN's states (`VPNModel.applySnapshotTab`).
+        if name.hasPrefix("vpn-") { return .vpn }
         switch name {
         case "cle", "clé", "vide", "recherche": return .watch
         case "comptes", "video", "lecteur-twitch", "safari", "sans-extension", "bascule": return .player
@@ -32,8 +37,8 @@ enum MediaTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// The Multimédia page: Films et séries (`CinemaModel`), the ad-free player and the ad blocker (`AdBlockModel`) under one
-/// roof, one tab each.
+/// The Multimédia page: Films et séries (`CinemaModel`), the ad-free player and the ad blocker (`AdBlockModel`), and the
+/// VPN (`VPNModel`) under one roof, one tab each.
 @Observable
 @MainActor
 final class MediaModel: AppModule {
@@ -56,7 +61,8 @@ final class MediaModel: AppModule {
         var f: [String] = []
         let expected: [(String, MediaTab)] = [("films", .watch), ("cle", .watch), ("lecteur", .player), ("comptes", .player),
                                               ("video", .player), ("safari", .player), ("bloqueur", .blocker), ("intro", .blocker),
-                                              ("installation", .blocker), ("attente", .blocker)]
+                                              ("installation", .blocker), ("attente", .blocker), ("vpn", .vpn), ("vpn-compte", .vpn),
+                                              ("vpn-installation", .vpn)]
         for (name, tab) in expected where MediaTab.forSnapshot(name) != tab {
             f.append("Multimédia : « --tab \(name) » n'ouvre pas l'onglet \(tab.title)")
         }

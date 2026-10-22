@@ -217,7 +217,11 @@ struct MenuBarPanel: View {
         .frame(width: Self.width)
         .background(Theme.bg)
         // Embedded, it is in the main window (Menu d'état page): its sampling follows the window.
-        .onAppear { app.performance.startSampling(inMainWindow: embedded) }
+        .onAppear {
+            app.performance.startSampling(inMainWindow: embedded)
+            // The VPN switch shows the real state when the menu opens.
+            if !embedded { app.vpn.menuAppeared() }
+        }
         .onDisappear { app.performance.stopSampling(inMainWindow: embedded) }
     }
 
