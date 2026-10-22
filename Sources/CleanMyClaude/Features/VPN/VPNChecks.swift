@@ -97,6 +97,24 @@ enum VPNChecks {
         f += phaseChecks()
         f += windscribeSettingsChecks()
         f += outOfSightChecks()
+        f += disconnectChecks()
+        return f
+    }
+
+    /// The menu switch and the wait after « Déconnecter » (the user saw a reconnection right after cutting).
+    static func disconnectChecks() -> [String] {
+        var f: [String] = []
+        let expected: [(VPNPhase, VPNPhase.MenuAction)] = [
+            (.connecting(.fr), .disconnect), (.disconnecting, .wait), (.starting, .wait),
+            (.ready, .connect), (.closed, .connect), (.failed("x"), .connect)
+        ]
+        for (phase, action) in expected where phase.menuAction != action {
+            f.append("VPN : la bascule du menu fait \(phase.menuAction) au lieu de \(action) (\(phase))")
+        }
+        if VPNPhase.stillDisconnecting(.disconnected) || !VPNPhase.stillDisconnecting(.disconnecting)
+            || !VPNPhase.stillDisconnecting(.connecting(city: nil)) {
+            f.append("VPN : l'attente après « Déconnecter » s'arrête au mauvais moment")
+        }
         return f
     }
 

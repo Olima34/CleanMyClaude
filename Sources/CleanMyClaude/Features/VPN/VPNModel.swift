@@ -32,6 +32,9 @@ final class VPNModel: AppModule {
     @ObservationIgnored private var announce = false
     /// Chamois just started Windscribe: until then, whatever it brings forward goes back out of sight.
     @ObservationIgnored private var hideGuardUntil: Date?
+    /// When the last disconnection ended: a click right after it lands where « Déconnecter » was, not a new order.
+    @ObservationIgnored private var disconnectedAt: Date?
+    nonisolated static let doubleClickPause: TimeInterval = 1.5
 
     /// Remembered: Windscribe was not signed in to an account the last time it was read.
     private static let signedOutKey = "vpn.signedOut"
@@ -116,6 +119,7 @@ final class VPNModel: AppModule {
             phase = .notInstalled
             return
         }
+        if let at = disconnectedAt, Date().timeIntervalSince(at) < Self.doubleClickPause { return }
         operation?.cancel()
         self.announce = announce
         target = country
@@ -280,12 +284,24 @@ final class VPNModel: AppModule {
         operation = Task { [weak self] in
             let out = await VPNWindscribe.disconnect(cli)
             if Task.isCancelled { return }
-            let (status, _) = await VPNWindscribe.status(cli)
+            // « Déconnexion… » with its mascot until Windscribe really is disconnected (never a « connecting » on the way).
+            var status: VPNStatus?
+            for _ in 0..<20 {
+                let (read, _) = await VPNWindscribe.status(cli)
+                if Task.isCancelled { return }
+                status = read
+                guard let s = read, s.login == .loggedIn, VPNPhase.stillDisconnecting(s.link) else { break }
+                try? await Task.sleep(for: .milliseconds(700))
+                if Task.isCancelled { return }
+            }
             guard let self, !Task.isCancelled else { return }
             self.operation = nil
             self.lastRead = Date()
+            self.disconnectedAt = Date()
             if let status {
                 self.apply(status, ownAttempt: false)
+                // Whatever Windscribe still says on the way, the user asked to stop: no « Connexion… » here.
+                if case .connecting = self.phase { self.phase = .ready }
             } else {
                 self.phase = out.ok ? .ready : .failed(VPNStatusParser.failure(out.all).message)
             }
@@ -307,11 +323,13 @@ final class VPNModel: AppModule {
 
     func toggleFromMenu() {
         guard let app = AppContext.model else { return }
-        switch phase {
-        case .connected, .connecting:
+        switch phase.menuAction {
+        case .disconnect:
             disconnect(announce: true)
-        default:
+        case .connect:
             if case .message(let text) = connectFromOutside(.fr, app: app) { HUD.show(text, symbol: "lock.shield") }
+        case .wait:
+            break
         }
     }
 

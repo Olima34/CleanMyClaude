@@ -222,6 +222,26 @@ enum VPNPhase: Equatable {
         return false
     }
 
+    enum MenuAction: Equatable { case connect, disconnect, wait }
+
+    /// What the menu bar switch does: off while on or connecting, nothing while Windscribe is starting or cutting (a
+    /// second click there used to start a new connection).
+    var menuAction: MenuAction {
+        switch self {
+        case .connected, .connecting: return .disconnect
+        case .disconnecting, .starting: return .wait
+        default: return .connect
+        }
+    }
+
+    /// Windscribe still on its way down after « disconnect »: the states worth waiting out.
+    static func stillDisconnecting(_ link: VPNStatus.Link) -> Bool {
+        switch link {
+        case .disconnecting, .connecting, .connected: return true
+        case .disconnected, .failed: return false
+        }
+    }
+
     var isBusy: Bool {
         switch self {
         case .connecting, .disconnecting, .starting: return true
